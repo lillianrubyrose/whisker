@@ -5,7 +5,11 @@ mod ty;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
+use std::fs;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
+use std::path::PathBuf;
+
+use clap::{command, Parser, Subcommand};
 
 use insn::{Instruction, IntInstruction};
 use mem::Memory;
@@ -162,12 +166,45 @@ impl Default for WhiskerCpu {
 	}
 }
 
-fn main() {
-	let prog = include_bytes!("../target/hello-uart.bin");
-	let mut cpu = WhiskerCpu::default();
-	cpu.mem.write_slice(0, prog.as_slice());
+#[derive(Debug, Parser)]
+#[command(version)]
+struct CliArgs {
+	#[arg(short = 'g', long)]
+	gdb: bool,
 
-	loop {
-		cpu.execute_one();
+	#[command(subcommand)]
+	command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+	Run {
+		#[arg()]
+		bootrom: PathBuf,
+		#[arg(long, default_value_t = 0)]
+		bootrom_offset: u64,
+	},
+}
+
+fn main() {
+	let cli = CliArgs::parse();
+
+	match cli.command {
+		Commands::Run {
+			bootrom,
+			bootrom_offset,
+		} => {
+			let mut cpu = WhiskerCpu::default();
+
+			let prog =
+				fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+
+			cpu.mem.write_slice(bootrom_offset, prog.as_slice());
+			cpu.registers.pc = bootrom_offset;
+
+			loop {
+				cpu.execute_one();
+			}
+		}
 	}
 }

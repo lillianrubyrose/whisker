@@ -1,4 +1,5 @@
 mod insn;
+mod mem;
 mod ty;
 
 #[cfg(not(target_pointer_width = "64"))]
@@ -7,6 +8,7 @@ compile_error!("whisker only supports 64bit architectures");
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
 use insn::{Instruction, IntInstruction};
+use mem::Memory;
 use ty::RegisterIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,11 +77,10 @@ impl Not for SupportedExtensions {
 pub struct Registers {
 	x: [u64; 31],
 
-	pub pc: usize,
+	pub pc: u64,
 }
 
 impl Registers {
-	// TODO: replace index with RegisterIndex newtype with the 0-31 constraint
 	pub fn get(&self, index: RegisterIndex) -> u64 {
 		let index = usize::from(index.inner());
 		if index == 0 {
@@ -99,43 +100,17 @@ impl Registers {
 	}
 }
 
-pub struct PhysicalMemory {
-	inner: Box<[u8]>,
-}
-
-impl PhysicalMemory {
-	pub fn new(size: usize) -> Self {
-		Self {
-			inner: vec![0; size].into_boxed_slice(),
-		}
-	}
-
-	pub fn read_u16(&self, offset: usize) -> u16 {
-		let lo = self.inner[offset];
-		let hi = self.inner[offset + 1];
-		u16::from_le_bytes([lo, hi])
-	}
-
-	pub fn read_u32(&self, offset: usize) -> u32 {
-		let b0 = self.inner[offset];
-		let b1 = self.inner[offset + 1];
-		let b2 = self.inner[offset + 2];
-		let b3 = self.inner[offset + 3];
-		u32::from_le_bytes([b0, b1, b2, b3])
-	}
-}
-
 pub struct WhiskerCpu {
 	pub supported_extensions: SupportedExtensions,
-	pub physmem: PhysicalMemory,
+	pub mem: Memory,
 	pub registers: Registers,
 }
 
 impl WhiskerCpu {
-	pub fn new(supported_extensions: SupportedExtensions, physmem: PhysicalMemory) -> Self {
+	pub fn new(supported_extensions: SupportedExtensions, mem: Memory) -> Self {
 		Self {
 			supported_extensions,
-			physmem,
+			mem,
 			registers: Registers::default(),
 		}
 	}
@@ -150,13 +125,14 @@ impl WhiskerCpu {
 				self.registers.set(dst, val as u64);
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
-				let offset = (self.registers.get(dst).wrapping_add_signed(dst_offset)) as usize;
-				self.physmem.inner[offset] = self.registers.get(src).to_le_bytes()[0];
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src).to_le_bytes()[0];
+				self.mem.write_u8(offset, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
 				// linking sets the *new* pc to the link register, but sets the pc relative to the old pc
 				self.registers.set(link_reg, self.registers.pc as u64);
-				self.registers.pc = start_pc.wrapping_add_signed(jmp_off) as usize;
+				self.registers.pc = start_pc.wrapping_add_signed(jmp_off);
 			}
 		}
 	}
@@ -180,7 +156,7 @@ impl Default for WhiskerCpu {
 	fn default() -> Self {
 		Self {
 			supported_extensions: SupportedExtensions::all(),
-			physmem: PhysicalMemory::new(0x10001000),
+			mem: Memory::new(0x10001000),
 			registers: Default::default(),
 		}
 	}
@@ -189,7 +165,7 @@ impl Default for WhiskerCpu {
 fn main() {
 	let prog = include_bytes!("../target/hello-uart.bin");
 	let mut cpu = WhiskerCpu::default();
-	cpu.physmem.inner[..prog.len()].copy_from_slice(prog);
+	cpu.mem.write_slice(0, prog.as_slice());
 
 	loop {
 		cpu.execute_one();

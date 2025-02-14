@@ -233,11 +233,11 @@ impl Instruction {
 	pub fn fetch_instruction(cpu: &mut WhiskerCpu) -> Instruction {
 		assert!(cpu.registers.pc % 2 == 0);
 
-		let parcel1 = cpu.physmem.read_u16(cpu.registers.pc);
+		let parcel1 = cpu.mem.read_u16(cpu.registers.pc);
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			todo!("16bit instruction");
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
-			let full_parcel = cpu.physmem.read_u32(cpu.registers.pc);
+			let full_parcel = cpu.mem.read_u32(cpu.registers.pc);
 			cpu.registers.pc += 4;
 			Self::parse_32bit_instruction(full_parcel)
 		} else if extract_bits_16(parcel1, 0, 5) == 0b011111 {

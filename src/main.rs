@@ -1,4 +1,5 @@
 mod insn;
+mod ty;
 
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
@@ -6,6 +7,7 @@ compile_error!("whisker only supports 64bit architectures");
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
 use insn::{Instruction, IntInstruction};
+use ty::RegisterIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedExtensions(u64);
@@ -78,7 +80,8 @@ pub struct Registers {
 
 impl Registers {
 	// TODO: replace index with RegisterIndex newtype with the 0-31 constraint
-	pub fn get(&self, index: usize) -> u64 {
+	pub fn get(&self, index: RegisterIndex) -> u64 {
+		let index = usize::from(index.inner());
 		if index == 0 {
 			0
 		} else {
@@ -86,9 +89,10 @@ impl Registers {
 		}
 	}
 
-	pub fn set(&mut self, index: usize, value: u64) {
+	pub fn set(&mut self, index: RegisterIndex, value: u64) {
+		let index = usize::from(index.inner());
 		if index == 0 {
-			// nop
+			// writes to r0 are ignored
 		} else {
 			self.x[index - 1] = value;
 		}

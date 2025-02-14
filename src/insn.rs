@@ -1,12 +1,27 @@
+use crate::ty::RegisterIndex;
 use crate::WhiskerCpu;
 
 #[derive(Debug)]
 pub enum IntInstruction {
-	AddImmediate { dst: usize, src: usize, val: u16 },
+	AddImmediate {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		val: u16,
+	},
 	// val is already shifted << 12
-	LoadUpperImmediate { dst: usize, val: u32 },
-	StoreByte { dst: usize, dst_offset: u16, src: usize },
-	JumpAndLink { link_reg: usize, jmp_addr: u32 },
+	LoadUpperImmediate {
+		dst: RegisterIndex,
+		val: u32,
+	},
+	StoreByte {
+		dst: RegisterIndex,
+		dst_offset: u16,
+		src: RegisterIndex,
+	},
+	JumpAndLink {
+		link_reg: RegisterIndex,
+		jmp_addr: u32,
+	},
 }
 
 impl Into<Instruction> for IntInstruction {
@@ -22,15 +37,15 @@ pub enum Instruction {
 
 #[derive(Debug)]
 struct IType {
-	reg_dst: usize,
-	reg_src: usize,
+	dst: RegisterIndex,
+	src: RegisterIndex,
 	func: u8,
 	imm: u16,
 }
 
 #[derive(Debug)]
 struct UType {
-	reg_dst: usize,
+	dst: RegisterIndex,
 	imm: u32,
 }
 
@@ -38,13 +53,13 @@ struct UType {
 struct SType {
 	imm: u16,
 	func: u8,
-	src1: usize,
-	src2: usize,
+	src1: RegisterIndex,
+	src2: RegisterIndex,
 }
 
 #[derive(Debug)]
 struct JType {
-	dst: usize,
+	dst: RegisterIndex,
 	imm: u32,
 }
 
@@ -57,31 +72,38 @@ fn extract_bits_32(val: u32, start: u8, end: u8) -> u32 {
 	(val & low_mask & high_mask) >> start
 }
 
+fn extract_dst(inst: u32) -> RegisterIndex {
+	RegisterIndex::new(extract_bits_32(inst, 7, 11) as u8).unwrap()
+}
+
+fn extract_src1(inst: u32) -> RegisterIndex {
+	RegisterIndex::new(extract_bits_32(inst, 15, 19) as u8).unwrap()
+}
+
+fn extract_src2(inst: u32) -> RegisterIndex {
+	RegisterIndex::new(extract_bits_32(inst, 20, 24) as u8).unwrap()
+}
+
 impl Instruction {
 	fn parse_itype(parcel: u32) -> IType {
-		let reg_dst = extract_bits_32(parcel, 7, 11) as usize;
+		let dst = extract_dst(parcel);
 		let func = extract_bits_32(parcel, 12, 14) as u8;
-		let reg_src = extract_bits_32(parcel, 15, 19) as usize;
+		let src = extract_src1(parcel);
 		let imm = extract_bits_32(parcel, 20, 31) as u16;
-		IType {
-			reg_dst,
-			func,
-			reg_src,
-			imm,
-		}
+		IType { dst, func, src, imm }
 	}
 
 	fn parse_utype(parcel: u32) -> UType {
-		let reg_dst = extract_bits_32(parcel, 7, 11) as usize;
+		let dst = extract_dst(parcel);
 		let imm = extract_bits_32(parcel, 12, 31);
-		UType { reg_dst, imm }
+		UType { dst, imm }
 	}
 
 	fn parse_stype(parcel: u32) -> SType {
 		let imm0 = extract_bits_32(parcel, 7, 11);
 		let func = extract_bits_32(parcel, 12, 14) as u8;
-		let src1 = extract_bits_32(parcel, 15, 19) as usize;
-		let src2 = extract_bits_32(parcel, 20, 24) as usize;
+		let src1 = extract_src1(parcel);
+		let src2 = extract_src2(parcel);
 		let imm1 = extract_bits_32(parcel, 25, 31);
 
 		SType {
@@ -93,7 +115,7 @@ impl Instruction {
 	}
 
 	fn parse_jtype(parcel: u32) -> JType {
-		let dst = extract_bits_32(parcel, 7, 11) as usize;
+		let dst = extract_dst(parcel);
 		let imm12_19 = extract_bits_32(parcel, 12, 19);
 		let imm11 = extract_bits_32(parcel, 20, 20);
 		let imm1_10 = extract_bits_32(parcel, 21, 30);
@@ -127,7 +149,7 @@ impl Instruction {
 			0b01101 => {
 				let utype = Self::parse_utype(parcel);
 				IntInstruction::LoadUpperImmediate {
-					dst: utype.reg_dst,
+					dst: utype.dst,
 					val: utype.imm << 12,
 				}
 				.into()
@@ -138,8 +160,8 @@ impl Instruction {
 				let itype = Self::parse_itype(parcel);
 				match itype.func {
 					0b000 => IntInstruction::AddImmediate {
-						dst: itype.reg_dst,
-						src: itype.reg_src,
+						dst: itype.dst,
+						src: itype.src,
 						val: itype.imm,
 					}
 					.into(),

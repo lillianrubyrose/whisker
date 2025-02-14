@@ -6,21 +6,20 @@ pub enum IntInstruction {
 	AddImmediate {
 		dst: RegisterIndex,
 		src: RegisterIndex,
-		val: u16,
+		val: i64,
 	},
-	// val is already shifted << 12
 	LoadUpperImmediate {
 		dst: RegisterIndex,
-		val: u32,
+		val: i64,
 	},
 	StoreByte {
 		dst: RegisterIndex,
-		dst_offset: u16,
+		dst_offset: i64,
 		src: RegisterIndex,
 	},
 	JumpAndLink {
 		link_reg: RegisterIndex,
-		jmp_addr: u32,
+		jmp_off: i64,
 	},
 }
 
@@ -40,18 +39,18 @@ struct IType {
 	dst: RegisterIndex,
 	src: RegisterIndex,
 	func: u8,
-	imm: u16,
+	imm: i64,
 }
 
 #[derive(Debug)]
 struct UType {
 	dst: RegisterIndex,
-	imm: u32,
+	imm: i64,
 }
 
 #[derive(Debug)]
 struct SType {
-	imm: u16,
+	imm: i64,
 	func: u8,
 	src1: RegisterIndex,
 	src2: RegisterIndex,
@@ -60,7 +59,7 @@ struct SType {
 #[derive(Debug)]
 struct JType {
 	dst: RegisterIndex,
-	imm: u32,
+	imm: i64,
 }
 
 /// extracts bits start..=end from val
@@ -101,18 +100,30 @@ fn extract_src2(inst: u32) -> RegisterIndex {
 	RegisterIndex::new(extract_bits_32(inst, 20, 24) as u8).unwrap()
 }
 
+fn sign_ext_imm(imm: u32, sign_bit_idx: u8) -> i64 {
+	let sign_mask = 1 << sign_bit_idx;
+	let high_bits = if imm & sign_mask != 0 {
+		i64::MIN >> (64 - sign_bit_idx - 1)
+	} else {
+		0
+	};
+	(imm as i64) | high_bits
+}
+
 impl Instruction {
 	fn parse_itype(parcel: u32) -> IType {
 		let dst = extract_dst(parcel);
 		let func = extract_bits_32(parcel, 12, 14) as u8;
 		let src = extract_src1(parcel);
-		let imm = extract_bits_32(parcel, 20, 31) as u16;
+		let imm = extract_bits_32(parcel, 20, 31);
+		let imm = sign_ext_imm(imm, 11);
 		IType { dst, func, src, imm }
 	}
 
 	fn parse_utype(parcel: u32) -> UType {
 		let dst = extract_dst(parcel);
-		let imm = extract_bits_32(parcel, 12, 31);
+		let imm = extract_bits_32(parcel, 12, 31) << 12;
+		let imm = sign_ext_imm(imm, 31);
 		UType { dst, imm }
 	}
 
@@ -123,12 +134,9 @@ impl Instruction {
 		let src2 = extract_src2(parcel);
 		let imm1 = extract_bits_32(parcel, 25, 31);
 
-		SType {
-			imm: (imm1 << 5 | imm0) as u16,
-			func,
-			src1,
-			src2,
-		}
+		let imm = sign_ext_imm(imm1 << 5 | imm0, 11);
+
+		SType { imm, func, src1, src2 }
 	}
 
 	fn parse_jtype(parcel: u32) -> JType {
@@ -138,10 +146,10 @@ impl Instruction {
 		let imm1_10 = extract_bits_32(parcel, 21, 30);
 		let imm20 = extract_bits_32(parcel, 31, 31);
 
-		JType {
-			dst,
-			imm: imm1_10 << 1 | imm11 << 11 | imm12_19 << 12 | imm20 << 20,
-		}
+		let imm = imm1_10 << 1 | imm11 << 11 | imm12_19 << 12 | imm20 << 20;
+		let imm = sign_ext_imm(imm, 20);
+
+		JType { dst, imm }
 	}
 
 	fn parse_32bit_instruction(parcel: u32) -> Instruction {
@@ -188,7 +196,7 @@ impl Instruction {
 				let utype = Self::parse_utype(parcel);
 				IntInstruction::LoadUpperImmediate {
 					dst: utype.dst,
-					val: utype.imm << 12,
+					val: utype.imm,
 				}
 				.into()
 			}
@@ -209,7 +217,7 @@ impl Instruction {
 				let jtype = Self::parse_jtype(parcel);
 				IntInstruction::JumpAndLink {
 					link_reg: jtype.dst,
-					jmp_addr: jtype.imm,
+					jmp_off: jtype.imm,
 				}
 				.into()
 			}

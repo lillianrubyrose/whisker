@@ -140,22 +140,23 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn execute_i_insn(&mut self, insn: IntInstruction) {
+	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {
 		match insn {
 			IntInstruction::AddImmediate { dst, src, val } => {
 				let src_val = self.registers.get(src);
-				self.registers.set(dst, src_val + val as u64);
+				self.registers.set(dst, src_val.wrapping_add_signed(val));
 			}
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val as u64);
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
-				let offset = (self.registers.get(dst) + dst_offset as u64) as usize;
+				let offset = (self.registers.get(dst).wrapping_add_signed(dst_offset)) as usize;
 				self.physmem.inner[offset] = self.registers.get(src).to_le_bytes()[0];
 			}
-			IntInstruction::JumpAndLink { link_reg, jmp_addr } => {
+			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
+				// linking sets the *new* pc to the link register, but sets the pc relative to the old pc
 				self.registers.set(link_reg, self.registers.pc as u64);
-				self.registers.pc = jmp_addr as usize;
+				self.registers.pc = start_pc.wrapping_add_signed(jmp_off) as usize;
 			}
 		}
 	}
@@ -163,11 +164,13 @@ impl WhiskerCpu {
 	pub fn execute_one(&mut self) {
 		dbg!(&self.registers);
 
-		// Increments PC by instruction size
+		// some instructions (particularly jumps) need the program counter at the start of the instruction
+		let start_pc = self.registers.pc as u64;
+		// increments pc to past the end of the instruction
 		let insn = Instruction::fetch_instruction(self);
 		dbg!(&insn);
 		match insn {
-			Instruction::IntExtension(insn) => self.execute_i_insn(insn),
+			Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 		}
 		dbg!(&self.registers);
 	}

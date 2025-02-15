@@ -149,6 +149,9 @@ impl WhiskerCpu {
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val as u64);
 			}
+			IntInstruction::AddUpperImmediateToPc { dst, val } => {
+				self.registers.set(dst, self.registers.pc.wrapping_add_signed(val));
+			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u8;

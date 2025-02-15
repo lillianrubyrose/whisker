@@ -7,6 +7,10 @@ pub enum IntInstruction {
 		dst: RegisterIndex,
 		val: i64,
 	},
+	AddUpperImmediateToPc {
+		dst: RegisterIndex,
+		val: i64,
+	},
 	StoreByte {
 		dst: RegisterIndex,
 		dst_offset: i64,
@@ -531,7 +535,14 @@ impl Instruction {
 					_ => unreachable!("op-immfunc: {:#013b}", itype.func),
 				}
 			}
-			AUIPC => unimplemented!("AUIPC"),
+			AUIPC => {
+				let utype = Self::parse_utype(parcel);
+				IntInstruction::AddUpperImmediateToPc {
+					dst: utype.dst,
+					val: utype.imm,
+				}
+				.into()
+			}
 			OP_IMM_32 => unimplemented!("OP-IMM-32"),
 			UNK_48B => unimplemented!("48b"),
 			STORE => {
@@ -675,6 +686,7 @@ mod consts {
 		pub const CUSTOM_0: u32 = 0b00010;
 		pub const MISC_MEM: u32 = 0b00011;
 		pub const OP_IMM: u32 = 0b00100;
+		// ADD UPPER IMMEDIATE TO PC
 		pub const AUIPC: u32 = 0b00101;
 		pub const OP_IMM_32: u32 = 0b00110;
 		// FIXME ??? what is this

@@ -201,6 +201,26 @@ pub enum IntInstruction {
 		rhs: RegisterIndex,
 		imm: i64,
 	},
+	AddImmediateWord {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i32,
+	},
+	ShiftLeftLogicalImmediateWord {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftRightLogicalImmediateWord {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftRightArithmeticImmediateWord {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
 
 	// =========
 	// SYSTEM
@@ -549,7 +569,53 @@ impl Instruction {
 				}
 				.into()
 			}
-			OP_IMM_32 => unimplemented!("OP-IMM-32"),
+			OP_IMM_32 => {
+				use consts::op_imm_32::*;
+
+				let itype = Self::parse_itype(parcel);
+				match itype.func {
+					ADD_IMM_WORD => IntInstruction::AddImmediateWord {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm as i32,
+					}
+					.into(),
+
+					SHIFT_LEFT_IMM_WORD | SHIFT_RIGHT_IMM_WORD => {
+						let shift_amt = extract_bits_32(itype.imm as u32, 5, 11) as u32;
+						let shift_kind = extract_bits_32(itype.imm as u32, 0, 4) as u8;
+						match shift_kind {
+							SHIFT_LOGICAL => match itype.func {
+								SHIFT_LEFT_IMM_WORD => IntInstruction::ShiftLeftLogicalImmediateWord {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+								SHIFT_RIGHT_IMM_WORD => IntInstruction::ShiftRightLogicalImmediateWord {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+
+								_ => unreachable!(),
+							},
+							SHIFT_ARITHMETIC => match itype.func {
+								SHIFT_RIGHT_IMM_WORD => IntInstruction::ShiftRightArithmeticImmediateWord {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+								_ => unreachable!(),
+							},
+							_ => unreachable!("op-imm-32 shift kind: {:#09b}", shift_kind),
+						}
+					}
+					_ => unimplemented!("op-imm-32 func: {:#05b}", itype.func),
+				}
+			}
 			UNK_48B => unimplemented!("48b"),
 			STORE => {
 				use consts::store::*;
@@ -815,5 +881,14 @@ mod consts {
 			#[expect(dead_code, reason = "Zicsr not yet implemented")]
 			pub const CSRRCI: u8 = 0b111;
 		}
+	}
+
+	pub mod op_imm_32 {
+		pub const ADD_IMM_WORD: u8 = 0b000;
+		pub const SHIFT_LEFT_IMM_WORD: u8 = 0b001;
+		pub const SHIFT_RIGHT_IMM_WORD: u8 = 0b101;
+
+		pub const SHIFT_LOGICAL: u8 = 0b0000000;
+		pub const SHIFT_ARITHMETIC: u8 = 0b0100000;
 	}
 }

@@ -316,6 +316,22 @@ impl WhiskerCpu {
 				let rhs = rhs as u64;
 				self.registers.set(dst, (lhs < rhs) as u64);
 			}
+			IntInstruction::AddImmediateWord { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs) as u32;
+				self.registers.set(dst, lhs.wrapping_add_signed(rhs) as u64);
+			}
+			IntInstruction::ShiftLeftLogicalImmediateWord { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs) as u32;
+				self.registers.set(dst, lhs.wrapping_shl(shift_amt) as u64);
+			}
+			IntInstruction::ShiftRightLogicalImmediateWord { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs) as u32;
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+			}
+			IntInstruction::ShiftRightArithmeticImmediateWord { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs) as i32;
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+			}
 
 			// ============
 			// BRANCH
@@ -447,6 +463,7 @@ fn main() {
 
 			cpu.mem.write_slice(bootrom_offset, prog.as_slice());
 			cpu.registers.pc = bootrom_offset;
+			cpu.registers.set(RegisterIndex::new(2).expect("to be valid"), 0x7FFF);
 
 			if cli.gdb {
 				let conn: Box<dyn ConnectionExt<Error = std::io::Error>> =

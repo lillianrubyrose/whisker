@@ -8,7 +8,6 @@ compile_error!("whisker only supports 64bit architectures");
 
 use std::collections::HashSet;
 use std::fs;
-use std::future::poll_fn;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 use std::path::PathBuf;
 
@@ -16,8 +15,6 @@ use clap::{command, Parser, Subcommand};
 
 use gdb::WhiskerEventLoop;
 use gdbstub::conn::ConnectionExt;
-use gdbstub::stub::run_blocking::Event;
-use gdbstub::stub::state_machine::state::Running;
 use gdbstub::stub::GdbStub;
 use insn::{Instruction, IntInstruction};
 use mem::Memory;

@@ -1,23 +1,16 @@
-use std::{
-	error::Error,
-	net::{TcpListener, TcpStream},
-};
+use std::net::{TcpListener, TcpStream};
 
 use gdbstub::{
 	common::Signal,
 	conn::ConnectionExt,
 	stub::{
 		run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError},
-		state_machine::state::Running,
-		BaseStopReason, SingleThreadStopReason,
+		SingleThreadStopReason,
 	},
 	target::{
 		ext::{
-			base::{
-				single_register_access::SingleRegisterAccess,
-				singlethread::{SingleThreadBase, SingleThreadResume, SingleThreadSingleStep},
-			},
-			breakpoints::{Breakpoints, HwBreakpoint, SwBreakpoint},
+			base::singlethread::{SingleThreadBase, SingleThreadResume, SingleThreadSingleStep},
+			breakpoints::{Breakpoints, SwBreakpoint},
 		},
 		Target,
 	},

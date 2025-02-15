@@ -201,6 +201,12 @@ pub enum IntInstruction {
 		rhs: RegisterIndex,
 		imm: i64,
 	},
+
+	// =========
+	// SYSTEM
+	// =========
+	ECall,
+	EBreak,
 }
 
 impl Into<Instruction> for IntInstruction {
@@ -647,7 +653,22 @@ impl Instruction {
 				}
 				.into()
 			}
-			SYSTEM => unimplemented!("SYSTEM"),
+			SYSTEM => {
+				use consts::system::*;
+				let itype = Self::parse_itype(parcel);
+				match itype.func {
+					funcs::E_CALL_BREAK => match (itype.dst.inner(), itype.src.inner()) {
+						(0, 0) => match itype.imm {
+							0b000000000000 => IntInstruction::ECall.into(),
+							0b000000000001 => IntInstruction::EBreak.into(),
+							imm => unimplemented!("SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}"),
+						},
+						(rd, rs1) => unimplemented!("SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b}"),
+					},
+					// NOTE: some of the Zicsr SYSTEM instructions are not yet implemented
+					_ => unimplemented!("SYSTEM func={:#05b}", itype.func),
+				}
+			}
 			OP_VE => unimplemented!("OP-VE"),
 			CUSTOM_3 => unimplemented!("CUSTOM-3"),
 			UNK_80B => unimplemented!("80b"),
@@ -776,5 +797,23 @@ mod consts {
 		pub const BRANCH_GREATER_EQ: u8 = 0b101;
 		pub const BRANCH_LESS_THAN_UNSIGNED: u8 = 0b110;
 		pub const BRANCH_GREATER_EQ_UNSIGNED: u8 = 0b111;
+	}
+
+	pub mod system {
+		pub mod funcs {
+			pub const E_CALL_BREAK: u8 = 0b000;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRW: u8 = 0b001;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRS: u8 = 0b010;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRC: u8 = 0b011;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRWI: u8 = 0b101;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRSI: u8 = 0b110;
+			#[expect(dead_code, reason = "Zicsr not yet implemented")]
+			pub const CSRRCI: u8 = 0b111;
+		}
 	}
 }

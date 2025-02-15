@@ -350,6 +350,12 @@ impl WhiskerCpu {
 					self.registers.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
+
+			// =========
+			// SYSTEM
+			// =========
+			IntInstruction::ECall => todo!("ECALL"),
+			IntInstruction::EBreak => todo!("EBREAK"),
 		}
 	}
 

@@ -68,6 +68,56 @@ pub enum IntInstruction {
 		src: RegisterIndex,
 		src_offset: i64,
 	},
+	Add {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	Sub {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	Xor {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	Or {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	And {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	ShiftLeftLogical {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	ShiftRightLogical {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	ShiftRightArithmetic {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	SetLessThan {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	SetLessThanUnsigned {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
 	JumpAndLink {
 		link_reg: RegisterIndex,
 		jmp_off: i64,
@@ -111,6 +161,14 @@ struct SType {
 struct JType {
 	dst: RegisterIndex,
 	imm: i64,
+}
+
+#[derive(Debug)]
+struct RType {
+	dst: RegisterIndex,
+	src1: RegisterIndex,
+	src2: RegisterIndex,
+	func: u16,
 }
 
 /// extracts bits start..=end from val
@@ -161,6 +219,19 @@ fn sign_ext_imm(imm: u32, sign_bit_idx: u8) -> i64 {
 	(imm as i64) | high_bits
 }
 
+macro_rules! define_op_int {
+    ($parcel:ident, $($const:ident, $inst:ident),*) => {
+        {
+            use consts::op::*;
+            let rtype = Self::parse_rtype($parcel);
+            match rtype.func {
+                $( $const => IntInstruction::$inst { dst: rtype.dst, lhs: rtype.src1, rhs: rtype.src2 }.into(), )*
+                _ => unimplemented!("OP func={:#012b}", rtype.func),
+            }
+        }
+    };
+}
+
 impl Instruction {
 	fn parse_itype(parcel: u32) -> IType {
 		let dst = extract_dst(parcel);
@@ -201,6 +272,20 @@ impl Instruction {
 		let imm = sign_ext_imm(imm, 20);
 
 		JType { dst, imm }
+	}
+
+	fn parse_rtype(parcel: u32) -> RType {
+		let dst = extract_dst(parcel);
+		let src1 = extract_src1(parcel);
+		let src2 = extract_src2(parcel);
+		let func3 = extract_bits_32(parcel, 12, 14);
+		let func7 = extract_bits_32(parcel, 25, 31);
+		RType {
+			dst,
+			src1,
+			src2,
+			func: (func3 | func7 << 3) as u16,
+		}
 	}
 
 	fn parse_32bit_instruction(parcel: u32) -> Instruction {
@@ -309,7 +394,22 @@ impl Instruction {
 			STORE_FP => unimplemented!("STORE-FP"),
 			CUSTOM_1 => unimplemented!("CUSTOM-1"),
 			AMO => unimplemented!("AMO"),
-			OP => unimplemented!("OP"),
+			#[rustfmt::skip]
+			OP => {
+				define_op_int!(
+					parcel,
+					ADD, Add,
+					SUB, Sub,
+					SHIFT_LEFT_LOGICAL, ShiftLeftLogical,
+					SHIFT_RIGHT_LOGICAL, ShiftRightLogical,
+					SHIFT_RIGHT_ARITHMETIC, ShiftRightArithmetic,
+					AND, And,
+					OR, Or,
+					XOR, Xor,
+					SET_LESS_THAN, SetLessThan,
+					SET_LESS_THAN_UNSIGNED, SetLessThanUnsigned
+				)
+			}
 			LUI => {
 				let utype = Self::parse_utype(parcel);
 				IntInstruction::LoadUpperImmediate {
@@ -427,5 +527,18 @@ mod consts {
 		pub const STORE_HALF: u8 = 0b001;
 		pub const STORE_WORD: u8 = 0b010;
 		pub const STORE_DOUBLE_WORD: u8 = 0b011;
+	}
+
+	pub mod op {
+		pub const ADD: u16 = 0b0000000000;
+		pub const SUB: u16 = 0b0100000000;
+		pub const SHIFT_LEFT_LOGICAL: u16 = 0b0000000001;
+		pub const SET_LESS_THAN: u16 = 0b0000000010;
+		pub const SET_LESS_THAN_UNSIGNED: u16 = 0b000000011;
+		pub const XOR: u16 = 0b0000000100;
+		pub const SHIFT_RIGHT_LOGICAL: u16 = 0b0000000101;
+		pub const SHIFT_RIGHT_ARITHMETIC: u16 = 0b0100000101;
+		pub const OR: u16 = 0b0000000110;
+		pub const AND: u16 = 0b0000000111;
 	}
 }

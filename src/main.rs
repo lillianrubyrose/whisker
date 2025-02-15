@@ -222,6 +222,56 @@ impl WhiskerCpu {
 				self.registers.set(link_reg, self.registers.pc as u64);
 				self.registers.pc = start_pc.wrapping_add_signed(jmp_off);
 			}
+			IntInstruction::Add { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs.wrapping_add(rhs));
+			}
+			IntInstruction::Sub { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs.wrapping_sub(rhs));
+			}
+			IntInstruction::Xor { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs ^ rhs);
+			}
+			IntInstruction::Or { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs | rhs);
+			}
+			IntInstruction::And { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs & rhs);
+			}
+			IntInstruction::ShiftLeftLogical { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs.wrapping_shl(rhs as u32));
+			}
+			IntInstruction::ShiftRightLogical { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs.wrapping_shr(rhs as u32));
+			}
+			IntInstruction::ShiftRightArithmetic { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, lhs.wrapping_shl(rhs as u32) as u64);
+			}
+			IntInstruction::SetLessThan { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs) as i64;
+				self.registers.set(dst, (lhs < rhs) as u64);
+			}
+			IntInstruction::SetLessThanUnsigned { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				self.registers.set(dst, (lhs < rhs) as u64);
+			}
 		}
 	}
 

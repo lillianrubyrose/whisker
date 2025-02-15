@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 /// a valid register index 0..=31
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RegisterIndex(u8);
 
 impl RegisterIndex {

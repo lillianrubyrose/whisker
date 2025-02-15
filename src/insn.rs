@@ -17,6 +17,57 @@ pub enum IntInstruction {
 		dst_offset: i64,
 		src: RegisterIndex,
 	},
+	StoreHalf {
+		dst: RegisterIndex,
+		dst_offset: i64,
+		src: RegisterIndex,
+	},
+	StoreWord {
+		dst: RegisterIndex,
+		dst_offset: i64,
+		src: RegisterIndex,
+	},
+	StoreDoubleWord {
+		dst: RegisterIndex,
+		dst_offset: i64,
+		src: RegisterIndex,
+	},
+
+	LoadByte {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadHalf {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadWord {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadDoubleWord {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadByteZeroExtend {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadHalfZeroExtend {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
+	LoadWordZeroExtend {
+		dst: RegisterIndex,
+		src: RegisterIndex,
+		src_offset: i64,
+	},
 	JumpAndLink {
 		link_reg: RegisterIndex,
 		jmp_off: i64,
@@ -156,7 +207,56 @@ impl Instruction {
 		let opcode = extract_bits_32(parcel, 2, 6);
 		use consts::opcode::*;
 		match opcode {
-			LOAD => unimplemented!("LOAD"),
+			LOAD => {
+				use consts::load::*;
+
+				let itype = Self::parse_itype(parcel);
+				match itype.func {
+					LOAD_BYTE => IntInstruction::LoadByte {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_HALF => IntInstruction::LoadHalf {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_WORD => IntInstruction::LoadWord {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_DOUBLE_WORD => IntInstruction::LoadDoubleWord {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_BYTE_ZERO_EXTEND => IntInstruction::LoadByteZeroExtend {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_HALF_ZERO_EXTEND => IntInstruction::LoadHalfZeroExtend {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					LOAD_WORD_ZERO_EXTEND => IntInstruction::LoadWordZeroExtend {
+						dst: itype.dst,
+						src: itype.src,
+						src_offset: itype.imm,
+					}
+					.into(),
+					_ => unreachable!("LOAD func={:#05b}", itype.func),
+				}
+			}
 			LOAD_FP => unimplemented!("LOAD-FP"),
 			CUSTOM_0 => unimplemented!("CUSTOM-0"),
 			MISC_MEM => unimplemented!("MISC-MEM"),
@@ -176,16 +276,34 @@ impl Instruction {
 			OP_IMM_32 => unimplemented!("OP-IMM-32"),
 			UNK_48B => unimplemented!("48b"),
 			STORE => {
+				use consts::store::*;
 				let stype = Self::parse_stype(parcel);
 				match stype.func {
-					// sb
-					0b000 => IntInstruction::StoreByte {
+					STORE_BYTE => IntInstruction::StoreByte {
 						dst: stype.src1,
 						dst_offset: stype.imm,
 						src: stype.src2,
 					}
 					.into(),
-					_ => unreachable!("couldnt match store stype func"),
+					STORE_HALF => IntInstruction::StoreHalf {
+						dst: stype.src1,
+						dst_offset: stype.imm,
+						src: stype.src2,
+					}
+					.into(),
+					STORE_WORD => IntInstruction::StoreWord {
+						dst: stype.src1,
+						dst_offset: stype.imm,
+						src: stype.src2,
+					}
+					.into(),
+					STORE_DOUBLE_WORD => IntInstruction::StoreDoubleWord {
+						dst: stype.src1,
+						dst_offset: stype.imm,
+						src: stype.src2,
+					}
+					.into(),
+					_ => unreachable!("STORE func={:#05b}", stype.func),
 				}
 			}
 			STORE_FP => unimplemented!("STORE-FP"),
@@ -291,5 +409,23 @@ mod consts {
 		pub const CUSTOM_3: u32 = 0b11110;
 		// FIXME ??? what is this
 		pub const UNK_80B: u32 = 0b11111;
+	}
+
+	pub mod load {
+		pub const LOAD_BYTE: u8 = 0b000;
+		pub const LOAD_HALF: u8 = 0b001;
+		pub const LOAD_WORD: u8 = 0b010;
+		pub const LOAD_DOUBLE_WORD: u8 = 0b011;
+
+		pub const LOAD_BYTE_ZERO_EXTEND: u8 = 0b100;
+		pub const LOAD_HALF_ZERO_EXTEND: u8 = 0b101;
+		pub const LOAD_WORD_ZERO_EXTEND: u8 = 0b110;
+	}
+
+	pub mod store {
+		pub const STORE_BYTE: u8 = 0b000;
+		pub const STORE_HALF: u8 = 0b001;
+		pub const STORE_WORD: u8 = 0b010;
+		pub const STORE_DOUBLE_WORD: u8 = 0b011;
 	}
 }

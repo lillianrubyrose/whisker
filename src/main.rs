@@ -155,8 +155,67 @@ impl WhiskerCpu {
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src).to_le_bytes()[0];
+				let val = self.registers.get(src) as u8;
 				self.mem.write_u8(offset, val);
+			}
+			IntInstruction::StoreHalf { dst, dst_offset, src } => {
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src) as u16;
+				self.mem.write_u16(offset, val);
+			}
+			IntInstruction::StoreWord { dst, dst_offset, src } => {
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src) as u32;
+				self.mem.write_u32(offset, val);
+			}
+			IntInstruction::StoreDoubleWord { dst, dst_offset, src } => {
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src);
+				self.mem.write_u64(offset, val);
+			}
+			IntInstruction::LoadByte { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u8(offset) as u64;
+
+				let reg_val = self.registers.get(dst);
+				let val = (reg_val & 0xFFFFFFFF_FFFFFF00) | val;
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadHalf { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u16(offset) as u64;
+
+				let reg_val = self.registers.get(dst);
+				let val = (reg_val & 0xFFFFFFFF_FFFF0000) | val;
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadWord { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u32(offset) as u64;
+
+				let reg_val = self.registers.get(dst);
+				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u64(offset);
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadByteZeroExtend { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u8(offset) as u64;
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadHalfZeroExtend { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u16(offset) as u64;
+				self.registers.set(dst, val);
+			}
+			IntInstruction::LoadWordZeroExtend { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = self.mem.read_u32(offset) as u64;
+				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
 				// linking sets the *new* pc to the link register, but sets the pc relative to the old pc

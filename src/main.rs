@@ -218,8 +218,7 @@ impl WhiskerCpu {
 				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
-				// linking sets the *new* pc to the link register, but sets the pc relative to the old pc
-				self.registers.set(link_reg, self.registers.pc as u64);
+				self.registers.set(link_reg, start_pc + 4);
 				self.registers.pc = start_pc.wrapping_add_signed(jmp_off);
 			}
 			IntInstruction::Add { dst, lhs, rhs } => {
@@ -271,6 +270,14 @@ impl WhiskerCpu {
 				let lhs = self.registers.get(lhs);
 				let rhs = self.registers.get(rhs);
 				self.registers.set(dst, (lhs < rhs) as u64);
+			}
+			IntInstruction::JumpAndLinkRegister {
+				link_reg,
+				jmp_reg,
+				jmp_off,
+			} => {
+				self.registers.set(link_reg, start_pc + 4);
+				self.registers.pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
 			}
 		}
 	}

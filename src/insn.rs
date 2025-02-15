@@ -122,6 +122,11 @@ pub enum IntInstruction {
 		link_reg: RegisterIndex,
 		jmp_off: i64,
 	},
+	JumpAndLinkRegister {
+		link_reg: RegisterIndex,
+		jmp_reg: RegisterIndex,
+		jmp_off: i64,
+	},
 }
 
 impl Into<Instruction> for IntInstruction {
@@ -429,7 +434,19 @@ impl Instruction {
 			CUSTOM_2 => unimplemented!("CUSTOM-2"),
 			UNK_48B2 => unimplemented!("48b (2)"),
 			BRANCH => unimplemented!("BRANCH"),
-			JALR => unimplemented!("JALR"),
+			JALR => {
+				use consts::jalr::*;
+				let itype = Self::parse_itype(parcel);
+				match itype.func {
+					JALR => IntInstruction::JumpAndLinkRegister {
+						link_reg: itype.dst,
+						jmp_reg: itype.src,
+						jmp_off: itype.imm,
+					}
+					.into(),
+					_ => unimplemented!("JALR func={:#05b}", itype.func),
+				}
+			}
 			RESERVED => unimplemented!("RESERVED"),
 			JAL => {
 				let jtype = Self::parse_jtype(parcel);
@@ -540,5 +557,9 @@ mod consts {
 		pub const SHIFT_RIGHT_ARITHMETIC: u16 = 0b0100000101;
 		pub const OR: u16 = 0b0000000110;
 		pub const AND: u16 = 0b0000000111;
+	}
+
+	pub mod jalr {
+		pub const JALR: u8 = 0b000;
 	}
 }

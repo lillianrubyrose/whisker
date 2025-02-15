@@ -1,3 +1,4 @@
+mod gdb;
 mod insn;
 mod mem;
 mod ty;
@@ -5,12 +6,19 @@ mod ty;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
+use std::collections::HashSet;
 use std::fs;
+use std::future::poll_fn;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 use std::path::PathBuf;
 
 use clap::{command, Parser, Subcommand};
 
+use gdb::WhiskerEventLoop;
+use gdbstub::conn::ConnectionExt;
+use gdbstub::stub::run_blocking::Event;
+use gdbstub::stub::state_machine::state::Running;
+use gdbstub::stub::GdbStub;
 use insn::{Instruction, IntInstruction};
 use mem::Memory;
 use ty::RegisterIndex;
@@ -104,10 +112,27 @@ impl Registers {
 	}
 }
 
+pub enum WhiskerExecState {
+	Step,
+	Running,
+	Paused,
+}
+
+pub enum WhiskerExecResult {
+	Stepped,
+	HitBreakpoint,
+	Paused,
+}
+
 pub struct WhiskerCpu {
 	pub supported_extensions: SupportedExtensions,
 	pub mem: Memory,
 	pub registers: Registers,
+
+	pub cycles: u64,
+	pub exec_state: WhiskerExecState,
+
+	pub breakpoints: HashSet<u64>,
 }
 
 impl WhiskerCpu {
@@ -116,6 +141,9 @@ impl WhiskerCpu {
 			supported_extensions,
 			mem,
 			registers: Registers::default(),
+			cycles: 0,
+			exec_state: WhiskerExecState::Paused,
+			breakpoints: HashSet::default(),
 		}
 	}
 
@@ -141,18 +169,47 @@ impl WhiskerCpu {
 		}
 	}
 
-	pub fn execute_one(&mut self) {
-		dbg!(&self.registers);
+	pub fn execute_one(&mut self) -> Option<WhiskerExecResult> {
+		// dbg!(&self.registers);
 
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
-		let start_pc = self.registers.pc as u64;
+		let start_pc = self.registers.pc;
+
+		if self.breakpoints.contains(&start_pc) {
+			return Some(WhiskerExecResult::HitBreakpoint);
+		}
+
 		// increments pc to past the end of the instruction
 		let insn = Instruction::fetch_instruction(self);
-		dbg!(&insn);
+		// dbg!(&insn);
 		match insn {
 			Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 		}
-		dbg!(&self.registers);
+		self.cycles += 1;
+		// dbg!(&self.registers);
+		//
+		None
+	}
+
+	fn should_poll(&self) -> bool {
+		self.cycles % 1024 == 0
+	}
+
+	// If this routine returns [None] then there's incoming GDB data
+	pub fn execute<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Option<WhiskerExecResult> {
+		match self.exec_state {
+			WhiskerExecState::Step => self.execute_one().or_else(|| Some(WhiskerExecResult::Stepped)),
+			WhiskerExecState::Running => loop {
+				if self.should_poll() && poll_incoming_data() {
+					return None;
+				}
+
+				if let Some(res) = self.execute_one() {
+					return Some(res);
+				}
+			},
+			WhiskerExecState::Paused => Some(WhiskerExecResult::Paused),
+		}
 	}
 }
 
@@ -161,7 +218,10 @@ impl Default for WhiskerCpu {
 		Self {
 			supported_extensions: SupportedExtensions::all(),
 			mem: Memory::new(0x10001000),
+			exec_state: WhiskerExecState::Paused,
+			cycles: 0,
 			registers: Default::default(),
+			breakpoints: HashSet::default(),
 		}
 	}
 }
@@ -187,6 +247,7 @@ enum Commands {
 }
 
 fn main() {
+	env_logger::init();
 	let cli = CliArgs::parse();
 
 	match cli.command {
@@ -202,8 +263,46 @@ fn main() {
 			cpu.mem.write_slice(bootrom_offset, prog.as_slice());
 			cpu.registers.pc = bootrom_offset;
 
-			loop {
-				cpu.execute_one();
+			if cli.gdb {
+				let conn: Box<dyn ConnectionExt<Error = std::io::Error>> =
+					Box::new(gdb::wait_for_tcp().expect("listener to bind"));
+				let gdb = GdbStub::new(conn);
+				match gdb.run_blocking::<WhiskerEventLoop>(&mut cpu) {
+					Ok(dc_reason) => match dc_reason {
+						gdbstub::stub::DisconnectReason::TargetExited(result) => {
+							println!("Target exited: {result}")
+						}
+						gdbstub::stub::DisconnectReason::TargetTerminated(signal) => {
+							println!("Target terminated: {signal:?}");
+						}
+						gdbstub::stub::DisconnectReason::Disconnect => {
+							cpu.exec_state = WhiskerExecState::Running;
+							loop {
+								cpu.execute_one();
+							}
+						}
+						gdbstub::stub::DisconnectReason::Kill => println!("(GDB) Received kill command"),
+					},
+					Err(err) => {
+						dbg!(&err);
+						if err.is_target_error() {
+							println!(
+								"target encountered a fatal error: {:?}",
+								err.into_target_error().unwrap()
+							)
+						} else if err.is_connection_error() {
+							let (err, kind) = err.into_connection_error().unwrap();
+							println!("connection error: {kind:?} - {err:?}")
+						} else {
+							println!("gdbstub encountered a fatal error: {err:?}")
+						}
+					}
+				}
+			} else {
+				cpu.exec_state = WhiskerExecState::Running;
+				loop {
+					cpu.execute_one();
+				}
 			}
 		}
 	}

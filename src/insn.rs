@@ -3,11 +3,6 @@ use crate::WhiskerCpu;
 
 #[derive(Debug)]
 pub enum IntInstruction {
-	AddImmediate {
-		dst: RegisterIndex,
-		src: RegisterIndex,
-		val: i64,
-	},
 	LoadUpperImmediate {
 		dst: RegisterIndex,
 		val: i64,
@@ -118,6 +113,51 @@ pub enum IntInstruction {
 		lhs: RegisterIndex,
 		rhs: RegisterIndex,
 	},
+	AddImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
+	XorImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
+	OrImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
+	AndImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
+	ShiftLeftLogicalImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftRightLogicalImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftRightArithmeticImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		shift_amt: u32,
+	},
+	SetLessThanImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
+	SetLessThanUnsignedImmediate {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: i64,
+	},
 	JumpAndLink {
 		link_reg: RegisterIndex,
 		jmp_off: i64,
@@ -126,6 +166,36 @@ pub enum IntInstruction {
 		link_reg: RegisterIndex,
 		jmp_reg: RegisterIndex,
 		jmp_off: i64,
+	},
+	BranchEqual {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
+	},
+	BranchNotEqual {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
+	},
+	BranchLessThan {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
+	},
+	BranchGreaterEqual {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
+	},
+	BranchLessThanUnsigned {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
+	},
+	BranchGreaterEqualUnsigned {
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+		imm: i64,
 	},
 }
 
@@ -174,6 +244,14 @@ struct RType {
 	src1: RegisterIndex,
 	src2: RegisterIndex,
 	func: u16,
+}
+
+#[derive(Debug)]
+struct BType {
+	imm: i64,
+	func: u8,
+	src1: RegisterIndex,
+	src2: RegisterIndex,
 }
 
 /// extracts bits start..=end from val
@@ -237,6 +315,19 @@ macro_rules! define_op_int {
     };
 }
 
+macro_rules! define_branch_int {
+    ($parcel:ident, $($const:ident, $inst:ident),*) => {
+        {
+            use consts::branch::*;
+            let btype = Self::parse_btype($parcel);
+            match btype.func {
+                $( $const => IntInstruction::$inst { lhs: btype.src1, rhs: btype.src2, imm: btype.imm }.into(), )*
+                _ => unimplemented!("BRANCH func={:#012b}", btype.func),
+            }
+        }
+    };
+}
+
 impl Instruction {
 	fn parse_itype(parcel: u32) -> IType {
 		let dst = extract_dst(parcel);
@@ -264,6 +355,20 @@ impl Instruction {
 		let imm = sign_ext_imm(imm1 << 5 | imm0, 11);
 
 		SType { imm, func, src1, src2 }
+	}
+
+	fn parse_btype(parcel: u32) -> BType {
+		let func = extract_bits_32(parcel, 12, 14) as u8;
+		let src1 = extract_src1(parcel);
+		let src2 = extract_src2(parcel);
+		let imm_1_4 = extract_bits_32(parcel, 8, 11);
+		let imm_5_10 = extract_bits_32(parcel, 25, 30);
+		let imm_11 = extract_bits_32(parcel, 7, 7);
+		let imm_12 = extract_bits_32(parcel, 31, 31);
+
+		let imm = sign_ext_imm(imm_12 << 12 | imm_11 << 11 | imm_5_10 << 5 | imm_1_4 << 1, 12);
+
+		BType { imm, func, src1, src2 }
 	}
 
 	fn parse_jtype(parcel: u32) -> JType {
@@ -351,15 +456,79 @@ impl Instruction {
 			CUSTOM_0 => unimplemented!("CUSTOM-0"),
 			MISC_MEM => unimplemented!("MISC-MEM"),
 			OP_IMM => {
+				use consts::op_imm::*;
 				let itype = Self::parse_itype(parcel);
 				match itype.func {
-					0b000 => IntInstruction::AddImmediate {
+					ADD_IMM => IntInstruction::AddImmediate {
 						dst: itype.dst,
-						src: itype.src,
-						val: itype.imm,
+						lhs: itype.src,
+						rhs: itype.imm,
 					}
 					.into(),
-					_ => unreachable!("should've matched op-imm func"),
+					XOR_IMM => IntInstruction::XorImmediate {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm,
+					}
+					.into(),
+					OR_IMM => IntInstruction::OrImmediate {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm,
+					}
+					.into(),
+					AND_IMM => IntInstruction::AndImmediate {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm,
+					}
+					.into(),
+					// these are weird
+					SHIFT_LEFT_IMM | SHIFT_RIGHT_IMM => {
+						let shift_amt = extract_bits_32(itype.imm as u32, 5, 11) as u32;
+						let shift_kind = extract_bits_32(itype.imm as u32, 0, 4) as u8;
+						match shift_kind {
+							SHIFT_LOGICAL => match itype.func {
+								SHIFT_LEFT_IMM => IntInstruction::ShiftLeftLogicalImmediate {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+								SHIFT_RIGHT_IMM => IntInstruction::ShiftRightLogicalImmediate {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+
+								_ => unreachable!(),
+							},
+							SHIFT_ARITHMETIC => match itype.func {
+								SHIFT_RIGHT_IMM => IntInstruction::ShiftRightArithmeticImmediate {
+									dst: itype.dst,
+									lhs: itype.src,
+									shift_amt,
+								}
+								.into(),
+								_ => unreachable!(),
+							},
+							_ => unreachable!("op-imm shift kind: {:#09b}", shift_kind),
+						}
+					}
+					SET_LESS_THAN_IMM => IntInstruction::SetLessThanImmediate {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm,
+					}
+					.into(),
+					SET_LESS_THAN_UNSIGNED_IMM => IntInstruction::SetLessThanUnsignedImmediate {
+						dst: itype.dst,
+						lhs: itype.src,
+						rhs: itype.imm,
+					}
+					.into(),
+					_ => unreachable!("op-immfunc: {:#013b}", itype.func),
 				}
 			}
 			AUIPC => unimplemented!("AUIPC"),
@@ -433,7 +602,18 @@ impl Instruction {
 			OP_V => unimplemented!("OP-V"),
 			CUSTOM_2 => unimplemented!("CUSTOM-2"),
 			UNK_48B2 => unimplemented!("48b (2)"),
-			BRANCH => unimplemented!("BRANCH"),
+			#[rustfmt::skip]
+			BRANCH => {
+				define_branch_int!(
+					parcel,
+					BRANCH_EQ, BranchEqual,
+					BRANCH_NEQ, BranchNotEqual,
+					BRANCH_LESS_THAN, BranchLessThan,
+					BRANCH_GREATER_EQ, BranchGreaterEqual,
+					BRANCH_LESS_THAN_UNSIGNED, BranchLessThanUnsigned,
+					BRANCH_GREATER_EQ_UNSIGNED, BranchGreaterEqualUnsigned
+				)
+			}
 			JALR => {
 				use consts::jalr::*;
 				let itype = Self::parse_itype(parcel);
@@ -559,7 +739,30 @@ mod consts {
 		pub const AND: u16 = 0b0000000111;
 	}
 
+	pub mod op_imm {
+		pub const ADD_IMM: u8 = 0b000;
+		pub const XOR_IMM: u8 = 0b100;
+		pub const OR_IMM: u8 = 0b110;
+		pub const AND_IMM: u8 = 0b111;
+		pub const SHIFT_LEFT_IMM: u8 = 0b001;
+		pub const SHIFT_RIGHT_IMM: u8 = 0b101;
+		pub const SET_LESS_THAN_IMM: u8 = 0b010;
+		pub const SET_LESS_THAN_UNSIGNED_IMM: u8 = 0b011;
+
+		pub const SHIFT_LOGICAL: u8 = 0b0000000;
+		pub const SHIFT_ARITHMETIC: u8 = 0b0100000;
+	}
+
 	pub mod jalr {
 		pub const JALR: u8 = 0b000;
+	}
+
+	pub mod branch {
+		pub const BRANCH_EQ: u8 = 0b000;
+		pub const BRANCH_NEQ: u8 = 0b001;
+		pub const BRANCH_LESS_THAN: u8 = 0b100;
+		pub const BRANCH_GREATER_EQ: u8 = 0b101;
+		pub const BRANCH_LESS_THAN_UNSIGNED: u8 = 0b110;
+		pub const BRANCH_GREATER_EQ_UNSIGNED: u8 = 0b111;
 	}
 }

@@ -146,10 +146,6 @@ impl WhiskerCpu {
 
 	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {
 		match insn {
-			IntInstruction::AddImmediate { dst, src, val } => {
-				let src_val = self.registers.get(src);
-				self.registers.set(dst, src_val.wrapping_add_signed(val));
-			}
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val as u64);
 			}
@@ -259,7 +255,7 @@ impl WhiskerCpu {
 			IntInstruction::ShiftRightArithmetic { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs) as i64;
 				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, lhs.wrapping_shl(rhs as u32) as u64);
+				self.registers.set(dst, lhs.wrapping_shr(rhs as u32) as u64);
 			}
 			IntInstruction::SetLessThan { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs) as i64;
@@ -279,12 +275,82 @@ impl WhiskerCpu {
 				self.registers.set(link_reg, start_pc + 4);
 				self.registers.pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
 			}
+
+			IntInstruction::AddImmediate { dst, lhs, rhs } => {
+				self.registers
+					.set(dst, self.registers.get(lhs).wrapping_add_signed(rhs));
+			}
+			IntInstruction::XorImmediate { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				self.registers.set(dst, lhs ^ (rhs as u64));
+			}
+			IntInstruction::OrImmediate { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				self.registers.set(dst, lhs | (rhs as u64));
+			}
+			IntInstruction::AndImmediate { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				self.registers.set(dst, lhs & (rhs as u64));
+			}
+			IntInstruction::ShiftLeftLogicalImmediate { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs);
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
+			}
+			IntInstruction::ShiftRightLogicalImmediate { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs);
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
+			}
+			IntInstruction::ShiftRightArithmeticImmediate { dst, lhs, shift_amt } => {
+				let lhs = self.registers.get(lhs) as i64;
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+			}
+			IntInstruction::SetLessThanImmediate { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs) as i64;
+				self.registers.set(dst, (lhs < rhs) as u64);
+			}
+			IntInstruction::SetLessThanUnsignedImmediate { dst, lhs, rhs } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = rhs as u64;
+				self.registers.set(dst, (lhs < rhs) as u64);
+			}
+
+			// ============
+			// BRANCH
+			// ============
+			IntInstruction::BranchEqual { lhs, rhs, imm } => {
+				if self.registers.get(lhs) == self.registers.get(rhs) {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
+			IntInstruction::BranchNotEqual { lhs, rhs, imm } => {
+				if self.registers.get(lhs) != self.registers.get(rhs) {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
+			IntInstruction::BranchLessThan { lhs, rhs, imm } => {
+				if (self.registers.get(lhs) as i64) < self.registers.get(rhs) as i64 {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
+			IntInstruction::BranchGreaterEqual { lhs, rhs, imm } => {
+				if (self.registers.get(lhs) as i64) >= self.registers.get(rhs) as i64 {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
+			IntInstruction::BranchLessThanUnsigned { lhs, rhs, imm } => {
+				if self.registers.get(lhs) < self.registers.get(rhs) {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
+			IntInstruction::BranchGreaterEqualUnsigned { lhs, rhs, imm } => {
+				if self.registers.get(lhs) >= self.registers.get(rhs) {
+					self.registers.pc = start_pc.wrapping_add_signed(imm);
+				}
+			}
 		}
 	}
 
 	pub fn execute_one(&mut self) -> Option<WhiskerExecResult> {
-		// dbg!(&self.registers);
-
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
 		let start_pc = self.registers.pc;
 
@@ -294,13 +360,10 @@ impl WhiskerCpu {
 
 		// increments pc to past the end of the instruction
 		let insn = Instruction::fetch_instruction(self);
-		// dbg!(&insn);
 		match insn {
 			Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 		}
 		self.cycles += 1;
-		// dbg!(&self.registers);
-		//
 		None
 	}
 

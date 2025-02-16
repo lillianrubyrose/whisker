@@ -77,8 +77,11 @@ macro_rules! define_csrs {
 
 const RW: bool = true;
 const RO: bool = false;
+#[allow(unused)]
 const UNPRIVILEGED: u8 = 0b00;
+#[allow(unused)]
 const SUPERVISOR: u8 = 0b01;
+#[allow(unused)]
 const HYPERVISOR: u8 = 0b10;
 const MACHINE: u8 = 0b11;
 

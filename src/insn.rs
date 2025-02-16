@@ -1,5 +1,5 @@
-use crate::ty::RegisterIndex;
-use crate::{SupportedExtensions, WhiskerCpu};
+use crate::ty::{RegisterIndex, SupportedExtensions};
+use crate::WhiskerCpu;
 
 #[derive(Debug)]
 pub enum IntInstruction {
@@ -723,7 +723,7 @@ impl Instruction {
 				use consts::system::*;
 				let itype = Self::parse_itype(parcel);
 				match itype.func {
-					funcs::E_CALL_BREAK => match (itype.dst.inner(), itype.src.inner()) {
+					funcs::E_CALL_BREAK => match (itype.dst.as_usize(), itype.src.as_usize()) {
 						(0, 0) => match itype.imm {
 							0b000000000000 => IntInstruction::ECall.into(),
 							0b000000000001 => IntInstruction::EBreak.into(),

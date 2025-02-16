@@ -66,6 +66,7 @@ impl Debug for RegisterIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedExtensions(u64);
 
+#[expect(unused, reason = "several of these extensions are reserved in the ISA")]
 impl SupportedExtensions {
 	pub const ATOMIC: Self = Self(1 << 0);
 	pub const B: Self = Self(1 << 1);

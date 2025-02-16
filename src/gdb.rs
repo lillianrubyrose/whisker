@@ -51,7 +51,7 @@ impl SingleThreadBase for WhiskerCpu {
 		&mut self,
 		regs: &mut <Self::Arch as gdbstub::arch::Arch>::Registers,
 	) -> gdbstub::target::TargetResult<(), Self> {
-		regs.x[1..].copy_from_slice(&self.registers.x);
+		regs.x.copy_from_slice(self.registers.regs());
 		regs.pc = self.registers.pc;
 		Ok(())
 	}
@@ -61,7 +61,7 @@ impl SingleThreadBase for WhiskerCpu {
 		regs: &<Self::Arch as gdbstub::arch::Arch>::Registers,
 	) -> gdbstub::target::TargetResult<(), Self> {
 		assert_eq!(regs.x[0], 0, "tried to write non-zero to x0(zero) register");
-		self.registers.x.copy_from_slice(&regs.x[1..]);
+		self.registers.set_all(&regs.x);
 		self.registers.pc = regs.pc;
 		Ok(())
 	}

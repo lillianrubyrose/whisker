@@ -10,46 +10,52 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = {
+  outputs = inputs @ {
+    self,
     nixpkgs,
     crane,
     fenix,
+    flake-parts,
     ...
-  }: let
-    forAllSystems = function:
-      nixpkgs.lib.genAttrs [
-        "x86_64-linux"
-      ] (system:
-        function (import nixpkgs {
-          inherit system;
-          overlays = [fenix.overlays.default];
-        }));
-  in {
-    formatter = forAllSystems (pkgs: pkgs.alejandra);
+  }:
+    flake-parts.lib.mkFlake {inherit inputs;} {
+      systems = ["x86_64-linux"];
 
-    packages = forAllSystems (pkgs: let
-      craneLib = crane.mkLib pkgs;
+      perSystem = {
+        pkgs,
+        system,
+        ...
+      }: let
+        overlays = [fenix.overlays.default];
+        pkgs = import nixpkgs {inherit system overlays;};
+        pkgsRiscv = (import nixpkgs {inherit system;}).pkgsCross.riscv64;
+        craneLib = crane.mkLib pkgs;
+        commonArgs = {
+          src = craneLib.cleanCargoSource ./.;
+          strictDeps = true;
+        };
+      in {
+        formatter = pkgs.alejandra;
 
-      commonArgs = {
-        src = craneLib.cleanCargoSource ./.;
-        strictDeps = true;
+        packages.default = craneLib.buildPackage (commonArgs
+          // {
+            cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          });
+
+        devShells = {
+          default = pkgs.mkShell {
+            nativeBuildInputs = [
+              pkgs.rust-analyzer-nightly
+              pkgs.fenix.stable.defaultToolchain
+
+              pkgsRiscv.buildPackages.gcc
+              pkgsRiscv.buildPackages.binutils
+            ];
+          };
+        };
       };
-    in {
-      default = craneLib.buildPackage (commonArgs
-        // {
-          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-        });
-    });
-
-    devShells = forAllSystems (pkgs: {
-      default = pkgs.mkShell {
-        nativeBuildInputs = [
-          pkgs.rust-analyzer-nightly
-          pkgs.fenix.stable.defaultToolchain
-        ];
-      };
-    });
-  };
+    };
 }

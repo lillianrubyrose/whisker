@@ -20,7 +20,7 @@ impl Memory {
 
 		let mut mappings = HashMap::new();
 
-		for page_addr in (0..size).step_by(PAGE_SIZE as usize).take(2048) {
+		for page_addr in (0..size).step_by(PAGE_SIZE as usize) {
 			// INVARIANT: the loop construction ensures this is a multiple of page size
 			let base = PageBase(page_addr);
 			let entry = PageEntry::PhysBacked { phys_base: page_addr };
@@ -49,12 +49,14 @@ impl Memory {
 	}
 
 	/// the reading primitive that does page lookups and such
-	pub fn read_slice(&self, offset: u64, buf: &mut [u8]) {
+	/// returns Ok if the read succeeded, or Err(virt) if the read failed
+	/// where virt is the failing virtual address
+	pub fn read_slice(&self, offset: u64, buf: &mut [u8]) -> Result<(), u64> {
 		for (idx, val) in buf.iter_mut().enumerate() {
 			let offset = offset + idx as u64;
 			let base = PageBase::from_addr(offset);
 			let Some(page_entry) = self.mappings.get(&base) else {
-				panic!("no page entry for {offset:#018X}");
+				return Err(offset);
 			};
 			let page_offset = offset - base.0;
 
@@ -67,15 +69,18 @@ impl Memory {
 				}
 			}
 		}
+		Ok(())
 	}
 
 	/// the writing primitive that does page lookups and such
-	pub fn write_slice(&mut self, offset: u64, val: &[u8]) {
+	/// returns Ok if the write succeeded, or Err(virt) if the write
+	/// where virt is the failing virtual address
+	pub fn write_slice(&mut self, offset: u64, val: &[u8]) -> Result<(), u64> {
 		for (idx, val) in val.into_iter().enumerate() {
 			let offset = offset + idx as u64;
 			let base = PageBase::from_addr(offset);
 			let Some(page_entry) = self.mappings.get(&base) else {
-				panic!("no page entry for {offset:#018X}");
+				return Err(offset);
 			};
 			let page_offset = offset - base.0;
 
@@ -88,6 +93,7 @@ impl Memory {
 				}
 			}
 		}
+		Ok(())
 	}
 }
 
@@ -124,14 +130,15 @@ macro_rules! impl_mem_rw {
 	($($ty:ty),*) => {
 		impl Memory {
 			$(paste::paste!{
-				pub fn [<read_ $ty>](&self, offset: u64) -> $ty {
+				pub fn [<read_ $ty>](&self, offset: u64) -> Result<$ty, u64> {
 					let mut buf = <$ty>::to_le_bytes(0);
-					self.read_slice(offset, &mut buf);
-					<$ty>::from_le_bytes(buf)
+					self.read_slice(offset, &mut buf)?;
+					Ok(<$ty>::from_le_bytes(buf))
 				}
 
-				pub fn [<write_ $ty>](&mut self, offset: u64, val: $ty) {
-					self.write_slice(offset, $ty::to_le_bytes(val).as_slice());
+				pub fn [<write_ $ty>](&mut self, offset: u64, val: $ty) -> Result<(), u64> {
+					self.write_slice(offset, $ty::to_le_bytes(val).as_slice())?;
+					Ok(())
 				}
 			})*
 		}

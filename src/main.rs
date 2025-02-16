@@ -62,7 +62,10 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let mut cpu = WhiskerCpu::default();
 
 	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
-	cpu.mem.write_slice(bootrom_offset, prog.as_slice());
+	// FIXME: probably set this up in physical memory with a mapping somehow
+	cpu.mem
+		.write_slice(bootrom_offset, prog.as_slice())
+		.expect("could not write bootrom to memory");
 
 	cpu.registers.pc = bootrom_offset;
 	cpu.registers.set(RegisterIndex::SP, 0x7FFF);
@@ -83,6 +86,8 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 			gdbstub::stub::DisconnectReason::Disconnect => {
 				cpu.exec_state = WhiskerExecState::Running;
 				loop {
+					// FIXME: handle this better
+					#[allow(unused_must_use)]
 					cpu.execute_one();
 				}
 			}
@@ -108,6 +113,8 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 fn run_normal(mut cpu: WhiskerCpu) {
 	cpu.exec_state = WhiskerExecState::Running;
 	loop {
+		// FIXME: handle this better
+		#[allow(unused_must_use)]
 		cpu.execute_one();
 	}
 }

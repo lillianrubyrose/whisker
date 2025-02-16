@@ -1,5 +1,6 @@
 use std::net::{TcpListener, TcpStream};
 
+use gdbstub::target::TargetError;
 use gdbstub::{
 	common::Signal,
 	conn::ConnectionExt,
@@ -72,8 +73,11 @@ impl SingleThreadBase for WhiskerCpu {
 		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
 		data: &mut [u8],
 	) -> gdbstub::target::TargetResult<usize, Self> {
-		self.mem.read_slice(start_addr, data);
-		Ok(data.len())
+		match self.mem.read_slice(start_addr, data) {
+			Ok(()) => Ok(data.len()),
+			// FIXME: does this do what we want
+			Err(addr) => Ok((addr - start_addr) as usize),
+		}
 	}
 
 	fn write_addrs(
@@ -81,8 +85,11 @@ impl SingleThreadBase for WhiskerCpu {
 		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
 		data: &[u8],
 	) -> gdbstub::target::TargetResult<(), Self> {
-		self.mem.write_slice(start_addr, data);
-		Ok(())
+		match self.mem.write_slice(start_addr, data) {
+			Ok(()) => Ok(()),
+			// EREMOTEIO - causes gdb to report "cannot access memory at <start_addr>"
+			Err(_addr) => Err(TargetError::Errno(121)),
+		}
 	}
 
 	fn support_resume(&mut self) -> Option<gdbstub::target::ext::base::singlethread::SingleThreadResumeOps<'_, Self>> {

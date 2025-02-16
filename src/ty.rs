@@ -171,6 +171,7 @@ pub enum TrapKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TrapIdx(u64);
 
+#[allow(unused)]
 impl TrapIdx {
 	pub fn kind(&self) -> TrapKind {
 		if self.0 & Self::INTERRUPT_MASK != 0 {

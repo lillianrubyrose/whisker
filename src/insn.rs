@@ -747,39 +747,47 @@ impl Instruction {
 	pub fn fetch_instruction(cpu: &mut WhiskerCpu) -> Result<(Instruction, u64), ()> {
 		let pc = cpu.registers.pc;
 		let support_compressed = cpu.supported_extensions.has(SupportedExtensions::COMPRESSED);
-		let align_requirement = if support_compressed { 2 } else { 4 };
-		if pc % align_requirement != 0 {
-			cpu.request_trap(TrapIdx::INSTRUCTION_ADDR_MISALIGNED);
-			return Err(());
-		}
 
-		let parcel1 = cpu.mem.read_u16(pc);
+		let parcel1 = match cpu.mem.read_u16(pc) {
+			Ok(parcel1) => parcel1,
+			Err(addr) => {
+				cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
+				return Err(());
+			}
+		};
+
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
 				todo!("implement 16bit instruction")
 			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
-			let full_parcel = cpu.mem.read_u32(pc);
+			let full_parcel = match cpu.mem.read_u32(pc) {
+				Ok(p) => p,
+				Err(addr) => {
+					cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
+					return Err(());
+				}
+			};
 			Ok((Self::parse_32bit_instruction(full_parcel), 4))
 		} else if extract_bits_16(parcel1, 0, 5) == 0b011111 {
 			if support_compressed {
 				todo!("implement 48bit instruction")
 			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 0, 6) == 0b0111111 {
 			if support_compressed {
 				todo!("implement 64bit instruction")
 			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 				Err(())
 			}
 		} else {
-			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
+			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 			Err(())
 		}
 	}

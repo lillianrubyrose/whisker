@@ -117,9 +117,10 @@ impl WhiskerCpu {
 		}
 	}
 
-	pub fn request_trap(&mut self, trap: TrapIdx) {
+	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
 		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
 		self.csrs.write_mcause(trap.inner());
+		self.csrs.write_mtval(mtval);
 		self.should_trap = true;
 	}
 
@@ -146,10 +147,107 @@ impl WhiskerCpu {
 	}
 }
 
+macro_rules! read_mem_u8 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_u8($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! read_mem_u16 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_u16($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! read_mem_u32 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_u32($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! read_mem_u64 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_u64($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_u8 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_u8($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_u16 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_u16($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_u32 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_u32($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_u64 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_u64($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
 impl WhiskerCpu {
 	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
 		let cause = self.csrs.read_mcause();
-		trace!("executing trap mcause={cause:#018X}");
+		let mtval = self.csrs.read_mtval();
+		trace!("executing trap mcause={cause:#018X} mtval={mtval:#018X}");
 		let mtvec = self.csrs.read_mtvec();
 		trace!("trap handler at {mtvec:#018X}");
 
@@ -171,26 +269,26 @@ impl WhiskerCpu {
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u8;
-				self.mem.write_u8(offset, val);
+				write_mem_u8!(self, offset, val);
 			}
 			IntInstruction::StoreHalf { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u16;
-				self.mem.write_u16(offset, val);
+				write_mem_u16!(self, offset, val);
 			}
 			IntInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u32;
-				self.mem.write_u32(offset, val);
+				write_mem_u32!(self, offset, val);
 			}
 			IntInstruction::StoreDoubleWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src);
-				self.mem.write_u64(offset, val);
+				write_mem_u64!(self, offset, val);
 			}
 			IntInstruction::LoadByte { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u8(offset) as u64;
+				let val = read_mem_u8!(self, offset) as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_FFFFFF00) | val;
@@ -198,7 +296,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u16(offset) as u64;
+				let val = read_mem_u16!(self, offset) as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_FFFF0000) | val;
@@ -206,7 +304,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u32(offset) as u64;
+				let val = read_mem_u32!(self, offset) as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
@@ -214,22 +312,22 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u64(offset);
+				let val = read_mem_u64!(self, offset);
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadByteZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u8(offset) as u64;
+				let val = read_mem_u8!(self, offset) as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadHalfZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u16(offset) as u64;
+				let val = read_mem_u16!(self, offset) as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadWordZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = self.mem.read_u32(offset) as u64;
+				let val = read_mem_u32!(self, offset) as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
@@ -388,11 +486,11 @@ impl WhiskerCpu {
 			// =========
 			IntInstruction::ECall => {
 				// TODO: handle different modes
-				self.request_trap(TrapIdx::ECALL_MMODE);
+				self.request_trap(TrapIdx::ECALL_MMODE, 0);
 			}
 			IntInstruction::EBreak => {
 				// TODO: should this do anything else?
-				self.request_trap(TrapIdx::BREAKPOINT);
+				self.request_trap(TrapIdx::BREAKPOINT, 0);
 			}
 		}
 	}

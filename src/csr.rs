@@ -94,4 +94,5 @@ define_csrs!(
     mtvec,     0x305, RW, MACHINE, 0x4000_0000,
     mepc,      0x341, RW, MACHINE,
     mcause,    0x342, RW, MACHINE,
+    mtval,     0x343, RW, MACHINE,
 );

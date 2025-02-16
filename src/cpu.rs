@@ -500,9 +500,3 @@ impl WhiskerCpu {
 		self.cycles % 1024 == 0
 	}
 }
-
-impl Default for WhiskerCpu {
-	fn default() -> Self {
-		Self::new(SupportedExtensions::default(), Memory::new(0x40_0000))
-	}
-}

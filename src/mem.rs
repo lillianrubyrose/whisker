@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{self, Write};
+
+use log::*;
 
 pub struct Memory {
 	phys: Box<[u8]>,
+	bootrom: Box<[u8]>,
 	mappings: HashMap<PageBase, PageEntry>,
 }
 
@@ -14,40 +16,6 @@ impl Debug for Memory {
 }
 
 impl Memory {
-	pub fn new(size: u64) -> Self {
-		assert!(size % PAGE_SIZE == 0);
-		// FIXME: let custom maps come from user
-
-		let mut mappings = HashMap::new();
-
-		for page_addr in (0..size).step_by(PAGE_SIZE as usize) {
-			// INVARIANT: the loop construction ensures this is a multiple of page size
-			let base = PageBase(page_addr);
-			let entry = PageEntry::PhysBacked { phys_base: page_addr };
-			mappings.insert(base, entry);
-		}
-
-		// MMIO mapping
-		let base = PageBase(0x1000_0000);
-		mappings.insert(
-			base,
-			PageEntry::MMIO {
-				on_read: Box::new(|_| unimplemented!("read from UART")),
-				on_write: Box::new(|addr, val| {
-					if addr == 0x1000_0000 {
-						print!("{}", val as char);
-						io::stdout().flush().unwrap();
-					}
-				}),
-			},
-		);
-
-		Self {
-			phys: vec![0; size as usize].into_boxed_slice(),
-			mappings,
-		}
-	}
-
 	/// the reading primitive that does page lookups and such
 	/// returns Ok if the read succeeded, or Err(virt) if the read failed
 	/// where virt is the failing virtual address
@@ -56,6 +24,7 @@ impl Memory {
 			let offset = offset + idx as u64;
 			let base = PageBase::from_addr(offset);
 			let Some(page_entry) = self.mappings.get(&base) else {
+				trace!("no page entry for {:#018X}", offset);
 				return Err(offset);
 			};
 			let page_offset = offset - base.0;
@@ -66,6 +35,9 @@ impl Memory {
 				}
 				PageEntry::MMIO { on_read, .. } => {
 					*val = on_read(offset);
+				}
+				PageEntry::Bootrom { page_base } => {
+					*val = self.bootrom[(page_base + page_offset) as usize];
 				}
 			}
 		}
@@ -80,6 +52,7 @@ impl Memory {
 			let offset = offset + idx as u64;
 			let base = PageBase::from_addr(offset);
 			let Some(page_entry) = self.mappings.get(&base) else {
+				trace!("no page entry for {:#018X}", offset);
 				return Err(offset);
 			};
 			let page_offset = offset - base.0;
@@ -91,15 +64,21 @@ impl Memory {
 				PageEntry::MMIO { on_write, .. } => {
 					on_write(offset, *val);
 				}
+				PageEntry::Bootrom { page_base } => {
+					self.bootrom[(page_base + page_offset) as usize] = *val;
+				}
 			}
 		}
 		Ok(())
 	}
 }
 
-enum PageEntry {
+pub enum PageEntry {
 	PhysBacked {
 		phys_base: u64,
+	},
+	Bootrom {
+		page_base: u64,
 	},
 	MMIO {
 		on_read: Box<dyn Fn(u64) -> u8>,
@@ -108,12 +87,12 @@ enum PageEntry {
 }
 
 const PAGE_SIZE: u64 = 4096;
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// INVARIANT: is a multiple of PAGE_SIZE
-struct PageBase(u64);
+pub struct PageBase(u64);
 
 impl PageBase {
-	fn from_addr(addr: u64) -> Self {
+	pub fn from_addr(addr: u64) -> Self {
 		Self(addr & !(PAGE_SIZE - 1))
 	}
 }
@@ -146,3 +125,94 @@ macro_rules! impl_mem_rw {
 }
 
 impl_mem_rw!(u8, u16, u32, u64);
+
+#[derive(Default)]
+pub struct MemoryBuilder {
+	// size of physical memory
+	physical: Option<u64>,
+	// physical addr -> (virt addr, map_size bytes)
+	physical_mappings: HashMap<PageBase, (PageBase, u64)>,
+
+	misc_maps: HashMap<PageBase, PageEntry>,
+	// bootrom data, virtual offset
+	bootrom: Option<(Box<[u8]>, PageBase)>,
+}
+
+impl MemoryBuilder {
+	pub fn bootrom(mut self, bootrom: Box<[u8]>, addr: PageBase) -> Self {
+		assert!(self.bootrom.is_none(), "cannot set bootrom more than once");
+		self.bootrom = Some((bootrom, addr));
+		self
+	}
+
+	pub fn physical_size(mut self, size: u64) -> Self {
+		assert!(
+			self.physical.is_none(),
+			"cannot set physical memory size more than once"
+		);
+		assert_eq!(size % PAGE_SIZE, 0);
+
+		self.physical = Some(size);
+		self
+	}
+
+	pub fn phys_mapping(mut self, virt_base: PageBase, phys_base: PageBase, size: u64) -> Self {
+		assert_eq!(size % PAGE_SIZE, 0);
+		let prev = self.physical_mappings.insert(virt_base, (phys_base, size));
+		assert!(prev.is_none());
+		self
+	}
+
+	pub fn add_mapping(mut self, virt_addr: PageBase, entry: PageEntry) -> Self {
+		let prev = self.misc_maps.insert(virt_addr, entry);
+		assert!(
+			prev.is_none(),
+			"cannot overwrite mapping for virtual address {:#018X}",
+			virt_addr.0
+		);
+		self
+	}
+
+	#[track_caller] // provides better panic location for caller
+	pub fn build(self) -> Memory {
+		let phys = vec![0_u8; self.physical.unwrap_or(0) as usize].into_boxed_slice();
+		let mut mappings = HashMap::new();
+
+		let (bootrom, virt_addr) = self.bootrom.unwrap_or_default();
+		for offset in (0..bootrom.len() as u64).step_by(PAGE_SIZE as usize) {
+			// INVARIANT: virtual address is verified to be a multiple of page size
+			// and loop ensures that it's only offset by page size
+			mappings.insert(PageBase(virt_addr.0 + offset), PageEntry::Bootrom { page_base: offset });
+		}
+
+		for (virt_base, (phys_base, map_size)) in self.physical_mappings.into_iter() {
+			for offset in (0..map_size).step_by(PAGE_SIZE as usize) {
+				let virt = PageBase(virt_base.0 + offset);
+				let prev = mappings.insert(
+					virt,
+					PageEntry::PhysBacked {
+						phys_base: phys_base.0 + offset,
+					},
+				);
+				assert!(
+					prev.is_none(),
+					"overlapped virtual address {:?} in physical mapping {:?} size {:#018X})",
+					virt,
+					virt_base,
+					map_size
+				);
+			}
+		}
+
+		for (virt, entry) in self.misc_maps.into_iter() {
+			let prev = mappings.insert(virt, entry);
+			assert!(prev.is_none(), "overlapped virtual address {:?} in misc mapping", virt);
+		}
+
+		Memory {
+			phys,
+			mappings,
+			bootrom,
+		}
+	}
+}

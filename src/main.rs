@@ -10,8 +10,9 @@ mod util;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
-use std::fs;
+use std::io::Write as _;
 use std::path::PathBuf;
+use std::{fs, io};
 
 use clap::{command, Parser, Subcommand};
 use gdbstub::conn::ConnectionExt;
@@ -19,7 +20,8 @@ use gdbstub::stub::GdbStub;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
-use crate::ty::RegisterIndex;
+use crate::mem::{MemoryBuilder, PageBase, PageEntry};
+use crate::ty::{RegisterIndex, SupportedExtensions};
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -61,16 +63,31 @@ fn main() {
 }
 
 fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
-	let mut cpu = WhiskerCpu::default();
-
 	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
-	// FIXME: probably set this up in physical memory with a mapping somehow
-	cpu.mem
-		.write_slice(bootrom_offset, prog.as_slice())
-		.expect("could not write bootrom to memory");
+
+	let mem = MemoryBuilder::default()
+		.bootrom(prog.into_boxed_slice(), PageBase::from_addr(bootrom_offset))
+		.physical_size(0x40_000)
+		.phys_mapping(PageBase::from_addr(0x1_0000), PageBase::from_addr(0), 0x40_000)
+		// MMIO UART mapping
+		.add_mapping(
+			PageBase::from_addr(0x1000_0000),
+			PageEntry::MMIO {
+				on_read: Box::new(|_| unimplemented!("read from UART")),
+				on_write: Box::new(|addr, val| {
+					if addr == 0x1000_0000 {
+						print!("{}", val as char);
+						io::stdout().flush().unwrap();
+					}
+				}),
+			},
+		)
+		.build();
+
+	let mut cpu = WhiskerCpu::new(SupportedExtensions::INTEGER, mem);
 
 	cpu.registers.pc = bootrom_offset;
-	cpu.registers.set(RegisterIndex::SP, 0x7FFF);
+	cpu.registers.set(RegisterIndex::SP, 0x1_8000);
 	cpu
 }
 

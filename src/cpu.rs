@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::csr::ControlStatusRegisters;
 use crate::insn::{Instruction, IntInstruction};
 use crate::mem::Memory;
-use crate::ty::{RegisterIndex, SupportedExtensions};
+use crate::ty::{RegisterIndex, SupportedExtensions, TrapIdx};
 
 #[derive(Default, Debug)]
 pub struct Registers {
@@ -18,7 +18,7 @@ impl Registers {
 		if index == 0 {
 			0
 		} else {
-			self.x[index - 1]
+			self.x[index]
 		}
 	}
 
@@ -27,7 +27,7 @@ impl Registers {
 		if index == 0 {
 			// writes to r0 are ignored
 		} else {
-			self.x[index - 1] = value;
+			self.x[index] = value;
 		}
 	}
 
@@ -89,7 +89,8 @@ impl WhiskerCpu {
 	}
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		if self.should_trap {
-			todo!("impl trap")
+			let cause = self.csrs.read_mcause();
+			todo!("impl trap mcause={cause:#018X}")
 		}
 
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
@@ -101,11 +102,11 @@ impl WhiskerCpu {
 
 		match Instruction::fetch_instruction(self) {
 			Ok((inst, size)) => {
+				self.registers.pc = self.registers.pc.wrapping_add(size);
 				match inst {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 				}
 				self.cycles += 1;
-				self.registers.pc = self.registers.pc.wrapping_add(size);
 				Ok(())
 			}
 			Err(()) => {
@@ -115,9 +116,9 @@ impl WhiskerCpu {
 		}
 	}
 
-	pub fn request_trap(&mut self, trap: u64) {
+	pub fn request_trap(&mut self, trap: TrapIdx) {
 		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
-		self.csrs.write_mcause(trap);
+		self.csrs.write_mcause(trap.inner());
 		self.should_trap = true;
 	}
 
@@ -371,8 +372,14 @@ impl WhiskerCpu {
 			// =========
 			// SYSTEM
 			// =========
-			IntInstruction::ECall => todo!("ECALL"),
-			IntInstruction::EBreak => todo!("EBREAK"),
+			IntInstruction::ECall => {
+				// TODO: handle different modes
+				self.request_trap(TrapIdx::ECALL_MMODE);
+			}
+			IntInstruction::EBreak => {
+				// TODO: should this do anything else?
+				self.request_trap(TrapIdx::BREAKPOINT);
+			}
 		}
 	}
 

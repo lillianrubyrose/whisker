@@ -65,7 +65,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	cpu.mem.write_slice(bootrom_offset, prog.as_slice());
 
 	cpu.registers.pc = bootrom_offset;
-	cpu.registers.set(RegisterIndex::SP, 0x8000);
+	cpu.registers.set(RegisterIndex::SP, 0x7FFF);
 	cpu
 }
 

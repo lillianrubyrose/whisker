@@ -161,3 +161,53 @@ impl Default for SupportedExtensions {
 		Self::INTEGER
 	}
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrapKind {
+	Interrupt,
+	Exception,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TrapIdx(u64);
+
+impl TrapIdx {
+	pub fn kind(&self) -> TrapKind {
+		if self.0 & Self::INTERRUPT_MASK != 0 {
+			TrapKind::Interrupt
+		} else {
+			TrapKind::Exception
+		}
+	}
+
+	pub fn code(&self) -> u64 {
+		self.0 & Self::CODE_MASK
+	}
+
+	pub fn inner(&self) -> u64 {
+		self.0
+	}
+}
+
+#[allow(unused)]
+impl TrapIdx {
+	pub const INTERRUPT_MASK: u64 = 0x80000000_00000000;
+	pub const CODE_MASK: u64 = 0x7FFFFFFF_FFFFFFFF;
+
+	pub const INSTRUCTION_ADDR_MISALIGNED: Self = Self(0);
+	pub const INSTRUCTION_ACCESS_FAULT: Self = Self(1);
+	pub const ILLEGAL_INSTRUCTION: Self = Self(2);
+	pub const BREAKPOINT: Self = Self(3);
+	pub const LOAD_ADDR_MISALIGNED: Self = Self(4);
+	pub const STORE_ADDR_MISALIGNED: Self = Self(5);
+	pub const STORE_ACCESS_FAULT: Self = Self(6);
+	pub const ECALL_UMODE: Self = Self(7);
+	pub const ECALL_SMODE: Self = Self(8);
+	pub const ECALL_MMODE: Self = Self(10);
+	pub const INSTRUCTION_PAGE_FAULT: Self = Self(12);
+	pub const LOAD_PAGE_FAULT: Self = Self(13);
+	pub const STORE_PAGE_FAULT: Self = Self(15);
+	pub const SOFTWARE_CHECK: Self = Self(18);
+	pub const HARDWARE_CHECK: Self = Self(19);
+	pub const MEOW_ERR: Self = Self(31);
+}

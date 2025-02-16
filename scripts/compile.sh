@@ -13,9 +13,9 @@ if [ ! -f "$file" ]; then
     exit 1
 fi
 
-riscv64-elf-gcc -march=rv64id -mcmodel=medany -std=c23 -c "$file" -o target/$base_name.o -nostdlib -nodefaultlibs
-riscv64-elf-gcc -march=rv64id -mcmodel=medany -std=c23 -c progs/whisker.c -o target/whisker.o -nostdlib -nodefaultlibs
-riscv64-elf-gcc -T linker.ld -o target/$base_name.elf target/$base_name.o target/whisker.o -nostdlib -nodefaultlibs
+riscv64-elf-gcc -O0 -march=rv64id -mcmodel=medany -std=c23 -c "$file" -o target/$base_name.o -nostdlib -nodefaultlibs
+riscv64-elf-gcc -O0 -march=rv64id -mcmodel=medany -std=c23 -c progs/whisker.c -o target/whisker.o -nostdlib -nodefaultlibs
+riscv64-elf-gcc -O0 -T linker.ld -o target/$base_name.elf target/$base_name.o target/whisker.o -nostdlib -nodefaultlibs
 
 riscv64-elf-objcopy -O binary target/$base_name.elf target/$base_name.bin
 

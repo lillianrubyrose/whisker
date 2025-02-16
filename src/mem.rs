@@ -20,7 +20,7 @@ impl Memory {
 
 		let mut mappings = HashMap::new();
 
-		for page_addr in (0..size).step_by(PAGE_SIZE as usize).take(64) {
+		for page_addr in (0..size).step_by(PAGE_SIZE as usize).take(2048) {
 			// INVARIANT: the loop construction ensures this is a multiple of page size
 			let base = PageBase(page_addr);
 			let entry = PageEntry::PhysBacked { phys_base: page_addr };

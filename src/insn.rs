@@ -1,4 +1,4 @@
-use crate::ty::{RegisterIndex, SupportedExtensions};
+use crate::ty::{RegisterIndex, SupportedExtensions, TrapIdx};
 use crate::WhiskerCpu;
 
 #[derive(Debug)]
@@ -746,39 +746,40 @@ impl Instruction {
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
 	pub fn fetch_instruction(cpu: &mut WhiskerCpu) -> Result<(Instruction, u64), ()> {
 		let pc = cpu.registers.pc;
-		assert!(pc % 2 == 0);
+		let support_compressed = cpu.supported_extensions.has(SupportedExtensions::COMPRESSED);
+		let align_requirement = if support_compressed { 2 } else { 4 };
+		if pc % align_requirement != 0 {
+			cpu.request_trap(TrapIdx::INSTRUCTION_ADDR_MISALIGNED);
+			return Err(());
+		}
 
 		let parcel1 = cpu.mem.read_u16(pc);
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
-			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+			if support_compressed {
 				todo!("implement 16bit instruction")
 			} else {
-				// FIXME: add exception consts
-				cpu.request_trap(2);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
 			let full_parcel = cpu.mem.read_u32(pc);
 			Ok((Self::parse_32bit_instruction(full_parcel), 4))
 		} else if extract_bits_16(parcel1, 0, 5) == 0b011111 {
-			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+			if support_compressed {
 				todo!("implement 48bit instruction")
 			} else {
-				// FIXME: add exception consts
-				cpu.request_trap(2);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 0, 6) == 0b0111111 {
-			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+			if support_compressed {
 				todo!("implement 64bit instruction")
 			} else {
-				// FIXME: add exception consts
-				cpu.request_trap(2);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
 				Err(())
 			}
 		} else {
-			// FIXME: add exception consts
-			cpu.request_trap(2);
+			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION);
 			Err(())
 		}
 	}

@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use log::trace;
 
 use crate::csr::ControlStatusRegisters;
-use crate::insn::{Instruction, IntInstruction};
+use crate::insn::int::IntInstruction;
+use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::ty::{RegisterIndex, SupportedExtensions, TrapIdx};
 

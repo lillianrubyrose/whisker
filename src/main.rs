@@ -2,8 +2,10 @@ mod cpu;
 mod csr;
 mod gdb;
 mod insn;
+mod insn32;
 mod mem;
 mod ty;
+mod util;
 
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");

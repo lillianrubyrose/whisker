@@ -1,14 +1,20 @@
 use std::fmt::Debug;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+#[allow(dead_code)]
+enum CSRPrivilege {
+	User = 0b00,
+	Supervisor = 0b01,
+	Hypervisor = 0b10,
+	Machine = 0b11,
+}
+
 struct CSRInfo {
 	val: u64,
 	addr: u16,
 	rw: bool,
-	/// 0 - user
-	/// 1 - supervisor
-	/// 2 - hypervisor
-	/// 3 - machine
-	privilege: u8,
+	privilege: CSRPrivilege,
 }
 
 impl Debug for CSRInfo {
@@ -20,11 +26,10 @@ impl Debug for CSRInfo {
 			.field(
 				"privilege",
 				&match self.privilege {
-					0 => "U",
-					1 => "S",
-					2 => "H",
-					3 => "M",
-					_ => unreachable!(),
+					CSRPrivilege::User => "U",
+					CSRPrivilege::Supervisor => "S",
+					CSRPrivilege::Hypervisor => "H",
+					CSRPrivilege::Machine => "M",
 				},
 			)
 			.finish()
@@ -51,7 +56,7 @@ macro_rules! define_csrs {
                         },
     				    addr: $addr,
     					rw: $rw,
-    					privilege: $priv,
+    					privilege: CSRPrivilege::$priv,
     				},
                     )*
     			}
@@ -77,22 +82,15 @@ macro_rules! define_csrs {
 
 const RW: bool = true;
 const RO: bool = false;
-#[allow(unused)]
-const UNPRIVILEGED: u8 = 0b00;
-#[allow(unused)]
-const SUPERVISOR: u8 = 0b01;
-#[allow(unused)]
-const HYPERVISOR: u8 = 0b10;
-const MACHINE: u8 = 0b11;
 
 #[rustfmt::skip]
 define_csrs!(
-    mvendorid, 0xF11, RO, MACHINE, 0,
-    marchid,   0xF12, RO, MACHINE, 0,
-    mimpid,    0xF13, RO, MACHINE, 0,
+    mvendorid, 0xF11, RO, Machine, 0,
+    marchid,   0xF12, RO, Machine, 0,
+    mimpid,    0xF13, RO, Machine, 0,
 
-    mtvec,     0x305, RW, MACHINE, 0x4000_0000,
-    mepc,      0x341, RW, MACHINE,
-    mcause,    0x342, RW, MACHINE,
-    mtval,     0x343, RW, MACHINE,
+    mtvec,     0x305, RW, Machine, 0x4000_0000,
+    mepc,      0x341, RW, Machine,
+    mcause,    0x342, RW, Machine,
+    mtval,     0x343, RW, Machine,
 );

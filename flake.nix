@@ -48,7 +48,7 @@
         devShells = {
           default = pkgs.mkShell {
             nativeBuildInputs = [
-              pkgs.rust-analyzer-nightly
+              pkgs.rust-analyzer
               pkgs.fenix.stable.defaultToolchain
 
               pkgsRiscv.buildPackages.gcc

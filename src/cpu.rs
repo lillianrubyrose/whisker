@@ -4,7 +4,6 @@ use crate::csr::ControlStatusRegisters;
 use crate::insn::{Instruction, IntInstruction};
 use crate::mem::Memory;
 use crate::ty::{RegisterIndex, SupportedExtensions};
-use crate::{WhiskerExecErr, WhiskerExecState};
 
 #[derive(Default, Debug)]
 pub struct Registers {
@@ -43,6 +42,20 @@ impl Registers {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WhiskerExecState {
+	Step,
+	Running,
+	Paused,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WhiskerExecStatus {
+	Stepped,
+	HitBreakpoint,
+	Paused,
+}
+
 #[derive(Debug)]
 pub struct WhiskerCpu {
 	pub supported_extensions: SupportedExtensions,
@@ -74,7 +87,7 @@ impl WhiskerCpu {
 			breakpoints: HashSet::default(),
 		}
 	}
-	pub fn execute_one(&mut self) -> Result<(), WhiskerExecErr> {
+	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		if self.should_trap {
 			todo!("impl trap")
 		}
@@ -83,7 +96,7 @@ impl WhiskerCpu {
 		let start_pc = self.registers.pc;
 
 		if self.breakpoints.contains(&start_pc) {
-			return Err(WhiskerExecErr::HitBreakpoint);
+			return Err(WhiskerExecStatus::HitBreakpoint);
 		}
 
 		match Instruction::fetch_instruction(self) {
@@ -102,27 +115,32 @@ impl WhiskerCpu {
 		}
 	}
 
-	// If this routine returns [None] then there's incoming GDB data
-	pub fn execute<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Result<(), WhiskerExecErr> {
-		match self.exec_state {
-			WhiskerExecState::Step => {
-				self.execute_one()?;
-				Err(WhiskerExecErr::Stepped)
-			}
-			WhiskerExecState::Running => loop {
-				if self.should_poll() && poll_incoming_data() {
-					return Ok(());
-				}
-				self.execute_one()?;
-			},
-			WhiskerExecState::Paused => Err(WhiskerExecErr::Paused),
-		}
-	}
-
 	pub fn request_trap(&mut self, trap: u64) {
 		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
 		self.csrs.write_mcause(trap);
 		self.should_trap = true;
+	}
+
+	/// If this routine returns [None] then there's incoming GDB data
+	/// otherwise it returns the status of executing the cpu.
+	/// this function may block until data comes from GDB
+	pub fn exec_gdb<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Option<WhiskerExecStatus> {
+		match self.exec_state {
+			WhiskerExecState::Step => match self.execute_one() {
+				Ok(()) => Some(WhiskerExecStatus::Stepped),
+				Err(e) => Some(e),
+			},
+			WhiskerExecState::Running => loop {
+				if self.should_poll() && poll_incoming_data() {
+					return None;
+				}
+
+				if let Err(e) = self.execute_one() {
+					return Some(e);
+				}
+			},
+			WhiskerExecState::Paused => Some(WhiskerExecStatus::Paused),
+		}
 	}
 }
 

@@ -6,10 +6,6 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 pub struct RegisterIndex(u8);
 
 impl RegisterIndex {
-	pub const ZERO: RegisterIndex = Self(0);
-	pub const LINK_REG: RegisterIndex = Self(1);
-	pub const SP: RegisterIndex = Self(0);
-
 	pub fn new(idx: u8) -> Option<Self> {
 		if idx <= 31 {
 			Some(Self(idx))
@@ -23,6 +19,15 @@ impl RegisterIndex {
 		debug_assert!(self.0 <= 31);
 		usize::from(self.0 & 0b11111)
 	}
+}
+
+#[allow(unused)]
+impl RegisterIndex {
+	pub const ZERO: RegisterIndex = Self(0);
+	pub const LINK_REG: RegisterIndex = Self(1);
+	pub const SP: RegisterIndex = Self(2);
+	pub const GLOBAL_PTR: RegisterIndex = Self(3);
+	pub const THREAD_PTR: RegisterIndex = Self(4);
 }
 
 impl Debug for RegisterIndex {

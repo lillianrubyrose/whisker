@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use log::trace;
+
 use crate::csr::ControlStatusRegisters;
 use crate::insn::{Instruction, IntInstruction};
 use crate::mem::Memory;
@@ -89,8 +91,7 @@ impl WhiskerCpu {
 	}
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		if self.should_trap {
-			let cause = self.csrs.read_mcause();
-			todo!("impl trap mcause={cause:#018X}")
+			return self.exec_trap();
 		}
 
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
@@ -146,6 +147,19 @@ impl WhiskerCpu {
 }
 
 impl WhiskerCpu {
+	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
+		let cause = self.csrs.read_mcause();
+		trace!("executing trap mcause={cause:#018X}");
+		let mtvec = self.csrs.read_mtvec();
+		trace!("trap handler at {mtvec:#018X}");
+
+		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
+		self.registers.pc = mtvec;
+		// make it so that the next execution cycle of the cpu doesn't go here
+		self.should_trap = false;
+		Ok(())
+	}
+
 	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {
 		match insn {
 			IntInstruction::LoadUpperImmediate { dst, val } => {

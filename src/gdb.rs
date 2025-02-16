@@ -17,7 +17,7 @@ use gdbstub::{
 };
 use gdbstub_arch::riscv::Riscv64;
 
-use crate::{WhiskerCpu, WhiskerExecState};
+use crate::{WhiskerCpu, WhiskerExecErr, WhiskerExecState};
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
 	let sockaddr = format!("127.0.0.1:{}", 2424);
@@ -162,16 +162,16 @@ impl BlockingEventLoop for WhiskerEventLoop {
 	> {
 		let poll_incoming_data = || conn.peek().map(|b| b.is_some()).unwrap_or(true);
 		match target.execute(poll_incoming_data) {
-			None => {
+			Ok(()) => {
 				return Ok(Event::IncomingData(
 					conn.read().map_err(WaitForStopReasonError::Connection)?,
 				));
 			}
-			Some(res) => {
+			Err(res) => {
 				let reason = match res {
-					crate::WhiskerExecResult::Stepped => SingleThreadStopReason::DoneStep,
-					crate::WhiskerExecResult::Paused => SingleThreadStopReason::Signal(Signal::SIGINT),
-					crate::WhiskerExecResult::HitBreakpoint => SingleThreadStopReason::SwBreak(()),
+					WhiskerExecErr::Stepped => SingleThreadStopReason::DoneStep,
+					WhiskerExecErr::Paused => SingleThreadStopReason::Signal(Signal::SIGINT),
+					WhiskerExecErr::HitBreakpoint => SingleThreadStopReason::SwBreak(()),
 				};
 				Ok(Event::TargetStopped(reason))
 			}

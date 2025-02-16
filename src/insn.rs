@@ -1,5 +1,5 @@
 use crate::ty::RegisterIndex;
-use crate::WhiskerCpu;
+use crate::{SupportedExtensions, WhiskerCpu};
 
 #[derive(Debug)]
 pub enum IntInstruction {
@@ -743,22 +743,43 @@ impl Instruction {
 		}
 	}
 
-	pub fn fetch_instruction(cpu: &mut WhiskerCpu) -> Instruction {
-		assert!(cpu.registers.pc % 2 == 0);
+	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
+	pub fn fetch_instruction(cpu: &mut WhiskerCpu) -> Result<(Instruction, u64), ()> {
+		let pc = cpu.registers.pc;
+		assert!(pc % 2 == 0);
 
-		let parcel1 = cpu.mem.read_u16(cpu.registers.pc);
+		let parcel1 = cpu.mem.read_u16(pc);
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
-			todo!("16bit instruction");
+			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+				todo!("implement 16bit instruction")
+			} else {
+				// FIXME: add exception consts
+				cpu.request_trap(2);
+				Err(())
+			}
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
-			let full_parcel = cpu.mem.read_u32(cpu.registers.pc);
-			cpu.registers.pc += 4;
-			Self::parse_32bit_instruction(full_parcel)
+			let full_parcel = cpu.mem.read_u32(pc);
+			Ok((Self::parse_32bit_instruction(full_parcel), 4))
 		} else if extract_bits_16(parcel1, 0, 5) == 0b011111 {
-			todo!("48bit instruction");
+			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+				todo!("implement 48bit instruction")
+			} else {
+				// FIXME: add exception consts
+				cpu.request_trap(2);
+				Err(())
+			}
 		} else if extract_bits_16(parcel1, 0, 6) == 0b0111111 {
-			todo!("64bit instruction");
+			if cpu.supported_extensions.has(SupportedExtensions::COMPRESSED) {
+				todo!("implement 64bit instruction")
+			} else {
+				// FIXME: add exception consts
+				cpu.request_trap(2);
+				Err(())
+			}
 		} else {
-			unimplemented!("{parcel1:#018b}")
+			// FIXME: add exception consts
+			cpu.request_trap(2);
+			Err(())
 		}
 	}
 }

@@ -7,6 +7,12 @@ pub struct Memory {
 	mappings: HashMap<PageBase, PageEntry>,
 }
 
+impl Debug for Memory {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Memory").finish_non_exhaustive()
+	}
+}
+
 impl Memory {
 	pub fn new(size: u64) -> Self {
 		assert!(size % PAGE_SIZE == 0);

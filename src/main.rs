@@ -1,3 +1,4 @@
+mod csr;
 mod gdb;
 mod insn;
 mod mem;
@@ -13,6 +14,7 @@ use std::path::PathBuf;
 
 use clap::{command, Parser, Subcommand};
 
+use csr::ControlStatusRegisters;
 use gdb::WhiskerEventLoop;
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
@@ -24,14 +26,35 @@ use ty::RegisterIndex;
 pub struct SupportedExtensions(u64);
 
 impl SupportedExtensions {
-	pub const INTEGER: SupportedExtensions = SupportedExtensions(0b1);
+	pub const ATOMIC: Self = Self(1 << 0);
+	pub const B: Self = Self(1 << 1);
+	pub const COMPRESSED: Self = Self(1 << 2);
+	pub const DOUBLE: Self = Self(1 << 3);
+	pub const E: Self = Self(1 << 4);
+	pub const FLOAT: Self = Self(1 << 5);
+	pub const G_RESERVED: Self = Self(1 << 6);
+	pub const HYPERVISOR: Self = Self(1 << 7);
+	pub const INTEGER: Self = Self(1 << 8);
+	pub const J_RESERVED: Self = Self(1 << 9);
+	pub const K_RESERVED: Self = Self(1 << 10);
+	pub const L_RESERVED: Self = Self(1 << 11);
+	pub const MULTIPLY: Self = Self(1 << 12);
+	pub const N_RESERVED: Self = Self(1 << 13);
+	pub const O_RESERVED: Self = Self(1 << 14);
+	pub const P_RESERVED: Self = Self(1 << 15);
+	pub const QUAD_FLOAT: Self = Self(1 << 16);
+	pub const R_RESERVED: Self = Self(1 << 17);
+	pub const SUPERVISOR: Self = Self(1 << 18);
+	pub const T_RESERVED: Self = Self(1 << 19);
+	pub const USER_MODE: Self = Self(1 << 20);
+	pub const VECTOR: Self = Self(1 << 21);
+	pub const W_RESERVED: Self = Self(1 << 22);
+	pub const NON_STANDARD: Self = Self(1 << 23);
+	pub const Y_RESERVED: Self = Self(1 << 24);
+	pub const Z_RESERVED: Self = Self(1 << 25);
 
 	pub const fn empty() -> Self {
 		SupportedExtensions(0)
-	}
-
-	pub const fn all() -> Self {
-		SupportedExtensions(u64::MAX)
 	}
 
 	pub const fn has(self, other: Self) -> bool {
@@ -82,6 +105,12 @@ impl Not for SupportedExtensions {
 	}
 }
 
+impl Default for SupportedExtensions {
+	fn default() -> Self {
+		Self::INTEGER
+	}
+}
+
 #[derive(Default, Debug)]
 pub struct Registers {
 	x: [u64; 31],
@@ -109,22 +138,29 @@ impl Registers {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
 	Step,
 	Running,
 	Paused,
 }
 
-pub enum WhiskerExecResult {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WhiskerExecErr {
 	Stepped,
 	HitBreakpoint,
 	Paused,
 }
 
+#[derive(Debug)]
 pub struct WhiskerCpu {
 	pub supported_extensions: SupportedExtensions,
 	pub mem: Memory,
 	pub registers: Registers,
+
+	should_trap: bool,
+
+	pub csrs: ControlStatusRegisters,
 
 	pub cycles: u64,
 	pub exec_state: WhiskerExecState,
@@ -138,6 +174,10 @@ impl WhiskerCpu {
 			supported_extensions,
 			mem,
 			registers: Registers::default(),
+
+			should_trap: false,
+			csrs: ControlStatusRegisters::new(),
+
 			cycles: 0,
 			exec_state: WhiskerExecState::Paused,
 			breakpoints: HashSet::default(),
@@ -375,21 +415,32 @@ impl WhiskerCpu {
 		}
 	}
 
-	pub fn execute_one(&mut self) -> Option<WhiskerExecResult> {
+	pub fn execute_one(&mut self) -> Result<(), WhiskerExecErr> {
+		if self.should_trap {
+			todo!("impl trap")
+		}
+
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
 		let start_pc = self.registers.pc;
 
 		if self.breakpoints.contains(&start_pc) {
-			return Some(WhiskerExecResult::HitBreakpoint);
+			return Err(WhiskerExecErr::HitBreakpoint);
 		}
 
-		// increments pc to past the end of the instruction
-		let insn = Instruction::fetch_instruction(self);
-		match insn {
-			Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
+		match Instruction::fetch_instruction(self) {
+			Ok((inst, size)) => {
+				match inst {
+					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
+				}
+				self.cycles += 1;
+				self.registers.pc = self.registers.pc.wrapping_add(size);
+				Ok(())
+			}
+			Err(()) => {
+				// error during instruction decoding, trap was requested
+				Ok(())
+			}
 		}
-		self.cycles += 1;
-		None
 	}
 
 	fn should_poll(&self) -> bool {
@@ -397,33 +448,32 @@ impl WhiskerCpu {
 	}
 
 	// If this routine returns [None] then there's incoming GDB data
-	pub fn execute<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Option<WhiskerExecResult> {
+	pub fn execute<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Result<(), WhiskerExecErr> {
 		match self.exec_state {
-			WhiskerExecState::Step => self.execute_one().or_else(|| Some(WhiskerExecResult::Stepped)),
+			WhiskerExecState::Step => {
+				self.execute_one()?;
+				Err(WhiskerExecErr::Stepped)
+			}
 			WhiskerExecState::Running => loop {
 				if self.should_poll() && poll_incoming_data() {
-					return None;
+					return Ok(());
 				}
-
-				if let Some(res) = self.execute_one() {
-					return Some(res);
-				}
+				self.execute_one()?;
 			},
-			WhiskerExecState::Paused => Some(WhiskerExecResult::Paused),
+			WhiskerExecState::Paused => Err(WhiskerExecErr::Paused),
 		}
+	}
+
+	fn request_trap(&mut self, trap: u64) {
+		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
+		self.csrs.write_mcause(trap);
+		self.should_trap = true;
 	}
 }
 
 impl Default for WhiskerCpu {
 	fn default() -> Self {
-		Self {
-			supported_extensions: SupportedExtensions::all(),
-			mem: Memory::new(0x10001000),
-			exec_state: WhiskerExecState::Paused,
-			cycles: 0,
-			registers: Default::default(),
-			breakpoints: HashSet::default(),
-		}
+		Self::new(SupportedExtensions::default(), Memory::new(0x40_0000))
 	}
 }
 

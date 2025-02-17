@@ -112,12 +112,12 @@ impl SupportedExtensions {
 		(self.0 & other.0) == other.0
 	}
 
-	pub fn insert(&mut self, other: Self) -> &mut Self {
+	pub const fn insert(&mut self, other: Self) -> &mut Self {
 		self.0 |= other.0;
 		self
 	}
 
-	pub fn remove(&mut self, other: Self) -> &mut Self {
+	pub const fn remove(&mut self, other: Self) -> &mut Self {
 		self.0 &= !other.0;
 		self
 	}
@@ -158,7 +158,7 @@ impl Not for SupportedExtensions {
 
 impl Default for SupportedExtensions {
 	fn default() -> Self {
-		Self::INTEGER
+		Self::INTEGER & Self::FLOAT
 	}
 }
 

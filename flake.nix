@@ -52,6 +52,7 @@
               pkgs.fenix.stable.defaultToolchain
 
               pkgsRiscv.buildPackages.gcc
+              pkgsRiscv.buildPackages.gdb
               pkgsRiscv.buildPackages.binutils
             ];
           };

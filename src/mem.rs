@@ -115,10 +115,11 @@ impl Debug for PageBase {
 
 macro_rules! impl_mem_rw {
 	($($ty:ty),*) => {
+		#[allow(unused)]
 		impl Memory {
 			$(paste::paste!{
 				pub fn [<read_ $ty>](&self, offset: u64) -> Result<$ty, u64> {
-					let mut buf = <$ty>::to_le_bytes(0);
+					let mut buf = <$ty>::to_le_bytes($ty::default());
 					self.read_slice(offset, &mut buf)?;
 					Ok(<$ty>::from_le_bytes(buf))
 				}
@@ -132,7 +133,7 @@ macro_rules! impl_mem_rw {
 	};
 }
 
-impl_mem_rw!(u8, u16, u32, u64);
+impl_mem_rw!(u8, u16, u32, u64, f32, f64);
 
 #[derive(Default)]
 pub struct MemoryBuilder {

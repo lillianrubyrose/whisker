@@ -1,5 +1,6 @@
 use std::net::{TcpListener, TcpStream};
 
+use gdbstub::arch::{Arch, Registers};
 use gdbstub::target::TargetError;
 use gdbstub::{
 	common::Signal,
@@ -16,7 +17,7 @@ use gdbstub::{
 		Target,
 	},
 };
-use gdbstub_arch::riscv::Riscv64;
+use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
 use crate::WhiskerCpu;
@@ -32,10 +33,95 @@ pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
 	Ok(stream)
 }
 
+pub struct Rv64Arch;
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
+pub struct Rv64Regs {
+	pub x: [u64; 32],
+	pub f: [f64; 32],
+	pub pc: u64,
+}
+
+impl Registers for Rv64Regs {
+	type ProgramCounter = u64;
+
+	fn pc(&self) -> Self::ProgramCounter {
+		self.pc
+	}
+
+	fn gdb_serialize(&self, mut write_byte: impl FnMut(Option<u8>)) {
+		macro_rules! write_le_bytes {
+			($value:expr) => {
+				let bytes = $value.to_le_bytes();
+				for b in bytes {
+					write_byte(Some(b));
+				}
+			};
+		}
+
+		// Write GPRs
+		for reg in self.x.iter() {
+			write_le_bytes!(reg);
+		}
+
+		// Program Counter is regnum 33
+		write_le_bytes!(&self.pc);
+
+		// Write FPRs
+		for reg in self.f.iter() {
+			write_le_bytes!(reg);
+		}
+	}
+
+	fn gdb_deserialize(&mut self, bytes: &[u8]) -> Result<(), ()> {
+		let ptrsize = core::mem::size_of::<u64>();
+
+		// ensure bytes.chunks_exact(ptrsize) won't panic
+		if bytes.len() % ptrsize != 0 {
+			return Err(());
+		}
+
+		let mut regs = bytes
+			.chunks_exact(ptrsize)
+			.map(|c| u64::from_le_bytes(c.try_into().expect("to be optimized out")));
+
+		// Read GPRs
+		for reg in self.x.iter_mut() {
+			*reg = regs.next().ok_or(())?
+		}
+		self.pc = regs.next().ok_or(())?;
+
+		// Read FPRs
+		for reg in self.f.iter_mut() {
+			*reg = f64::from_bits(regs.next().ok_or(())?)
+		}
+
+		if regs.next().is_some() {
+			return Err(());
+		}
+
+		Ok(())
+	}
+}
+
+impl Arch for Rv64Arch {
+	type Usize = u64;
+
+	type Registers = Rv64Regs;
+
+	type BreakpointKind = usize;
+
+	type RegId = RiscvRegId<u64>;
+
+	fn target_description_xml() -> Option<&'static str> {
+		Some(include_str!("../assets/rv64.xml"))
+	}
+}
+
 pub struct WhiskerEventLoop;
 
 impl Target for WhiskerCpu {
-	type Arch = Riscv64;
+	type Arch = Rv64Arch;
 
 	type Error = ();
 
@@ -46,6 +132,10 @@ impl Target for WhiskerCpu {
 	fn support_breakpoints(&mut self) -> Option<gdbstub::target::ext::breakpoints::BreakpointsOps<'_, Self>> {
 		Some(self)
 	}
+
+	fn use_target_description_xml(&self) -> bool {
+		true
+	}
 }
 
 impl SingleThreadBase for WhiskerCpu {
@@ -54,7 +144,8 @@ impl SingleThreadBase for WhiskerCpu {
 		regs: &mut <Self::Arch as gdbstub::arch::Arch>::Registers,
 	) -> gdbstub::target::TargetResult<(), Self> {
 		regs.x.copy_from_slice(self.registers.regs());
-		regs.pc = self.registers.pc;
+		regs.f.copy_from_slice(self.fp_registers.regs());
+		regs.pc = self.pc;
 		Ok(())
 	}
 
@@ -64,7 +155,8 @@ impl SingleThreadBase for WhiskerCpu {
 	) -> gdbstub::target::TargetResult<(), Self> {
 		assert_eq!(regs.x[0], 0, "tried to write non-zero to x0(zero) register");
 		self.registers.set_all(&regs.x);
-		self.registers.pc = regs.pc;
+		self.fp_registers.set_all(&regs.f);
+		self.pc = regs.pc;
 		Ok(())
 	}
 

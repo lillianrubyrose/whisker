@@ -12,6 +12,7 @@ compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{fs, io};
 
 use clap::{command, Parser, Subcommand};
@@ -26,9 +27,6 @@ use crate::ty::{RegisterIndex, SupportedExtensions};
 #[derive(Debug, Parser)]
 #[command(version)]
 struct CliArgs {
-	#[arg(short = 'g', long)]
-	gdb: bool,
-
 	#[command(subcommand)]
 	command: Commands,
 }
@@ -36,11 +34,22 @@ struct CliArgs {
 #[derive(Debug, Subcommand)]
 enum Commands {
 	Run {
+		#[arg(short = 'g', long)]
+		use_gdb: bool,
 		#[arg()]
 		bootrom: PathBuf,
-		#[arg(long, default_value_t = 0)]
+		#[arg(long, value_parser = parse_dec_or_hex)]
 		bootrom_offset: u64,
 	},
+}
+
+fn parse_dec_or_hex(s: &str) -> Result<u64, <u64 as FromStr>::Err> {
+	if let Some(hex) = s.strip_prefix("0x") {
+		u64::from_str_radix(hex, 16)
+	} else {
+		// try decimal and non-prefixed hex
+		u64::from_str_radix(s, 10).or_else(|_| u64::from_str_radix(s, 16))
+	}
 }
 
 fn main() {
@@ -49,11 +58,12 @@ fn main() {
 
 	match cli.command {
 		Commands::Run {
+			use_gdb: gdb,
 			bootrom,
 			bootrom_offset,
 		} => {
 			let cpu = init_cpu(bootrom, bootrom_offset);
-			if cli.gdb {
+			if gdb {
 				run_gdb(cpu);
 			} else {
 				run_normal(cpu);
@@ -66,7 +76,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 
 	let mem = MemoryBuilder::default()
-		.bootrom(prog.into_boxed_slice(), PageBase::from_addr(bootrom_offset))
+		.bootrom(prog, PageBase::from_addr(bootrom_offset))
 		.physical_size(0x40_000)
 		.phys_mapping(PageBase::from_addr(0x1_0000), PageBase::from_addr(0), 0x40_000)
 		// MMIO UART mapping

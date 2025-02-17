@@ -19,6 +19,7 @@ impl Memory {
 	/// the reading primitive that does page lookups and such
 	/// returns Ok if the read succeeded, or Err(virt) if the read failed
 	/// where virt is the failing virtual address
+	#[track_caller]
 	pub fn read_slice(&self, offset: u64, buf: &mut [u8]) -> Result<(), u64> {
 		for (idx, val) in buf.iter_mut().enumerate() {
 			let offset = offset + idx as u64;
@@ -47,6 +48,7 @@ impl Memory {
 	/// the writing primitive that does page lookups and such
 	/// returns Ok if the write succeeded, or Err(virt) if the write
 	/// where virt is the failing virtual address
+	#[track_caller]
 	pub fn write_slice(&mut self, offset: u64, val: &[u8]) -> Result<(), u64> {
 		for (idx, val) in val.into_iter().enumerate() {
 			let offset = offset + idx as u64;
@@ -64,6 +66,8 @@ impl Memory {
 				PageEntry::MMIO { on_write, .. } => {
 					on_write(offset, *val);
 				}
+				// writing to bootrom is allowed, this makes it easier to write bootrom code
+				// without having to do loader shenanigans
 				PageEntry::Bootrom { page_base } => {
 					self.bootrom[(page_base + page_offset) as usize] = *val;
 				}
@@ -84,6 +88,10 @@ pub enum PageEntry {
 		on_read: Box<dyn Fn(u64) -> u8>,
 		on_write: Box<dyn Fn(u64, u8)>,
 	},
+}
+
+fn align_to_page(addr: u64) -> u64 {
+	(addr + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1)
 }
 
 const PAGE_SIZE: u64 = 4096;
@@ -139,9 +147,11 @@ pub struct MemoryBuilder {
 }
 
 impl MemoryBuilder {
-	pub fn bootrom(mut self, bootrom: Box<[u8]>, addr: PageBase) -> Self {
+	pub fn bootrom(mut self, mut bootrom: Vec<u8>, addr: PageBase) -> Self {
 		assert!(self.bootrom.is_none(), "cannot set bootrom more than once");
-		self.bootrom = Some((bootrom, addr));
+		let padded_len = align_to_page(bootrom.len() as u64);
+		bootrom.resize(padded_len as usize, 0_u8);
+		self.bootrom = Some((bootrom.into_boxed_slice(), addr));
 		self
 	}
 

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use log::trace;
+use log::*;
 
 use crate::csr::ControlStatusRegisters;
 use crate::insn::int::IntInstruction;
@@ -120,6 +120,7 @@ impl WhiskerCpu {
 	}
 
 	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
+		trace!("requesting trap kind cause={:#018X} mtval={mtval:#018X}", trap.inner());
 		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
 		self.csrs.write_mcause(trap.inner());
 		self.csrs.write_mtval(mtval);

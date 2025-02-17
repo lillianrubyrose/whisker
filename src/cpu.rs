@@ -577,14 +577,18 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn execute_f_insn(&mut self, insn: FloatInstruction, start_pc: u64) {
+	fn execute_f_insn(&mut self, insn: FloatInstruction, _start_pc: u64) {
 		match insn {
 			FloatInstruction::FloatLoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
 				let val = read_mem_f32!(self, offset) as f64;
 				self.fp_registers.set(dst, val);
 			}
-			FloatInstruction::FloatStoreWord { dst, dst_offset, src } => todo!(),
+			FloatInstruction::FloatStoreWord { dst, dst_offset, src } => {
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src) as u32;
+				write_mem_u32!(self, offset, val);
+			}
 		}
 	}
 

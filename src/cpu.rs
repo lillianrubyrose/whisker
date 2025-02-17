@@ -91,6 +91,7 @@ impl WhiskerCpu {
 		}
 	}
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
+		self.cycles += 1;
 		if self.should_trap {
 			return self.exec_trap();
 		}
@@ -104,11 +105,11 @@ impl WhiskerCpu {
 
 		match Instruction::fetch_instruction(self) {
 			Ok((inst, size)) => {
+				trace!("fetched {:#?}", inst);
 				self.registers.pc = self.registers.pc.wrapping_add(size);
 				match inst {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 				}
-				self.cycles += 1;
 				Ok(())
 			}
 			Err(()) => {
@@ -265,7 +266,7 @@ impl WhiskerCpu {
 				self.registers.set(dst, val as u64);
 			}
 			IntInstruction::AddUpperImmediateToPc { dst, val } => {
-				self.registers.set(dst, self.registers.pc.wrapping_add_signed(val));
+				self.registers.set(dst, start_pc.wrapping_add_signed(val));
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);

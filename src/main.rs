@@ -69,7 +69,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		.write_slice(bootrom_offset, prog.as_slice())
 		.expect("could not write bootrom to memory");
 
-	cpu.registers.pc = bootrom_offset;
+	cpu.pc = bootrom_offset;
 	cpu.registers.set(RegisterIndex::SP, 0x7FFF);
 	cpu
 }

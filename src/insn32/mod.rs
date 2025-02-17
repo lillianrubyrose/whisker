@@ -1,7 +1,9 @@
 pub mod branch;
+pub mod float;
 pub mod int;
 pub mod jalr;
 pub mod load;
+pub mod load_fp;
 pub mod op;
 pub mod op_imm;
 pub mod op_imm_32;
@@ -22,7 +24,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 	use consts::opcode::*;
 	match opcode_ty {
 		LOAD => load::parse_load(cpu, parcel),
-		LOAD_FP => todo!("LOAD_FP"),
+		LOAD_FP => load_fp::parse_load_fp(cpu, parcel),
 		CUSTOM_0 => todo!("CUSTOM_0"),
 		MISC_MEM => todo!("MISC_MEM"),
 		OP_IMM => op_imm::parse_op_imm(cpu, parcel),

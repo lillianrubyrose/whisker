@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2018-2024 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- Register numbers are hard-coded in order to maintain backward
+     compatibility with older versions of tools that didn't use xml
+     register descriptions.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<target>
+    <feature name="org.gnu.gdb.riscv.cpu">
+      <reg name="zero" bitsize="64" type="int" regnum="0"/>
+      <reg name="ra" bitsize="64" type="code_ptr"/>
+      <reg name="sp" bitsize="64" type="data_ptr"/>
+      <reg name="gp" bitsize="64" type="data_ptr"/>
+      <reg name="tp" bitsize="64" type="data_ptr"/>
+      <reg name="t0" bitsize="64" type="int"/>
+      <reg name="t1" bitsize="64" type="int"/>
+      <reg name="t2" bitsize="64" type="int"/>
+      <reg name="fp" bitsize="64" type="data_ptr"/>
+      <reg name="s1" bitsize="64" type="int"/>
+      <reg name="a0" bitsize="64" type="int"/>
+      <reg name="a1" bitsize="64" type="int"/>
+      <reg name="a2" bitsize="64" type="int"/>
+      <reg name="a3" bitsize="64" type="int"/>
+      <reg name="a4" bitsize="64" type="int"/>
+      <reg name="a5" bitsize="64" type="int"/>
+      <reg name="a6" bitsize="64" type="int"/>
+      <reg name="a7" bitsize="64" type="int"/>
+      <reg name="s2" bitsize="64" type="int"/>
+      <reg name="s3" bitsize="64" type="int"/>
+      <reg name="s4" bitsize="64" type="int"/>
+      <reg name="s5" bitsize="64" type="int"/>
+      <reg name="s6" bitsize="64" type="int"/>
+      <reg name="s7" bitsize="64" type="int"/>
+      <reg name="s8" bitsize="64" type="int"/>
+      <reg name="s9" bitsize="64" type="int"/>
+      <reg name="s10" bitsize="64" type="int"/>
+      <reg name="s11" bitsize="64" type="int"/>
+      <reg name="t3" bitsize="64" type="int"/>
+      <reg name="t4" bitsize="64" type="int"/>
+      <reg name="t5" bitsize="64" type="int"/>
+      <reg name="t6" bitsize="64" type="int"/>
+      <reg name="pc" bitsize="64" type="code_ptr"/>
+    </feature>
+
+    <feature name="org.gnu.gdb.whisker-rv64-fp">
+      <union id="riscv_double">
+        <field name="float" type="ieee_single"/>
+        <field name="double" type="ieee_double"/>
+      </union>
+
+      <reg name="fp0" bitsize="64"  type="riscv_double" regnum="33"/>
+      <reg name="fp1" bitsize="64"  type="riscv_double"/>
+      <reg name="fp2" bitsize="64"  type="riscv_double"/>
+      <reg name="fp3" bitsize="64"  type="riscv_double"/>
+      <reg name="fp4" bitsize="64"  type="riscv_double"/>
+      <reg name="fp5" bitsize="64"  type="riscv_double"/>
+      <reg name="fp6" bitsize="64"  type="riscv_double"/>
+      <reg name="fp7" bitsize="64"  type="riscv_double"/>
+      <reg name="fp8" bitsize="64"  type="riscv_double"/>
+      <reg name="fp9" bitsize="64"  type="riscv_double"/>
+      <reg name="fp10" bitsize="64" type="riscv_double"/>
+      <reg name="fp11" bitsize="64" type="riscv_double"/>
+      <reg name="fp12" bitsize="64" type="riscv_double"/>
+      <reg name="fp13" bitsize="64" type="riscv_double"/>
+      <reg name="fp14" bitsize="64" type="riscv_double"/>
+      <reg name="fp15" bitsize="64" type="riscv_double"/>
+      <reg name="fp16" bitsize="64" type="riscv_double"/>
+      <reg name="fp17" bitsize="64" type="riscv_double"/>
+      <reg name="fp18" bitsize="64" type="riscv_double"/>
+      <reg name="fp19" bitsize="64" type="riscv_double"/>
+      <reg name="fp20" bitsize="64" type="riscv_double"/>
+      <reg name="fp21" bitsize="64" type="riscv_double"/>
+      <reg name="fp22" bitsize="64" type="riscv_double"/>
+      <reg name="fp23" bitsize="64" type="riscv_double"/>
+      <reg name="fp24" bitsize="64" type="riscv_double"/>
+      <reg name="fp25" bitsize="64" type="riscv_double"/>
+      <reg name="fp26" bitsize="64" type="riscv_double"/>
+      <reg name="fp27" bitsize="64" type="riscv_double"/>
+      <reg name="fp28" bitsize="64" type="riscv_double"/>
+      <reg name="fp29" bitsize="64" type="riscv_double"/>
+      <reg name="fp30" bitsize="64" type="riscv_double"/>
+      <reg name="fp31" bitsize="64" type="riscv_double"/>
+    </feature>
+</target>

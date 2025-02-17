@@ -3,19 +3,33 @@ use std::collections::HashSet;
 use log::trace;
 
 use crate::csr::ControlStatusRegisters;
+use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::ty::{RegisterIndex, SupportedExtensions, TrapIdx};
 
-#[derive(Default, Debug)]
-pub struct Registers {
-	x: [u64; 32],
+pub type GPRegisters = Registers<u64>;
+pub type FPRegisters = Registers<f64>;
 
-	pub pc: u64,
+#[derive(Default, Debug)]
+pub struct Registers<T>
+where
+	T: Copy,
+{
+	x: [T; 32],
 }
 
-impl Registers {
+impl<T> Registers<T>
+where
+	T: Copy,
+{
+	pub fn regs(&self) -> &[T; 32] {
+		&self.x
+	}
+}
+
+impl GPRegisters {
 	pub fn get(&self, index: RegisterIndex) -> u64 {
 		let index = index.as_usize();
 		if index == 0 {
@@ -34,14 +48,27 @@ impl Registers {
 		}
 	}
 
-	pub fn regs(&self) -> &[u64; 32] {
-		&self.x
-	}
-
 	/// sets all general purpose registers
 	/// NOTE: writes to zero register are ignored
 	pub fn set_all(&mut self, regs: &[u64; 32]) {
 		self.x[1..].copy_from_slice(&regs[1..]);
+	}
+}
+
+impl FPRegisters {
+	pub fn get(&self, index: RegisterIndex) -> f64 {
+		let index = index.as_usize();
+		self.x[index]
+	}
+
+	pub fn set(&mut self, index: RegisterIndex, value: f64) {
+		let index = index.as_usize();
+		self.x[index] = value;
+	}
+
+	/// sets all fp registers
+	pub fn set_all(&mut self, regs: &[f64; 32]) {
+		self.x.copy_from_slice(regs);
 	}
 }
 
@@ -63,12 +90,14 @@ pub enum WhiskerExecStatus {
 pub struct WhiskerCpu {
 	pub supported_extensions: SupportedExtensions,
 	pub mem: Memory,
-	pub registers: Registers,
+	pub registers: GPRegisters,
+	pub fp_registers: FPRegisters,
 
 	should_trap: bool,
 
 	pub csrs: ControlStatusRegisters,
 
+	pub pc: u64,
 	pub cycles: u64,
 	pub exec_state: WhiskerExecState,
 
@@ -81,22 +110,25 @@ impl WhiskerCpu {
 			supported_extensions,
 			mem,
 			registers: Registers::default(),
+			fp_registers: Registers::default(),
 
 			should_trap: false,
 			csrs: ControlStatusRegisters::new(),
 
+			pc: 0,
 			cycles: 0,
 			exec_state: WhiskerExecState::Paused,
 			breakpoints: HashSet::default(),
 		}
 	}
+
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		if self.should_trap {
 			return self.exec_trap();
 		}
 
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
-		let start_pc = self.registers.pc;
+		let start_pc = self.pc;
 
 		if self.breakpoints.contains(&start_pc) {
 			return Err(WhiskerExecStatus::HitBreakpoint);
@@ -104,9 +136,10 @@ impl WhiskerCpu {
 
 		match Instruction::fetch_instruction(self) {
 			Ok((inst, size)) => {
-				self.registers.pc = self.registers.pc.wrapping_add(size);
+				self.pc = self.pc.wrapping_add(size);
 				match inst {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
+					Instruction::FloatExtension(insn) => self.execute_f_insn(insn, start_pc),
 				}
 				self.cycles += 1;
 				Ok(())
@@ -196,6 +229,30 @@ macro_rules! read_mem_u64 {
 	};
 }
 
+macro_rules! read_mem_f32 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_f32($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! read_mem_f64 {
+	($self:ident, $offset:ident) => {
+		match $self.mem.read_f64($offset) {
+			Ok(val) => val,
+			Err(addr) => {
+				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
 macro_rules! write_mem_u8 {
 	($self:ident, $offset:ident, $val:ident) => {
 		match $self.mem.write_u8($offset, $val) {
@@ -244,6 +301,30 @@ macro_rules! write_mem_u64 {
 	};
 }
 
+macro_rules! write_mem_f32 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_f32($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_f64 {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_f64($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
 impl WhiskerCpu {
 	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
 		let cause = self.csrs.read_mcause();
@@ -253,7 +334,7 @@ impl WhiskerCpu {
 		trace!("trap handler at {mtvec:#018X}");
 
 		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
-		self.registers.pc = mtvec;
+		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
 		self.should_trap = false;
 		Ok(())
@@ -265,7 +346,7 @@ impl WhiskerCpu {
 				self.registers.set(dst, val as u64);
 			}
 			IntInstruction::AddUpperImmediateToPc { dst, val } => {
-				self.registers.set(dst, self.registers.pc.wrapping_add_signed(val));
+				self.registers.set(dst, self.pc.wrapping_add_signed(val));
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
@@ -333,7 +414,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
 				self.registers.set(link_reg, start_pc + 4);
-				self.registers.pc = start_pc.wrapping_add_signed(jmp_off);
+				self.pc = start_pc.wrapping_add_signed(jmp_off);
 			}
 			IntInstruction::Add { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
@@ -391,7 +472,7 @@ impl WhiskerCpu {
 				jmp_off,
 			} => {
 				self.registers.set(link_reg, start_pc + 4);
-				self.registers.pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
+				self.pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
 			}
 
 			IntInstruction::AddImmediate { dst, lhs, rhs } => {
@@ -453,32 +534,32 @@ impl WhiskerCpu {
 			// ============
 			IntInstruction::BranchEqual { lhs, rhs, imm } => {
 				if self.registers.get(lhs) == self.registers.get(rhs) {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchNotEqual { lhs, rhs, imm } => {
 				if self.registers.get(lhs) != self.registers.get(rhs) {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThan { lhs, rhs, imm } => {
 				if (self.registers.get(lhs) as i64) < self.registers.get(rhs) as i64 {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqual { lhs, rhs, imm } => {
 				if (self.registers.get(lhs) as i64) >= self.registers.get(rhs) as i64 {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThanUnsigned { lhs, rhs, imm } => {
 				if self.registers.get(lhs) < self.registers.get(rhs) {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqualUnsigned { lhs, rhs, imm } => {
 				if self.registers.get(lhs) >= self.registers.get(rhs) {
-					self.registers.pc = start_pc.wrapping_add_signed(imm);
+					self.pc = start_pc.wrapping_add_signed(imm);
 				}
 			}
 
@@ -493,6 +574,17 @@ impl WhiskerCpu {
 				// TODO: should this do anything else?
 				self.request_trap(TrapIdx::BREAKPOINT, 0);
 			}
+		}
+	}
+
+	fn execute_f_insn(&mut self, insn: FloatInstruction, start_pc: u64) {
+		match insn {
+			FloatInstruction::FloatLoadWord { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = read_mem_f32!(self, offset) as f64;
+				self.fp_registers.set(dst, val);
+			}
+			FloatInstruction::FloatStoreWord { dst, dst_offset, src } => todo!(),
 		}
 	}
 

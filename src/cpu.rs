@@ -581,15 +581,25 @@ impl WhiskerCpu {
 
 	fn execute_f_insn(&mut self, insn: FloatInstruction, _start_pc: u64) {
 		match insn {
-			FloatInstruction::FloatLoadWord { dst, src, src_offset } => {
+			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_f32!(self, offset) as f64;
-				self.fp_registers.set(dst, val);
+				let val = read_mem_f32!(self, offset);
+				self.fp_registers.set(dst, val as f64);
 			}
-			FloatInstruction::FloatStoreWord { dst, dst_offset, src } => {
+			FloatInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src) as u32;
-				write_mem_u32!(self, offset, val);
+				let val = self.fp_registers.get(src) as f32;
+				write_mem_f32!(self, offset, val);
+			}
+			FloatInstruction::AddSinglePrecision { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get(lhs) as f32;
+				let rhs = self.fp_registers.get(rhs) as f32;
+				self.fp_registers.set(dst, f64::from(lhs + rhs));
+			}
+			FloatInstruction::SubSinglePrecision { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get(lhs) as f32;
+				let rhs = self.fp_registers.get(rhs) as f32;
+				self.fp_registers.set(dst, f64::from(lhs - rhs));
 			}
 		}
 	}

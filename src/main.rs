@@ -94,7 +94,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		)
 		.build();
 
-	let mut cpu = WhiskerCpu::new(SupportedExtensions::INTEGER, mem);
+	let mut cpu = WhiskerCpu::new(SupportedExtensions::INTEGER | SupportedExtensions::FLOAT, mem);
 
 	cpu.pc = bootrom_offset;
 	cpu.registers.set(RegisterIndex::SP, 0x1_8000);

@@ -4,7 +4,8 @@ int _start() {
   whisker_write_uart("Hello, World!");
 
   float a = 123.f;
-  a - 69.f;
+  float b = 100.f;
+  a = a - b;
 
   while (true)
     ;

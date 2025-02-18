@@ -4,15 +4,26 @@ use super::Instruction;
 
 #[derive(Debug)]
 pub enum FloatInstruction {
-	FloatLoadWord {
+	LoadWord {
 		dst: RegisterIndex,
 		src: RegisterIndex,
 		src_offset: i64,
 	},
-	FloatStoreWord {
+	StoreWord {
 		dst: RegisterIndex,
 		dst_offset: i64,
 		src: RegisterIndex,
+	},
+
+	AddSinglePrecision {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
+	},
+	SubSinglePrecision {
+		dst: RegisterIndex,
+		lhs: RegisterIndex,
+		rhs: RegisterIndex,
 	},
 }
 

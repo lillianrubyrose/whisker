@@ -7,7 +7,7 @@ use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
-use crate::ty::{RegisterIndex, SupportedExtensions, TrapIdx};
+use crate::ty::{FPRegisterIndex, GPRegisterIndex, SupportedExtensions, TrapIdx};
 
 pub type GPRegisters = Registers<u64>;
 pub type FPRegisters = Registers<f64>;
@@ -30,7 +30,7 @@ where
 }
 
 impl GPRegisters {
-	pub fn get(&self, index: RegisterIndex) -> u64 {
+	pub fn get(&self, index: GPRegisterIndex) -> u64 {
 		let index = index.as_usize();
 		if index == 0 {
 			0
@@ -39,7 +39,7 @@ impl GPRegisters {
 		}
 	}
 
-	pub fn set(&mut self, index: RegisterIndex, value: u64) {
+	pub fn set(&mut self, index: GPRegisterIndex, value: u64) {
 		let index = index.as_usize();
 		if index == 0 {
 			// writes to r0 are ignored
@@ -56,12 +56,12 @@ impl GPRegisters {
 }
 
 impl FPRegisters {
-	pub fn get(&self, index: RegisterIndex) -> f64 {
+	pub fn get(&self, index: FPRegisterIndex) -> f64 {
 		let index = index.as_usize();
 		self.x[index]
 	}
 
-	pub fn set(&mut self, index: RegisterIndex, value: f64) {
+	pub fn set(&mut self, index: FPRegisterIndex, value: f64) {
 		let index = index.as_usize();
 		self.x[index] = value;
 	}

@@ -17,7 +17,7 @@ pub use ty::*;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
-	ty::RegisterIndex,
+	ty::{RegisterIndex, UnknownRegisterIndex},
 	util::extract_bits_32,
 };
 
@@ -33,7 +33,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		AUIPC => {
 			let utype = UType::parse(parcel);
 			Ok(IntInstruction::AddUpperImmediateToPc {
-				dst: utype.dst(),
+				dst: utype.dst().to_gp(),
 				val: utype.imm(),
 			}
 			.into())
@@ -48,7 +48,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		LUI => {
 			let utype = UType::parse(parcel);
 			Ok(IntInstruction::LoadUpperImmediate {
-				dst: utype.dst(),
+				dst: utype.dst().to_gp(),
 				val: utype.imm(),
 			}
 			.into())
@@ -69,7 +69,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		JAL => {
 			let jtype = JType::parse(parcel);
 			Ok(IntInstruction::JumpAndLink {
-				link_reg: jtype.dst(),
+				link_reg: jtype.dst().to_gp(),
 				jmp_off: jtype.imm(),
 			}
 			.into())
@@ -83,15 +83,15 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 	}
 }
 
-pub fn extract_dst(inst: u32) -> RegisterIndex {
+pub fn extract_dst(inst: u32) -> UnknownRegisterIndex {
 	RegisterIndex::new(extract_bits_32(inst, 7, 11) as u8).unwrap()
 }
 
-pub fn extract_src1(inst: u32) -> RegisterIndex {
+pub fn extract_src1(inst: u32) -> UnknownRegisterIndex {
 	RegisterIndex::new(extract_bits_32(inst, 15, 19) as u8).unwrap()
 }
 
-pub fn extract_src2(inst: u32) -> RegisterIndex {
+pub fn extract_src2(inst: u32) -> UnknownRegisterIndex {
 	RegisterIndex::new(extract_bits_32(inst, 20, 24) as u8).unwrap()
 }
 
@@ -99,14 +99,14 @@ pub fn extract_src2(inst: u32) -> RegisterIndex {
 mod ty {
 	use super::{extract_dst, extract_src1, extract_src2};
 	use crate::{
-		ty::RegisterIndex,
+		ty::UnknownRegisterIndex,
 		util::{extract_bits_32, sign_ext_imm},
 	};
 
 	#[derive(Debug)]
 	pub struct IType {
-		dst: RegisterIndex,
-		src: RegisterIndex,
+		dst: UnknownRegisterIndex,
+		src: UnknownRegisterIndex,
 		func: u8,
 		imm: i64,
 	}
@@ -122,11 +122,11 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn dst(&self) -> RegisterIndex {
+		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn src(&self) -> RegisterIndex {
+		pub fn src(&self) -> UnknownRegisterIndex {
 			self.src
 		}
 		#[inline]
@@ -141,7 +141,7 @@ mod ty {
 
 	#[derive(Debug)]
 	pub struct UType {
-		dst: RegisterIndex,
+		dst: UnknownRegisterIndex,
 		imm: i64,
 	}
 
@@ -154,7 +154,7 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn dst(&self) -> RegisterIndex {
+		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
@@ -166,8 +166,8 @@ mod ty {
 	#[derive(Debug)]
 	pub struct SType {
 		func: u8,
-		src1: RegisterIndex,
-		src2: RegisterIndex,
+		src1: UnknownRegisterIndex,
+		src2: UnknownRegisterIndex,
 		imm: i64,
 	}
 
@@ -189,11 +189,11 @@ mod ty {
 			self.func
 		}
 		#[inline]
-		pub fn src1(&self) -> RegisterIndex {
+		pub fn src1(&self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> RegisterIndex {
+		pub fn src2(&self) -> UnknownRegisterIndex {
 			self.src2
 		}
 		#[inline]
@@ -204,7 +204,7 @@ mod ty {
 
 	#[derive(Debug)]
 	pub struct JType {
-		dst: RegisterIndex,
+		dst: UnknownRegisterIndex,
 		imm: i64,
 	}
 
@@ -223,7 +223,7 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn dst(&self) -> RegisterIndex {
+		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
@@ -235,9 +235,9 @@ mod ty {
 	#[derive(Debug)]
 	pub struct RType {
 		func: u16,
-		dst: RegisterIndex,
-		src1: RegisterIndex,
-		src2: RegisterIndex,
+		dst: UnknownRegisterIndex,
+		src1: UnknownRegisterIndex,
+		src2: UnknownRegisterIndex,
 	}
 
 	impl RType {
@@ -260,15 +260,15 @@ mod ty {
 			self.func
 		}
 		#[inline]
-		pub fn dst(&self) -> RegisterIndex {
+		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn src1(&self) -> RegisterIndex {
+		pub fn src1(&self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> RegisterIndex {
+		pub fn src2(&self) -> UnknownRegisterIndex {
 			self.src2
 		}
 	}
@@ -276,8 +276,8 @@ mod ty {
 	#[derive(Debug)]
 	pub struct BType {
 		func: u8,
-		src1: RegisterIndex,
-		src2: RegisterIndex,
+		src1: UnknownRegisterIndex,
+		src2: UnknownRegisterIndex,
 		imm: i64,
 	}
 
@@ -301,11 +301,11 @@ mod ty {
 			self.func
 		}
 		#[inline]
-		pub fn src1(&self) -> RegisterIndex {
+		pub fn src1(&self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> RegisterIndex {
+		pub fn src2(&self) -> UnknownRegisterIndex {
 			self.src2
 		}
 		#[inline]

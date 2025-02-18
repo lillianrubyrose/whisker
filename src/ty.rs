@@ -1,14 +1,30 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
-/// a valid register index 0..=31
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RegisterIndex(u8);
+use crate::cpu::{FPRegisters, GPRegisters};
 
-impl RegisterIndex {
+// Do we want to make specific structs for this?
+// I think it's fine to use the <X>Registers struct since it's only-
+// used for compiler help.
+pub type GPRegisterIndex = RegisterIndex<GPRegisters>;
+pub type FPRegisterIndex = RegisterIndex<FPRegisters>;
+pub type UnknownRegisterIndex = RegisterIndex<()>;
+
+/// a valid register index 0..=31
+pub struct RegisterIndex<T>(u8, PhantomData<T>);
+
+impl<T> Clone for RegisterIndex<T> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+impl<T> Copy for RegisterIndex<T> {}
+
+impl<T> RegisterIndex<T> {
 	pub fn new(idx: u8) -> Option<Self> {
 		if idx <= 31 {
-			Some(Self(idx))
+			Some(Self(idx, PhantomData))
 		} else {
 			None
 		}
@@ -21,16 +37,33 @@ impl RegisterIndex {
 	}
 }
 
-#[allow(unused)]
-impl RegisterIndex {
-	pub const ZERO: RegisterIndex = Self(0);
-	pub const LINK_REG: RegisterIndex = Self(1);
-	pub const SP: RegisterIndex = Self(2);
-	pub const GLOBAL_PTR: RegisterIndex = Self(3);
-	pub const THREAD_PTR: RegisterIndex = Self(4);
+impl UnknownRegisterIndex {
+	pub fn to_gp(self) -> GPRegisterIndex {
+		RegisterIndex(self.0, PhantomData)
+	}
+
+	pub fn to_fp(self) -> FPRegisterIndex {
+		RegisterIndex(self.0, PhantomData)
+	}
 }
 
-impl Debug for RegisterIndex {
+#[allow(unused)]
+impl GPRegisterIndex {
+	pub const ZERO: GPRegisterIndex = RegisterIndex(0, PhantomData);
+	pub const LINK_REG: GPRegisterIndex = RegisterIndex(1, PhantomData);
+	pub const SP: GPRegisterIndex = RegisterIndex(2, PhantomData);
+	pub const GLOBAL_PTR: GPRegisterIndex = RegisterIndex(3, PhantomData);
+	pub const THREAD_PTR: GPRegisterIndex = RegisterIndex(4, PhantomData);
+}
+
+impl Debug for UnknownRegisterIndex {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "Reg(")?;
+		write!(f, "{})", self.0.to_string())
+	}
+}
+
+impl Debug for GPRegisterIndex {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "Reg(")?;
 		let r = match self.0 {
@@ -69,6 +102,13 @@ impl Debug for RegisterIndex {
 			_ => unreachable!(),
 		};
 		write!(f, "{})", r)
+	}
+}
+
+impl Debug for FPRegisterIndex {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "Reg(")?;
+		write!(f, "f{})", self.0.to_string())
 	}
 }
 

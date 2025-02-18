@@ -10,8 +10,8 @@ pub fn parse_jalr(_cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()>
 	let itype = IType::parse(parcel);
 	match itype.func() {
 		JALR => Ok(IntInstruction::JumpAndLinkRegister {
-			link_reg: itype.dst(),
-			jmp_reg: itype.src(),
+			link_reg: itype.dst().to_gp(),
+			jmp_reg: itype.src().to_gp(),
 			jmp_off: itype.imm(),
 		}
 		.into()),

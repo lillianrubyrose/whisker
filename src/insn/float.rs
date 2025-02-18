@@ -1,29 +1,29 @@
-use crate::ty::RegisterIndex;
+use crate::ty::{FPRegisterIndex, GPRegisterIndex};
 
 use super::Instruction;
 
 #[derive(Debug)]
 pub enum FloatInstruction {
 	LoadWord {
-		dst: RegisterIndex,
-		src: RegisterIndex,
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
 		src_offset: i64,
 	},
 	StoreWord {
-		dst: RegisterIndex,
+		dst: GPRegisterIndex,
 		dst_offset: i64,
-		src: RegisterIndex,
+		src: FPRegisterIndex,
 	},
 
 	AddSinglePrecision {
-		dst: RegisterIndex,
-		lhs: RegisterIndex,
-		rhs: RegisterIndex,
+		dst: FPRegisterIndex,
+		lhs: FPRegisterIndex,
+		rhs: FPRegisterIndex,
 	},
 	SubSinglePrecision {
-		dst: RegisterIndex,
-		lhs: RegisterIndex,
-		rhs: RegisterIndex,
+		dst: FPRegisterIndex,
+		lhs: FPRegisterIndex,
+		rhs: FPRegisterIndex,
 	},
 }
 

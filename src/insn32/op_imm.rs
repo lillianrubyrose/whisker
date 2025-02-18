@@ -40,6 +40,6 @@ pub mod consts {
 	pub const OR_IMM: u8 = 0b110;
 	pub const AND_IMM: u8 = 0b111;
 
-	pub const SHIFT_LOGICAL: u8 = 0b0000000;
-	pub const SHIFT_ARITHMETIC: u8 = 0b0100000;
+	pub const SHIFT_LOGICAL: u8 = 0b000000;
+	pub const SHIFT_ARITHMETIC: u8 = 0b010000;
 }

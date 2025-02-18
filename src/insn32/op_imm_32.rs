@@ -27,6 +27,6 @@ pub mod consts {
 	pub const SHIFT_LEFT_IMM_WORD: u8 = 0b001;
 	pub const SHIFT_RIGHT_IMM_WORD: u8 = 0b101;
 
-	pub const SHIFT_LOGICAL: u8 = 0b0000000;
-	pub const SHIFT_ARITHMETIC: u8 = 0b0100000;
+	pub const SHIFT_LOGICAL: u8 = 0b000000;
+	pub const SHIFT_ARITHMETIC: u8 = 0b010000;
 }

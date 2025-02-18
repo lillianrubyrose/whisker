@@ -95,8 +95,8 @@ impl IntInstruction {
 				rhs: itype.imm(),
 			},
 			SHIFT_LEFT_IMM | SHIFT_RIGHT_IMM => {
-				let shift_amt = extract_bits_32(itype.imm() as u32, 5, 11) as u32;
-				let shift_kind = extract_bits_32(itype.imm() as u32, 0, 4) as u8;
+				let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+				let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
 				match shift_kind {
 					SHIFT_LOGICAL => match itype.func() {
 						SHIFT_LEFT_IMM => IntInstruction::ShiftLeftLogicalImmediate {
@@ -145,8 +145,8 @@ impl IntInstruction {
 				rhs: itype.imm() as i32,
 			},
 			SHIFT_LEFT_IMM_WORD | SHIFT_RIGHT_IMM_WORD => {
-				let shift_amt = extract_bits_32(itype.imm() as u32, 5, 11) as u32;
-				let shift_kind = extract_bits_32(itype.imm() as u32, 0, 4) as u8;
+				let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+				let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
 				match shift_kind {
 					SHIFT_LOGICAL => match itype.func() {
 						SHIFT_LEFT_IMM_WORD => IntInstruction::ShiftLeftLogicalImmediateWord {

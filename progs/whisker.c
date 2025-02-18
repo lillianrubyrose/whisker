@@ -1,5 +1,30 @@
 #include "whisker.h"
 
+// dont pass in i64::MIN
+void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder){
+    // get final sign for division, and get absolute values
+    int sign = 0;
+    if(lhs < 0){
+        sign ^= 1;
+        lhs = -lhs;
+    }
+    if(rhs < 0){
+        sign^= 1;
+        rhs = -rhs;
+    }
+    i64 quot = 0;
+    i64 rem = lhs;
+    while(rem >= rhs){
+        rem -= rhs;
+        quot += 1;
+    }
+    if(sign){
+        quot = -quot;
+    }
+    *quotient = quot;
+    *remainder = rem;
+}
+
 i32 whisker_strlen(u8 *str) {
   i32 len = 0;
 
@@ -20,23 +45,27 @@ void whisker_write_uart(const u8 *str) {
   }
 }
 
-// u8* int_to_string(i32 value) {
-//     u8 buffer[256];
-
-//     int i = 0;
-
-//     do {
-//         buffer[i++] = (value % 10) + '0';
-//         value /= 10;
-//     } while (value > 0);
-
-//     buffer[i] = '\0';
-
-//     for (int j = 0, k = i - 1; j < k; j++, k--) {
-//         char tmp = buffer[j];
-//         buffer[j] = buffer[k];
-//         buffer[k] = tmp;
-//     }
-
-//     return buffer;
-// }
+void int_to_string(i64 val, u8 buf[21]){
+    i64 idx = 0;
+    i64 sign = val < 0;
+    if(sign){
+        buf[idx++] = '-';
+        val = -val;
+    }
+    // build up the array from least significant digit to most
+    do {
+        i64 q, r;
+        int_div(val, 10, &q, &r);
+        buf[idx++] = r + '0';
+        val = q;
+    } while(val > 0);
+    // idx now points to the byte after the written characters
+    // reverse the digits
+    for(i64 i = sign; i < idx / 2; i += 1){
+        u8 tmp = buf[i];
+        buf[i] = buf[idx - 1 - i];
+        buf[idx - 1 - i] = tmp;
+    }
+    // write the null terminator
+    buf[idx] = '\0';
+}

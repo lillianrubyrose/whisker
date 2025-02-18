@@ -495,7 +495,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::ShiftLeftLogicalImmediate { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
+				self.registers.set(dst, lhs.wrapping_shl(shift_amt));
 			}
 			IntInstruction::ShiftRightLogicalImmediate { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs);

@@ -1,2 +1,2 @@
 CompileFlags:
-  Add: [-xc, -std=c23]
+  Add: [--target=riscv64, -xc, -std=c23, -Wall, -Wextra]

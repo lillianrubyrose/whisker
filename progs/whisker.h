@@ -11,8 +11,14 @@ typedef signed short       i16;
 typedef signed int         i32;
 typedef signed long long   i64;
 
-static u8 *UART = (char *)0x10000000;
+static char *UART = (char *)0x10000000;
 
+// if lhs or rhs are i64::MIN, behavior is undefined
+// if the computation of lhs * rhs overflows, behavior is undefined
+i64 int_mul(i64 lhs, i64 rhs);
+
+// lhs and rhs must not be i64::MIN or behavior is undefined
+// if lhs or rhs are negative, the remainder will likely not be useful
 void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder);
 
 // str must be nul-terminated, and it should be free'd by the caller if
@@ -22,8 +28,8 @@ i32 whisker_strlen(u8 *str);
 
 // str must be nul-terminated, and it should be free'd by the caller if
 // necessary
-void whisker_write_uart(const u8 *str);
+void whisker_write_uart(const char *str);
 
-void int_to_string(i64 val, u8 buf[21]);
+void int_to_string(i64 val, char buf[21]);
 
 #endif

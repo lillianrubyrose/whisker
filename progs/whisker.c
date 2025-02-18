@@ -1,5 +1,27 @@
 #include "whisker.h"
 
+i64 int_mul(i64 lhs, i64 rhs) {
+    // get final sign and absolute values
+    int sign = 0;
+    if(lhs < 0){
+        sign ^= 1;
+        lhs = -lhs;
+    }
+    if(rhs < 0){
+        sign^= 1;
+        rhs = -rhs;
+    }
+    i64 acc = 0;
+    while(rhs > 0){
+        acc += lhs;
+        rhs -= 1;
+    }
+    if(sign){
+        acc = -acc;
+    }
+    return acc;
+}
+
 // dont pass in i64::MIN
 void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder){
     // get final sign for division, and get absolute values
@@ -38,14 +60,14 @@ i32 whisker_strlen(u8 *str) {
   return len;
 }
 
-void whisker_write_uart(const u8 *str) {
+void whisker_write_uart(const char *str) {
   i32 len = whisker_strlen((u8 *)str);
   for (i32 i = 0; i < len; i++) {
     *UART = str[i];
   }
 }
 
-void int_to_string(i64 val, u8 buf[21]){
+void int_to_string(i64 val, char buf[21]){
     i64 idx = 0;
     i64 sign = val < 0;
     if(sign){

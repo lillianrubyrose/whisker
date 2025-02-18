@@ -47,6 +47,18 @@ impl UnknownRegisterIndex {
 	}
 }
 
+impl From<UnknownRegisterIndex> for GPRegisterIndex {
+	fn from(value: UnknownRegisterIndex) -> Self {
+		value.to_gp()
+	}
+}
+
+impl From<UnknownRegisterIndex> for FPRegisterIndex {
+	fn from(value: UnknownRegisterIndex) -> Self {
+		value.to_fp()
+	}
+}
+
 #[allow(unused)]
 impl GPRegisterIndex {
 	pub const ZERO: GPRegisterIndex = RegisterIndex(0, PhantomData);

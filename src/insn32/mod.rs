@@ -4,6 +4,7 @@ pub mod int;
 pub mod jalr;
 pub mod load;
 pub mod load_fp;
+pub mod madd;
 pub mod op;
 pub mod op_fp;
 pub mod op_imm;
@@ -55,7 +56,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		}
 		OP_32 => todo!("OP_32"),
 		UNK_64B => todo!("UNK_64B"),
-		MADD => todo!("MADD"),
+		MADD => madd::parse_madd(cpu, parcel),
 		MSUB => todo!("MSUB"),
 		NMSUB => todo!("NMSUB"),
 		NMADD => todo!("NMADD"),
@@ -99,7 +100,7 @@ pub fn extract_src2(inst: u32) -> UnknownRegisterIndex {
 mod ty {
 	use super::{extract_dst, extract_src1, extract_src2};
 	use crate::{
-		ty::UnknownRegisterIndex,
+		ty::{RegisterIndex, UnknownRegisterIndex},
 		util::{extract_bits_32, sign_ext_imm},
 	};
 
@@ -311,6 +312,56 @@ mod ty {
 		#[inline]
 		pub fn imm(&self) -> i64 {
 			self.imm
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct R4Type {
+		dst: UnknownRegisterIndex,
+		func: u8,
+		src1: UnknownRegisterIndex,
+		src2: UnknownRegisterIndex,
+		src3: UnknownRegisterIndex,
+	}
+
+	#[allow(unused)]
+	impl R4Type {
+		pub fn parse(parcel: u32) -> Self {
+			let dst = extract_dst(parcel);
+			let func0_3 = extract_bits_32(parcel, 12, 14);
+			let src1 = extract_src1(parcel);
+			let src2 = extract_src2(parcel);
+			let func4_5 = extract_bits_32(parcel, 25, 26);
+			let src3 = UnknownRegisterIndex::new(extract_bits_32(parcel, 27, 31) as u8).unwrap();
+
+			Self {
+				dst,
+				func: (func0_3 | func4_5 << 3) as u8,
+				src1,
+				src2,
+				src3,
+			}
+		}
+
+		#[inline]
+		pub fn func(&self) -> u8 {
+			self.func
+		}
+		#[inline]
+		pub fn dst(&self) -> UnknownRegisterIndex {
+			self.dst
+		}
+		#[inline]
+		pub fn src1(&self) -> UnknownRegisterIndex {
+			self.src1
+		}
+		#[inline]
+		pub fn src2(&self) -> UnknownRegisterIndex {
+			self.src2
+		}
+		#[inline]
+		pub fn src3(&self) -> UnknownRegisterIndex {
+			self.src3
 		}
 	}
 }

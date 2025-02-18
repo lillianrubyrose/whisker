@@ -601,6 +601,24 @@ impl WhiskerCpu {
 				let rhs = self.fp_registers.get(rhs) as f32;
 				self.fp_registers.set(dst, f64::from(lhs - rhs));
 			}
+			FloatInstruction::MulAddSinglePrecision {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				add,
+			} => {
+				let mul_lhs = self.fp_registers.get(mul_lhs) as f32;
+				let mul_rhs = self.fp_registers.get(mul_rhs) as f32;
+				let add = self.fp_registers.get(add) as f32;
+
+				let result = mul_lhs * mul_rhs + add;
+				self.fp_registers.set(dst, f64::from(result));
+			}
+			FloatInstruction::EqSinglePrecision { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get(lhs) as f32;
+				let rhs = self.fp_registers.get(rhs) as f32;
+				self.registers.set(dst, lhs.eq(&rhs) as u8 as _);
+			}
 		}
 	}
 

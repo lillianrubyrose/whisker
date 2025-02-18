@@ -1,18 +1,6 @@
 use crate::insn::float::FloatInstruction;
 
-use super::{IType, RType, SType};
-
-macro_rules! define_op_float {
-    ($rtype:ident, $func7:ident, $($const:ident, $inst:ident),*) => {
-        {
-            use crate::insn32::op_fp::consts::*;
-            match $func7 {
-                $( $const => FloatInstruction::$inst { dst: $rtype.dst().to_fp(), lhs: $rtype.src1().to_fp(), rhs: $rtype.src2().to_fp() }.into(), )*
-                _ => unimplemented!("OP-FP func7={:#09b}", $func7),
-            }
-        }
-    };
-}
+use super::{IType, R4Type, RType, SType};
 
 impl FloatInstruction {
 	pub fn parse_load_fp(itype: IType) -> FloatInstruction {
@@ -39,12 +27,38 @@ impl FloatInstruction {
 		}
 	}
 
-	#[rustfmt::skip]
-	pub fn parse_op_fp(rtype: RType, func7: u8) -> FloatInstruction {
-		define_op_float!(
-    		rtype, func7,
-    		ADD_SINGLE, AddSinglePrecision,
-    		SUB_SINGLE, SubSinglePrecision
-    	)
+	pub fn parse_op_fp(rtype: RType, rm: u8, func7: u8) -> FloatInstruction {
+		use crate::insn32::op_fp::consts::*;
+		match func7 {
+			ADD_SINGLE => FloatInstruction::AddSinglePrecision {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+			}
+			.into(),
+			SUB_SINGLE => FloatInstruction::SubSinglePrecision {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+			}
+			.into(),
+			EQ_SINGLE => match rm {
+				_ => unimplemented!("OP-FP rm={rm:#05b}"),
+			},
+			_ => unimplemented!("OP-FP func7={func7:#09b}"),
+		}
+	}
+
+	pub fn parse_madd(r4type: R4Type, func2: u8) -> FloatInstruction {
+		use crate::insn32::madd::consts::*;
+		match func2 {
+			FLOAT_MUL_ADD_SINGLE => FloatInstruction::MulAddSinglePrecision {
+				dst: r4type.dst().to_fp(),
+				mul_lhs: r4type.src1().to_fp(),
+				mul_rhs: r4type.src2().to_fp(),
+				add: r4type.src3().to_fp(),
+			},
+			_ => unimplemented!("madd func2:{func2:#04b}"),
+		}
 	}
 }

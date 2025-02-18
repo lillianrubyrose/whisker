@@ -12,10 +12,16 @@ pub type FPRegisterIndex = RegisterIndex<FPRegisters>;
 pub type UnknownRegisterIndex = RegisterIndex<()>;
 
 /// a valid register index 0..=31
-#[derive(Clone, Copy)]
-pub struct RegisterIndex<T: Clone + Copy>(u8, PhantomData<T>);
+pub struct RegisterIndex<T>(u8, PhantomData<T>);
 
-impl<T: Clone + Copy> RegisterIndex<T> {
+impl<T> Clone for RegisterIndex<T> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+impl<T> Copy for RegisterIndex<T> {}
+
+impl<T> RegisterIndex<T> {
 	pub fn new(idx: u8) -> Option<Self> {
 		if idx <= 31 {
 			Some(Self(idx, PhantomData))

@@ -12,7 +12,7 @@ use crate::ty::{FPRegisterIndex, GPRegisterIndex, SupportedExtensions, TrapIdx};
 pub type GPRegisters = Registers<u64>;
 pub type FPRegisters = Registers<f64>;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug)]
 pub struct Registers<T>
 where
 	T: Copy,

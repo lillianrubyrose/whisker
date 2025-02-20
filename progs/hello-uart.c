@@ -3,8 +3,8 @@
 int _start() {
   whisker_write_uart("Hello, World!");
 
-  i64 mrow = 100;
-  i64 mrrp = 142;
+  i64 mrow = 7519;
+  i64 mrrp = -142;
   i64 res = int_mul(mrow, mrrp);
 
   char buf[21];

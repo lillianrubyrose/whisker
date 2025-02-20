@@ -114,7 +114,7 @@ impl Arch for Rv64Arch {
 	type RegId = RiscvRegId<u64>;
 
 	fn target_description_xml() -> Option<&'static str> {
-		Some(include_str!("../assets/rv64.xml"))
+		Some(include_str!("../../../assets/rv64.xml"))
 	}
 }
 

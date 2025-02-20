@@ -1,12 +1,6 @@
-[package]
-name = "whisker"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["crates/whisker", "crates/cutie"]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
 clap = { version = "4.5.29", features = ["derive"] }
-paste = "1.0.15"
-env_logger = "0.11.6"
-gdbstub = "0.7.3"
-gdbstub_arch = "0.3.1"
-log = "0.4.25"

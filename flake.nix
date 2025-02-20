@@ -77,6 +77,7 @@
             nativeBuildInputs = [
               pkgs.rust-analyzer
               pkgs.fenix.stable.defaultToolchain
+              pkgs.clang-tools
 
               pkgsRiscv.buildPackages.gcc
               pkgsRiscv.buildPackages.gdb

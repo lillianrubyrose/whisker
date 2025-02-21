@@ -108,7 +108,7 @@ fn compile2(out_name: String, files: Vec<PathBuf>) {
 			.arg(file)
 			.arg("-o")
 			.arg(&out_path)
-			.args(["-nostdlib", "-nodefaultlibs", "-fno-stack-protector"]);
+			.args(["-ffreestanding", "-fno-stack-protector"]);
 		let output = cmd.output().unwrap();
 		if !output.status.success() {
 			error!("failed to compile: {}", String::from_utf8_lossy(&output.stderr));
@@ -126,7 +126,7 @@ fn compile2(out_name: String, files: Vec<PathBuf>) {
 
 	let linked_path = target_dir.join("out.elf");
 	let mut cmd = Command::new(cc);
-	cmd.args(["-T", "linker.ld", "-nostdlib", "-nodefaultlibs", "-o"])
+	cmd.args(["-T", "linker.ld", "-nostdlib", "-o"])
 		.arg(&linked_path)
 		.args(out_files);
 	let output = cmd.output().unwrap();

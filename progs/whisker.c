@@ -1,13 +1,13 @@
 #include "whisker.h"
 
-i64 int_mul(i64 lhs, i64 rhs) {
+int64_t int_mul(int64_t lhs, int64_t rhs) {
     // considers each bit in rhs, and if it is set, adds
     // lhs * bit_value to the accumulator
     // this works for signed values since they are represented with 2s compliment.
     // however this is implemented in assembly to get those semantics
     // and to improve speed of the algorithm even without optimizations.
-    i64 tmp = 0;
-    i64 acc = 0;
+    int64_t tmp = 0;
+    int64_t acc = 0;
     __asm__(
         "2: andi %[tmp], %[rhs], 1 \n\t"
         "beqz %[tmp], 3f \n\t" // no bit set
@@ -24,8 +24,8 @@ i64 int_mul(i64 lhs, i64 rhs) {
     return acc;
 }
 
-// dont pass in i64::MIN
-void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder){
+// dont pass in int64_t::MIN
+void int_div(int64_t lhs, int64_t rhs, int64_t* quotient, int64_t* remainder){
     // get final sign for division, and get absolute values
     int sign = 0;
     if(lhs < 0){
@@ -36,8 +36,8 @@ void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder){
         sign^= 1;
         rhs = -rhs;
     }
-    i64 quot = 0;
-    i64 rem = lhs;
+    int64_t quot = 0;
+    int64_t rem = lhs;
     while(rem >= rhs){
         rem -= rhs;
         quot += 1;
@@ -49,8 +49,8 @@ void int_div(i64 lhs, i64 rhs, i64* quotient, i64* remainder){
     *remainder = rem;
 }
 
-i32 whisker_strlen(u8 *str) {
-  i32 len = 0;
+int32_t whisker_strlen(const char *str) {
+  int32_t len = 0;
 
   for (;;) {
     if (str[len] == '\0') {
@@ -63,30 +63,30 @@ i32 whisker_strlen(u8 *str) {
 }
 
 void whisker_write_uart(const char *str) {
-  i32 len = whisker_strlen((u8 *)str);
-  for (i32 i = 0; i < len; i++) {
+  int32_t len = whisker_strlen(str);
+  for (int32_t i = 0; i < len; i++) {
     *UART = str[i];
   }
 }
 
-void rev_arr(char arr[], i64 len){
-    for(i64 i = 0; i < len / 2; i += 1){
-        u8 tmp = arr[i];
+void rev_arr(char arr[], int64_t len){
+    for(int64_t i = 0; i < len / 2; i += 1){
+        char tmp = arr[i];
         arr[i] = arr[len - 1 - i];
         arr[len - 1 - i] = tmp;
     }
 }
 
-void int_to_string(i64 val, char buf[21]){
-    i64 idx = 0;
-    i64 sign = val < 0;
+void int_to_string(int64_t val, char buf[21]){
+    int64_t idx = 0;
+    int64_t sign = val < 0;
     if(sign){
         buf[idx++] = '-';
         val = -val;
     }
     // build up the array from least significant digit to most
     do {
-        i64 q, r;
+        int64_t q, r;
         int_div(val, 10, &q, &r);
         buf[idx++] = r + '0';
         val = q;

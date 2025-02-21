@@ -75,6 +75,8 @@ fn main() {
 fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 
+	let supported = SupportedExtensions::INTEGER | SupportedExtensions::FLOAT;
+
 	let mem = MemoryBuilder::default()
 		.bootrom(prog, PageBase::from_addr(bootrom_offset))
 		.physical_size(0x40_000)
@@ -94,10 +96,8 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		)
 		.build();
 
-	let mut cpu = WhiskerCpu::new(SupportedExtensions::INTEGER | SupportedExtensions::FLOAT, mem);
-
+	let mut cpu = WhiskerCpu::new(supported, mem);
 	cpu.pc = bootrom_offset;
-	cpu.registers.set(RegisterIndex::SP, 0x1_8000);
 	cpu
 }
 

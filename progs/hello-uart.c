@@ -1,6 +1,6 @@
 #include "whisker.h"
 
-int _start() {
+int main() {
   whisker_write_uart("Hello, World!");
 
   i64 mrow = 7519;

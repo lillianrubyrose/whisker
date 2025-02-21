@@ -1,20 +1,39 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
+
+pub const NUM_CSRS: u16 = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)]
-enum CSRPrivilege {
+pub enum CSRPrivilege {
 	User = 0b00,
 	Supervisor = 0b01,
 	Hypervisor = 0b10,
 	Machine = 0b11,
 }
 
-struct CSRInfo {
-	val: u64,
+pub struct CSRInfo {
+	pub val: u64,
 	addr: u16,
 	rw: bool,
 	privilege: CSRPrivilege,
+}
+
+#[allow(unused)]
+impl CSRInfo {
+	#[inline]
+	pub fn addr(&self) -> u16 {
+		self.addr
+	}
+	#[inline]
+	pub fn is_rw(&self) -> bool {
+		self.rw
+	}
+	#[inline]
+	pub fn privilege(&self) -> CSRPrivilege {
+		self.privilege
+	}
 }
 
 impl Debug for CSRInfo {
@@ -40,25 +59,30 @@ macro_rules! define_csrs {
     ($($name:ident, $addr:literal, $rw:ident, $priv:ident $(, $init:literal)?),*$(,)*) => {
 		#[derive(Debug)]
 		pub struct ControlStatusRegisters {
-	    	$($name: CSRInfo),*
+		    regs: HashMap<u16, CSRInfo>,
 		}
 
 		#[allow(unused)]
 		impl ControlStatusRegisters {
     		pub fn new() -> Self {
     		    Self {
-                    $(
-    				$name: CSRInfo {
-    				    val: {
-                            let mut val = 0;
-                            $( val = $init; )?
-                            val
-                        },
-    				    addr: $addr,
-    					rw: $rw,
-    					privilege: CSRPrivilege::$priv,
-    				},
-                    )*
+                    regs: {
+                        let mut map = HashMap::new();
+                        $(map.insert(
+                            $addr,
+                            CSRInfo {
+                                val: {
+                                    let mut val = 0;
+                                    $( val = $init; )?
+                                    val
+                                },
+                                addr: $addr,
+                                rw: $rw,
+                                privilege: CSRPrivilege::$priv,
+                            },
+                        );)*
+                        map
+                    }
     			}
     		}
 		}
@@ -69,15 +93,27 @@ macro_rules! define_csrs {
 		    pub const [< $name:snake:upper >]: u16 = $addr;
 
 			pub fn [< read_ $name >](&self) -> u64 {
-			    self.$name.val
+			    self.regs.get(&$addr).unwrap().val
 			}
 
 			pub fn [< write_ $name >](&mut self, val: u64) {
-			    self.$name.val = val;
+			    self.regs.get_mut(&$addr).unwrap().val = val;
 			}
 		)*}
 		}
 	};
+}
+
+impl ControlStatusRegisters {
+	pub fn get(&self, reg: u16) -> Option<&CSRInfo> {
+		assert!(reg < NUM_CSRS);
+		self.regs.get(&reg)
+	}
+
+	pub fn get_mut(&mut self, reg: u16) -> Option<&mut CSRInfo> {
+		assert!(reg < NUM_CSRS);
+		self.regs.get_mut(&reg)
+	}
 }
 
 const RW: bool = true;

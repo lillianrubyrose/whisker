@@ -21,6 +21,14 @@ impl<T> Clone for RegisterIndex<T> {
 }
 impl<T> Copy for RegisterIndex<T> {}
 
+impl<T> PartialEq for RegisterIndex<T> {
+	fn eq(&self, other: &Self) -> bool {
+		self.0 == other.0
+	}
+}
+
+impl<T> Eq for RegisterIndex<T> {}
+
 impl<T> RegisterIndex<T> {
 	pub fn new(idx: u8) -> Option<Self> {
 		if idx <= 31 {

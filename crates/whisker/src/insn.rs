@@ -1,9 +1,11 @@
+pub mod csr;
 pub mod float;
 pub mod int;
 
 use float::FloatInstruction;
 use int::IntInstruction;
 
+use crate::insn::csr::CSRInstruction;
 use crate::ty::{SupportedExtensions, TrapIdx};
 use crate::util::extract_bits_16;
 use crate::{insn32, WhiskerCpu};
@@ -12,6 +14,7 @@ use crate::{insn32, WhiskerCpu};
 pub enum Instruction {
 	IntExtension(IntInstruction),
 	FloatExtension(FloatInstruction),
+	Csr(CSRInstruction),
 }
 
 impl Instruction {

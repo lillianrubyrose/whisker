@@ -232,19 +232,4 @@ impl IntInstruction {
     		BRANCH_GREATER_EQ_UNSIGNED, BranchGreaterEqualUnsigned
     	)
 	}
-
-	pub fn parse_system(itype: IType) -> IntInstruction {
-		use crate::insn32::system::consts::*;
-		match itype.func() {
-			funcs::E_CALL_BREAK => match (itype.dst().to_gp().as_usize(), itype.src().to_gp().as_usize()) {
-				(0, 0) => match itype.imm() {
-					0b000000000000 => IntInstruction::ECall.into(),
-					0b000000000001 => IntInstruction::EBreak.into(),
-					imm => unimplemented!("SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}"),
-				},
-				(rd, rs1) => unimplemented!("SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b}"),
-			},
-			_ => unimplemented!("SYSTEM func={:#05b}", itype.func()),
-		}
-	}
 }

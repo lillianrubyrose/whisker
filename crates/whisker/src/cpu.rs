@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use log::*;
 
 use crate::csr::ControlStatusRegisters;
+use crate::insn::csr::CSRInstruction;
 use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
 use crate::insn::Instruction;
@@ -142,6 +143,7 @@ impl WhiskerCpu {
 				match inst {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 					Instruction::FloatExtension(insn) => self.execute_f_insn(insn, start_pc),
+					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
 				}
 				Ok(())
 			}
@@ -321,6 +323,43 @@ macro_rules! write_mem_f64 {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+/// gets a reference to the CSR specified by $addr
+/// raises an illegal instruction exception if the CSR does not exist
+macro_rules! get_csr {
+	($self:ident, $addr:ident) => {
+		match $self.csrs.get($addr) {
+			// FIXME: check privilege
+			Some(info) => info,
+			None => {
+				$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+				return;
+			}
+		}
+	};
+}
+
+/// gets a mutable reference to the CSR specified by $addr
+/// raises an illegal instruction exception if the CSR does not exist, is not writable,
+/// or could not be read or written at the current privilege
+macro_rules! get_csr_mut {
+	($self:ident, $addr:ident) => {
+		match $self.csrs.get_mut($addr) {
+			// FIXME: check privilege
+			Some(info) => {
+				if !info.is_rw() {
+					$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					return;
+				}
+				info
+			}
+			None => {
+				$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
 				return;
 			}
 		}
@@ -618,6 +657,72 @@ impl WhiskerCpu {
 				let lhs = self.fp_registers.get(lhs) as f32;
 				let rhs = self.fp_registers.get(rhs) as f32;
 				self.registers.set(dst, lhs.eq(&rhs) as u8 as _);
+			}
+		}
+	}
+
+	fn exec_csr(&mut self, insn: CSRInstruction, _start_pc: u64) {
+		// FIXME: ordering of effects on registers and traps???
+		match insn {
+			CSRInstruction::CSRReadWrite { dst, src, csr } => {
+				let csr_info = get_csr_mut!(self, csr);
+				// reads dont happen when dst is zero
+				if dst != GPRegisterIndex::ZERO {
+					self.registers.set(dst, csr_info.val);
+				}
+				csr_info.val = self.registers.get(src);
+			}
+			CSRInstruction::CSRReadAndSet { dst, mask, csr } => {
+				// we must not check for writability if the mask register is x0
+				if mask != GPRegisterIndex::ZERO {
+					let csr = get_csr_mut!(self, csr);
+					self.registers.set(dst, csr.val);
+					csr.val |= self.registers.get(mask);
+				} else {
+					let csr = get_csr!(self, csr);
+					self.registers.set(dst, csr.val);
+				}
+			}
+			CSRInstruction::CSRReadAndClear { dst, mask, csr } => {
+				// we must not check for writability if the mask register is x0
+				if mask != GPRegisterIndex::ZERO {
+					let csr = get_csr_mut!(self, csr);
+					self.registers.set(dst, csr.val);
+					csr.val &= self.registers.get(mask);
+				} else {
+					let csr = get_csr!(self, csr);
+					self.registers.set(dst, csr.val);
+				}
+			}
+			CSRInstruction::CSRReadWriteImm { dst, src, csr } => {
+				let csr_info = get_csr_mut!(self, csr);
+				// reads dont happen when dst is zero
+				if dst != GPRegisterIndex::ZERO {
+					self.registers.set(dst, csr_info.val);
+				}
+				csr_info.val = src;
+			}
+			CSRInstruction::CSRReadAndSetImm { dst, mask, csr } => {
+				// we must not check for writability if the mask is 0
+				if mask != 0 {
+					let csr = get_csr_mut!(self, csr);
+					self.registers.set(dst, csr.val);
+					csr.val |= mask;
+				} else {
+					let csr = get_csr!(self, csr);
+					self.registers.set(dst, csr.val);
+				}
+			}
+			CSRInstruction::CSRReadAndClearImm { dst, mask, csr } => {
+				// we must not check for writability if the mask is 0
+				if mask != 0 {
+					let csr = get_csr_mut!(self, csr);
+					self.registers.set(dst, csr.val);
+					csr.val &= mask;
+				} else {
+					let csr = get_csr!(self, csr);
+					self.registers.set(dst, csr.val);
+				}
 			}
 		}
 	}

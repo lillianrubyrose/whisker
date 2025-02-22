@@ -1,20 +1,23 @@
+pub mod compressed;
 pub mod csr;
 pub mod float;
 pub mod int;
 
+use compressed::CompressedInstruction;
 use float::FloatInstruction;
 use int::IntInstruction;
 
 use crate::insn::csr::CSRInstruction;
 use crate::ty::{SupportedExtensions, TrapIdx};
 use crate::util::extract_bits_16;
-use crate::{insn32, WhiskerCpu};
+use crate::{insn16, insn32, WhiskerCpu};
 
 #[derive(Debug)]
 pub enum Instruction {
 	IntExtension(IntInstruction),
 	FloatExtension(FloatInstruction),
 	Csr(CSRInstruction),
+	CompressedExtension(CompressedInstruction),
 }
 
 impl Instruction {
@@ -33,7 +36,8 @@ impl Instruction {
 
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
-				todo!("implement 16bit instruction")
+				let insn = insn16::parse(cpu, parcel1)?;
+				Ok((insn.into(), 2))
 			} else {
 				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 				Err(())

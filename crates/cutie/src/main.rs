@@ -189,8 +189,8 @@ fn compile(input: &str) {
 		.to_string();
 
 	if let Err(e) = run_cmd!(
-		"$cc" -O0 -march=rv64id -mcmodel=medany -std=c23 -c "$program_path" -o "$target_dir/$base_name.o" -nostdlib -nodefaultlibs -fno-stack-protector;
-		"$cc" -O0 -march=rv64id -mcmodel=medany -std=c23 -c "$progs_dir/whisker.c" -o "$target_dir/whisker.o" -nostdlib -nodefaultlibs -fno-stack-protector;
+		"$cc" -O0 -march=rv64idc -mcmodel=medany -std=c23 -c "$program_path" -o "$target_dir/$base_name.o" -nostdlib -nodefaultlibs -fno-stack-protector;
+		"$cc" -O0 -march=rv64idc -mcmodel=medany -std=c23 -c "$progs_dir/whisker.c" -o "$target_dir/whisker.o" -nostdlib -nodefaultlibs -fno-stack-protector;
 		"$cc" -O0 -T "linker.ld" -o "$target_dir/$base_name.elf" "$target_dir/$base_name.o" "$target_dir/whisker.o" -nostdlib -nodefaultlibs;
 		"$objcopy" -O binary "$target_dir/$base_name.elf" "$target_dir/$base_name.bin";
 	) {

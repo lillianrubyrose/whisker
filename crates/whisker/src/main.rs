@@ -2,6 +2,7 @@ mod cpu;
 mod csr;
 mod gdb;
 mod insn;
+mod insn16;
 mod insn32;
 mod mem;
 mod ty;
@@ -75,7 +76,7 @@ fn main() {
 fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 
-	let supported = SupportedExtensions::INTEGER | SupportedExtensions::FLOAT;
+	let supported = SupportedExtensions::INTEGER | SupportedExtensions::FLOAT | SupportedExtensions::COMPRESSED;
 
 	let mem = MemoryBuilder::default()
 		.bootrom(prog, PageBase::from_addr(bootrom_offset))
@@ -97,6 +98,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		.build();
 
 	let mut cpu = WhiskerCpu::new(supported, mem);
+
 	cpu.pc = bootrom_offset;
 	cpu
 }

@@ -8,6 +8,10 @@ static char *UART = (char *)0x10000000;
 // if the computation of lhs * rhs overflows, behavior is undefined
 int64_t int_mul(int64_t lhs, int64_t rhs);
 
+void mulwide(int64_t lhs, int64_t rhs, int64_t *restrict hi, int64_t *restrict lo);
+
+void div_10(int64_t lhs, int64_t *restrict quot, int64_t *restrict rem);
+
 // lhs and rhs must not be int64_t::MIN or behavior is undefined
 // if lhs or rhs are negative, the remainder will likely not be useful
 void int_div(int64_t lhs, int64_t rhs, int64_t* quotient, int64_t* remainder);

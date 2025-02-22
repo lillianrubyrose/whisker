@@ -1,3 +1,5 @@
+#![feature(structural_match)]
+
 mod cpu;
 mod csr;
 mod gdb;
@@ -23,7 +25,7 @@ use gdbstub::stub::GdbStub;
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
 use crate::mem::{MemoryBuilder, PageBase, PageEntry};
-use crate::ty::{RegisterIndex, SupportedExtensions};
+use crate::ty::SupportedExtensions;
 
 #[derive(Debug, Parser)]
 #[command(version)]

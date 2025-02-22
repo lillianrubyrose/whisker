@@ -33,6 +33,7 @@
       ];
 
       perSystem = {
+        lib,
         pkgs,
         system,
         config,
@@ -41,6 +42,7 @@
         overlays = [fenix.overlays.default];
         pkgs = import nixpkgs {inherit system overlays;};
         pkgsRiscv = (import nixpkgs {inherit system;}).pkgsCross.riscv64;
+        rust-toolchain = (fenix.packages.${system}.fromToolchainName { name = (lib.importTOML ./rust-toolchain.toml).toolchain.channel; sha256 = "sha256-LpkTSfBZY2eJP74wAUUkutiVF6y8m7oUV0ho2SS0W08="; });
         pre-commit-hooks = inputs.pre-commit-hooks.lib.${system};
         craneLib = crane.mkLib pkgs;
         commonArgs = {
@@ -59,15 +61,15 @@
           clippy = {
             enable = true;
             packageOverrides = {
-              cargo = pkgs.fenix.stable.cargo;
-              clippy = pkgs.fenix.stable.clippy;
+              cargo = rust-toolchain.cargo;
+              clippy = rust-toolchain.clippy;
             };
           };
           rustfmt = {
             enable = true;
             packageOverrides = {
-              cargo = pkgs.fenix.stable.cargo;
-              rustfmt = pkgs.fenix.stable.rustfmt;
+              cargo = rust-toolchain.cargo;
+              rustfmt = rust-toolchain.rustfmt;
             };
           };
         };
@@ -76,7 +78,7 @@
           default = pkgs.mkShell {
             nativeBuildInputs = [
               pkgs.rust-analyzer
-              pkgs.fenix.stable.defaultToolchain
+              rust-toolchain.defaultToolchain
               pkgs.clang-tools
 
               pkgsRiscv.buildPackages.gcc

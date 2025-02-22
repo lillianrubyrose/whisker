@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use log::*;
 
 use crate::csr::ControlStatusRegisters;
+use crate::insn::compressed::CompressedInstruction;
 use crate::insn::csr::CSRInstruction;
 use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
@@ -144,6 +145,7 @@ impl WhiskerCpu {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
 					Instruction::FloatExtension(insn) => self.execute_f_insn(insn, start_pc),
 					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
+					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn, start_pc),
 				}
 				Ok(())
 			}
@@ -723,6 +725,20 @@ impl WhiskerCpu {
 					let csr = get_csr!(self, csr);
 					self.registers.set(dst, csr.val);
 				}
+			}
+		}
+	}
+
+	fn exec_compressed_insn(&mut self, insn: CompressedInstruction, _start_pc: u64) {
+		match insn {
+			CompressedInstruction::AddImmediate16ToSP { imm } => {
+				self.registers.set(
+					GPRegisterIndex::SP,
+					self.registers.get(GPRegisterIndex::SP).wrapping_add(imm as u64),
+				);
+			}
+			CompressedInstruction::LoadUpperImmediate { dst, imm } => {
+				self.registers.set(dst, imm as u64);
 			}
 		}
 	}

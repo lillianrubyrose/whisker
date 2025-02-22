@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::marker::PhantomData;
+use std::marker::{PhantomData, StructuralPartialEq};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
 use crate::cpu::{FPRegisters, GPRegisters};
@@ -21,6 +21,7 @@ impl<T> Clone for RegisterIndex<T> {
 }
 impl<T> Copy for RegisterIndex<T> {}
 
+impl<T> StructuralPartialEq for RegisterIndex<T> {}
 impl<T> PartialEq for RegisterIndex<T> {
 	fn eq(&self, other: &Self) -> bool {
 		self.0 == other.0

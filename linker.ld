@@ -18,8 +18,16 @@ SECTIONS {
         *(.data)
     } > bootrom
 
-    .bss : {
+    /* alignment is needed to be able to zero 8 bytes at a time */
+    .bss : ALIGN(8) {
+        _bss_start = .;
         *(.bss)
+        _bss_end = .;
+
+        . = ALIGN(16);
+        _stack_bottom = .;
+        . += 64 * 1024;
+        _stack_top = .;
     } > dram
 
     /DISCARD/ : {

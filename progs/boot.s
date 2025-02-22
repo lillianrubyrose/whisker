@@ -1,18 +1,24 @@
-.section .bss
-.align 16
-_stack_bottom:
-.skip 64 * 1024
-_stack_top:
-
 .section .text
 .global _start
 _start:
     la sp, _stack_top
+    # zero bss segment
+    la a0, _bss_start
+    la a1, _bss_end
+_zero_bss:
+    bgeu a0, a1, 2f
+    sd zero, (a0)
+    addi a0, a0, 8
+    j _zero_bss
+2:
+
+    # set up a default trap handler that just spins
     la t0, trap
     csrw 0x305, t0
-    tail main
+
+    call main
     # insurance in case main returns
-    2: j 2b
+    9: j 9b
 
 trap:
     # this is just here to do something visible at the moment

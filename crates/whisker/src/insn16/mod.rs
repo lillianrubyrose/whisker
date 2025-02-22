@@ -14,9 +14,27 @@ impl CompressedInstruction {
 		let ty = extract_bits_16(parcel, 13, 15) as u8;
 		match ty {
 			ADDI4SPN => todo!("addi4spn"),
-			LOAD_WORD => todo!("load word"),
+			LOAD_WORD => {
+				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
+				let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+				let imm = ((extract_bits_16(parcel, 5, 6) << 2) | (extract_bits_16(parcel, 10, 12) << 6)) as i64;
+				CompressedInstruction::LoadWord {
+					dst,
+					src,
+					src_offset: 4i64.wrapping_mul(imm),
+				}
+			}
 			LOAD_DOUBLE_WORD => todo!("load dword"),
-			STORE_WORD => todo!("load word"),
+			STORE_WORD => {
+				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+				let src = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
+				let imm = ((extract_bits_16(parcel, 5, 6) << 2) | (extract_bits_16(parcel, 10, 12) << 6)) as i64;
+				CompressedInstruction::StoreWord {
+					dst,
+					dst_offset: 4i64.wrapping_mul(imm),
+					src,
+				}
+			}
 			STORE_DOUBLE_WORD => todo!("load dword"),
 			_ => unreachable!(),
 		}
@@ -38,7 +56,9 @@ impl CompressedInstruction {
 							| (extract_bits_16(parcel, 5, 5) << 6)
 							| (extract_bits_16(parcel, 12, 12) << 9)) as u32;
 						let imm = sign_ext_imm(imm, 10);
-						CompressedInstruction::AddImmediate16ToSP { imm }
+						CompressedInstruction::AddImmediate16ToSP {
+							imm: 16i64.wrapping_mul(imm),
+						}
 					}
 
 					GPRegisterIndex::ZERO => unreachable!("invalid c1 dst {:?}", crtype.dst()),
@@ -83,7 +103,7 @@ mod ty {
 		util::extract_bits_16,
 	};
 
-	fn extract_reg(parcel: u16, start: u8, end: u8) -> GPRegisterIndex {
+	pub fn extract_reg(parcel: u16, start: u8, end: u8) -> GPRegisterIndex {
 		RegisterIndex::new(extract_bits_16(parcel, start, end) as u8)
 			.unwrap()
 			.to_gp()

@@ -380,6 +380,7 @@ impl WhiskerCpu {
 		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
 		self.should_trap = false;
+		panic!();
 		Ok(())
 	}
 
@@ -739,6 +740,19 @@ impl WhiskerCpu {
 			}
 			CompressedInstruction::LoadUpperImmediate { dst, imm } => {
 				self.registers.set(dst, imm as u64);
+			}
+			CompressedInstruction::LoadWord { dst, src, src_offset } => {
+				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = read_mem_u32!(self, offset) as u64;
+
+				let reg_val = self.registers.get(dst);
+				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
+				self.registers.set(dst, val);
+			}
+			CompressedInstruction::StoreWord { dst, dst_offset, src } => {
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.registers.get(src) as u32;
+				write_mem_u32!(self, offset, val);
 			}
 		}
 	}

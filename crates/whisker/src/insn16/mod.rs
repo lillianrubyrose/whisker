@@ -89,103 +89,155 @@ impl CompressedInstruction {
 			return CompressedInstruction::Nop;
 		}
 
-		// There are a few C1 instructions that use a func5 instead, probably have to handle those first
+		let func6 = extract_bits_16(parcel, 10, 15) as u8;
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
-		match func3 {
-			// The difference between ADDI16SP and LUI at a bit level is that ADDI16SP rd must be x2, and LUI rd can't be x0 or x2
-			c1::ADDI16SP_OR_LUI => {
-				let crtype = CRType::parse(parcel);
-				match crtype.dst() {
-					// Must be ADDI16SP
-					GPRegisterIndex::SP => {
-						let imm = ((extract_bits_16(parcel, 6, 6) << 4)
-							| (extract_bits_16(parcel, 2, 2) << 5)
-							| (extract_bits_16(parcel, 5, 5) << 6)
-							| (extract_bits_16(parcel, 3, 3) << 7)
-							| (extract_bits_16(parcel, 4, 4) << 8)
-							| (extract_bits_16(parcel, 12, 12) << 9)) as u32;
 
-						let imm = sign_ext_imm(imm, 9);
+		match func6 {
+			c1::SUB_XOR_OR_AND => todo!("SUB XOR OR AND"),
+			c1::SUBW_ADDW => todo!("SUBW ADDW"),
 
-						CompressedInstruction::AddImmediate16ToSP {
-							// imm: 16i64.wrapping_mul(imm),
-							imm, // FIXME: This value seems right before the multiplication?
-						}
-					}
+			_ => match func3 {
+				// The difference between ADDI16SP and LUI at a bit level is that ADDI16SP rd must be x2, and LUI rd can't be x0 or x2
+				c1::ADDI16SP_OR_LUI => {
+					let crtype = CRType::parse(parcel);
+					match crtype.dst() {
+						// Must be ADDI16SP
+						GPRegisterIndex::SP => {
+							let imm = ((extract_bits_16(parcel, 6, 6) << 4)
+								| (extract_bits_16(parcel, 2, 2) << 5)
+								| (extract_bits_16(parcel, 5, 5) << 6)
+								| (extract_bits_16(parcel, 3, 3) << 7)
+								| (extract_bits_16(parcel, 4, 4) << 8)
+								| (extract_bits_16(parcel, 12, 12) << 9)) as u32;
 
-					GPRegisterIndex::ZERO => unreachable!("invalid c1 dst {:?}", crtype.dst()),
+							let imm = sign_ext_imm(imm, 9);
 
-					// Must be LUI
-					dst => {
-						let imm = ((extract_bits_16(parcel, 2, 6) as u32) << 12)
-							| ((extract_bits_16(parcel, 12, 12) as u32) << 17);
-						let imm = sign_ext_imm(imm, 17);
-						if imm == 0 {
-							unreachable!("invalid instruction: C.LUI imm must be >0");
+							CompressedInstruction::AddImmediate16ToSP {
+								// imm: 16i64.wrapping_mul(imm),
+								imm, // FIXME: This value seems right before the multiplication?
+							}
 						}
 
-						CompressedInstruction::LoadUpperImmediate { dst, imm }
+						GPRegisterIndex::ZERO => unreachable!("invalid c1 dst {:?}", crtype.dst()),
+
+						// Must be LUI
+						dst => {
+							let imm = ((extract_bits_16(parcel, 2, 6) as u32) << 12)
+								| ((extract_bits_16(parcel, 12, 12) as u32) << 17);
+							let imm = sign_ext_imm(imm, 17);
+							if imm == 0 {
+								unreachable!("invalid instruction: C.LUI imm must be >0");
+							}
+
+							CompressedInstruction::LoadUpperImmediate { dst, imm }
+						}
 					}
 				}
-			}
-			c1::BEQZ => {
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let offset = ((extract_bits_16(parcel, 3, 3) << 1)
-					| (extract_bits_16(parcel, 4, 4) << 2)
-					| (extract_bits_16(parcel, 10, 10) << 3)
-					| (extract_bits_16(parcel, 11, 11) << 4)
-					| (extract_bits_16(parcel, 2, 2) << 5)
-					| (extract_bits_16(parcel, 5, 5) << 6)
-					| (extract_bits_16(parcel, 6, 6) << 7)
-					| (extract_bits_16(parcel, 12, 12) << 8)) as u32;
-				let offset = sign_ext_imm(offset, 8);
-				CompressedInstruction::BranchIfZero { src, offset }
-			}
-			c1::ADDIW => {
-				let offset = ((extract_bits_16(parcel, 2, 2))
-					| (extract_bits_16(parcel, 3, 3) << 1)
-					| (extract_bits_16(parcel, 4, 4) << 2)
-					| (extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 6, 6) << 4)
-					| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-				let offset = sign_ext_imm(offset, 5);
-				let dst = extract_reg(parcel, 7, 11);
-				CompressedInstruction::AddImmediateWord {
-					dst,
-					rhs: offset as i32,
+				c1::BEQZ => {
+					let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
+						| (extract_bits_16(parcel, 4, 4) << 2)
+						| (extract_bits_16(parcel, 10, 10) << 3)
+						| (extract_bits_16(parcel, 11, 11) << 4)
+						| (extract_bits_16(parcel, 2, 2) << 5)
+						| (extract_bits_16(parcel, 5, 5) << 6)
+						| (extract_bits_16(parcel, 6, 6) << 7)
+						| (extract_bits_16(parcel, 12, 12) << 8)) as u32;
+					let offset = sign_ext_imm(offset, 8);
+					CompressedInstruction::BranchIfZero { src, offset }
 				}
-			}
-			c1::LI => {
-				let dst = extract_reg(parcel, 7, 11);
-				if dst == GPRegisterIndex::ZERO {
-					panic!("Invalid instruction: C.LI RD must not be x0");
+				c1::BNEZ => {
+					let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
+						| (extract_bits_16(parcel, 4, 4) << 2)
+						| (extract_bits_16(parcel, 10, 10) << 3)
+						| (extract_bits_16(parcel, 11, 11) << 4)
+						| (extract_bits_16(parcel, 2, 2) << 5)
+						| (extract_bits_16(parcel, 5, 5) << 6)
+						| (extract_bits_16(parcel, 6, 6) << 7)
+						| (extract_bits_16(parcel, 12, 12) << 8)) as u32;
+					let offset = sign_ext_imm(offset, 8);
+					CompressedInstruction::BranchIfNotZero { src, offset }
 				}
+				c1::ADDIW => {
+					let offset = ((extract_bits_16(parcel, 2, 2))
+						| (extract_bits_16(parcel, 3, 3) << 1)
+						| (extract_bits_16(parcel, 4, 4) << 2)
+						| (extract_bits_16(parcel, 5, 5) << 3)
+						| (extract_bits_16(parcel, 6, 6) << 4)
+						| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
+					let offset = sign_ext_imm(offset, 5);
+					let dst = extract_reg(parcel, 7, 11);
+					CompressedInstruction::AddImmediateWord {
+						dst,
+						rhs: offset as i32,
+					}
+				}
+				c1::LI => {
+					let dst = extract_reg(parcel, 7, 11);
+					if dst == GPRegisterIndex::ZERO {
+						panic!("Invalid instruction: C.LI RD must not be x0");
+					}
 
-				let imm = ((extract_bits_16(parcel, 2, 2))
-					| (extract_bits_16(parcel, 3, 3) << 1)
-					| (extract_bits_16(parcel, 4, 4) << 2)
-					| (extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 6, 6) << 4)
-					| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-				let imm = sign_ext_imm(imm, 5);
-				CompressedInstruction::LoadImmediate { dst, imm }
-			}
-			c1::J => {
-				let offset = ((extract_bits_16(parcel, 3, 3) << 1)
-					| (extract_bits_16(parcel, 4, 4) << 2)
-					| (extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 11, 11) << 4)
-					| (extract_bits_16(parcel, 2, 2) << 5)
-					| (extract_bits_16(parcel, 7, 7) << 6)
-					| (extract_bits_16(parcel, 6, 6) << 7)
-					| (extract_bits_16(parcel, 9, 9) << 8)
-					| (extract_bits_16(parcel, 10, 10) << 9)
-					| (extract_bits_16(parcel, 8, 8) << 10)
-					| (extract_bits_16(parcel, 12, 12) << 11)) as u32;
-				let offset = sign_ext_imm(offset, 11);
-				CompressedInstruction::Jump { offset }
-			}
-			_ => unimplemented!("C1 func3: {func3:#05b}"),
+					let imm = ((extract_bits_16(parcel, 2, 2))
+						| (extract_bits_16(parcel, 3, 3) << 1)
+						| (extract_bits_16(parcel, 4, 4) << 2)
+						| (extract_bits_16(parcel, 5, 5) << 3)
+						| (extract_bits_16(parcel, 6, 6) << 4)
+						| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
+					let imm = sign_ext_imm(imm, 5);
+					CompressedInstruction::LoadImmediate { dst, imm }
+				}
+				c1::J => {
+					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
+						| (extract_bits_16(parcel, 4, 4) << 2)
+						| (extract_bits_16(parcel, 5, 5) << 3)
+						| (extract_bits_16(parcel, 11, 11) << 4)
+						| (extract_bits_16(parcel, 2, 2) << 5)
+						| (extract_bits_16(parcel, 7, 7) << 6)
+						| (extract_bits_16(parcel, 6, 6) << 7)
+						| (extract_bits_16(parcel, 9, 9) << 8)
+						| (extract_bits_16(parcel, 10, 10) << 9)
+						| (extract_bits_16(parcel, 8, 8) << 10)
+						| (extract_bits_16(parcel, 12, 12) << 11)) as u32;
+					let offset = sign_ext_imm(offset, 11);
+					CompressedInstruction::Jump { offset }
+				}
+				c1::SRLI_SRAI_ANDI => {
+					let func2 = extract_bits_16(parcel, 10, 11) as u8;
+					match func2 {
+						c1::SRLI => {
+							let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+							let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
+								| (extract_bits_16(parcel, 3, 3) << 1)
+								| (extract_bits_16(parcel, 4, 4) << 2)
+								| (extract_bits_16(parcel, 5, 5) << 3)
+								| (extract_bits_16(parcel, 6, 6) << 4)
+								| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
+							CompressedInstruction::ShiftRightLogicalImmediate {
+								dst: lhs,
+								shift_amt: uimm,
+							}
+						}
+						c1::SRAI => {
+							let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+							let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
+								| (extract_bits_16(parcel, 3, 3) << 1)
+								| (extract_bits_16(parcel, 4, 4) << 2)
+								| (extract_bits_16(parcel, 5, 5) << 3)
+								| (extract_bits_16(parcel, 6, 6) << 4)
+								| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
+							CompressedInstruction::ShiftRightArithmeticImmediate {
+								dst: lhs,
+								shift_amt: uimm,
+							}
+						}
+						c1::ANDI => todo!("ANDI"),
+						_ => unreachable!("(C-Ext) C1: Invalid  instruction"),
+					}
+				}
+				_ => unimplemented!("C1 func3:{func3:#05b} func6:{func6:#08b}"),
+			},
 		}
 	}
 
@@ -193,6 +245,19 @@ impl CompressedInstruction {
 		use consts::opcode::c2::*;
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 		match func3 {
+			SLLI => {
+				let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+				let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
+					| (extract_bits_16(parcel, 3, 3) << 1)
+					| (extract_bits_16(parcel, 4, 4) << 2)
+					| (extract_bits_16(parcel, 5, 5) << 3)
+					| (extract_bits_16(parcel, 6, 6) << 4)
+					| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
+				CompressedInstruction::ShiftLeftLogicalImmediate {
+					dst: lhs,
+					shift_amt: uimm,
+				}
+			}
 			JR_JALR_MV_EBREAK_ADD => {
 				let crtype = CRType::parse(parcel);
 				match crtype.func() {
@@ -398,36 +463,26 @@ mod consts {
 
 			pub const ADDI16SP_OR_LUI: u8 = 0b011;
 
-			// 10-11 = 00
-			pub const SRLI: u8 = 0b100;
-			// 10-11 = 01
-			pub const SRAI: u8 = 0b100;
-			// 10-11 = 10
-			pub const ANDI: u8 = 0b100;
+			// func3 at 13-15
+			pub const SRLI_SRAI_ANDI: u8 = 0b100;
 
-			// 10-15 = 100011
-			// 6-5 = 00
-			pub const SUB: u8 = 0b100;
+			pub const SRLI: u8 = 0b00;
+			pub const SRAI: u8 = 0b01;
+			pub const ANDI: u8 = 0b10;
 
-			// 10-15 = 100011
-			// 6-5 = 01
-			pub const XOR: u8 = 0b100;
+			pub const SUB_XOR_OR_AND: u8 = 0b100011;
 
-			// 10-15 = 100011
-			// 6-5 = 10
-			pub const OR: u8 = 0b100;
+			// bits 5-6
+			pub const SUB: u8 = 0b00;
+			pub const XOR: u8 = 0b01;
+			pub const OR: u8 = 0b10;
+			pub const AND: u8 = 0b11;
 
-			// 10-15 = 100011
-			// 6-5 = 11
-			pub const AND: u8 = 0b100;
+			pub const SUBW_ADDW: u8 = 0b100111;
 
-			// 10-15 = 100111
-			// 6-5 = 00
-			pub const SUBW: u8 = 0b100;
-
-			// 10-15 = 100111
-			// 6-5 = 01
-			pub const ADDW: u8 = 0b100;
+			// bits 5-6
+			pub const SUBW: u8 = 0b00;
+			pub const ADDW: u8 = 0b01;
 
 			pub const J: u8 = 0b101;
 			pub const BEQZ: u8 = 0b110;
@@ -442,6 +497,8 @@ mod consts {
 			// above insns with entire func4
 			pub const JR_MV: u8 = 0b1000;
 			pub const JALR_EBREAK_ADD: u8 = 0b1001;
+
+			pub const SLLI: u8 = 0b000;
 
 			pub const SDSP: u8 = 0b111;
 			pub const LDSP: u8 = 0b011;

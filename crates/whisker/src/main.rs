@@ -103,7 +103,9 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let mut cpu = WhiskerCpu::new(supported, mem);
 
 	cpu.pc = bootrom_offset;
-	cpu.registers.set(GPRegisterIndex::SP, 65536 + 1000);
+
+	// TODO: Figure this out
+	cpu.registers.set(GPRegisterIndex::SP, 65536 + 500);
 	cpu
 }
 

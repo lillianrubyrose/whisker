@@ -376,11 +376,11 @@ impl WhiskerCpu {
 		let mtvec = self.csrs.read_mtvec();
 		trace!("trap handler at {mtvec:#018X}");
 
+		panic!("pc={:#08X}", self.pc);
 		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
 		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
 		self.should_trap = false;
-		panic!();
 		Ok(())
 	}
 
@@ -772,6 +772,11 @@ impl WhiskerCpu {
 					self.pc = start_pc.wrapping_add_signed(offset);
 				}
 			}
+			CompressedInstruction::BranchIfNotZero { src, offset } => {
+				if self.registers.get(src) != 0 {
+					self.pc = start_pc.wrapping_add_signed(offset);
+				}
+			}
 			CompressedInstruction::AddImmediateWord { dst, rhs } => {
 				let lhs = self.registers.get(dst) as u32;
 				self.registers.set(dst, lhs.wrapping_add_signed(rhs) as u64);
@@ -803,6 +808,18 @@ impl WhiskerCpu {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src);
 				write_mem_u64!(self, offset, val);
+			}
+			CompressedInstruction::ShiftRightLogicalImmediate { dst, shift_amt } => {
+				let lhs = self.registers.get(dst);
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
+			}
+			CompressedInstruction::ShiftRightArithmeticImmediate { dst, shift_amt } => {
+				let lhs = self.registers.get(dst) as i64;
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+			}
+			CompressedInstruction::ShiftLeftLogicalImmediate { dst, shift_amt } => {
+				let lhs = self.registers.get(dst);
+				self.registers.set(dst, lhs.wrapping_shl(shift_amt));
 			}
 		}
 	}

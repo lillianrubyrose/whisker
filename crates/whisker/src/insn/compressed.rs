@@ -51,6 +51,10 @@ pub enum CompressedInstruction {
 		src: GPRegisterIndex,
 		offset: i64,
 	},
+	BranchIfNotZero {
+		src: GPRegisterIndex,
+		offset: i64,
+	},
 	AddImmediateWord {
 		dst: GPRegisterIndex,
 		rhs: i32,
@@ -69,6 +73,18 @@ pub enum CompressedInstruction {
 	},
 	JumpToRegister {
 		src: GPRegisterIndex,
+	},
+	ShiftRightLogicalImmediate {
+		dst: GPRegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftRightArithmeticImmediate {
+		dst: GPRegisterIndex,
+		shift_amt: u32,
+	},
+	ShiftLeftLogicalImmediate {
+		dst: GPRegisterIndex,
+		shift_amt: u32,
 	},
 }
 

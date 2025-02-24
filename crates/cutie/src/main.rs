@@ -104,7 +104,7 @@ fn compile2(out_name: String, files: Vec<PathBuf>) {
 		let out_path = target_dir.join(file.file_stem().unwrap()).with_extension("o");
 
 		let mut cmd = Command::new(cc);
-		cmd.args(["-march=rv64id", "-c", "-std=c23", "-O0", "-Wall", "-Wextra"])
+		cmd.args(["-march=rv64idc", "-c", "-std=c23", "-O0", "-Wall", "-Wextra"])
 			.arg(file)
 			.arg("-o")
 			.arg(&out_path)

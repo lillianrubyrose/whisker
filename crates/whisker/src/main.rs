@@ -21,6 +21,7 @@ use std::{fs, io};
 use clap::{command, Parser, Subcommand};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
+use ty::GPRegisterIndex;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
@@ -102,6 +103,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let mut cpu = WhiskerCpu::new(supported, mem);
 
 	cpu.pc = bootrom_offset;
+	cpu.registers.set(GPRegisterIndex::SP, 65536 + 1000);
 	cpu
 }
 

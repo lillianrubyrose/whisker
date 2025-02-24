@@ -11,8 +11,8 @@ _start:
     la a0, msg
     call whisker_write_uart
 
-    # Halt execution
-    j _start
+_end:
+    j _end
 
     .section .rodata
 msg:

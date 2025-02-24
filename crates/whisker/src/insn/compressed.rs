@@ -11,7 +11,6 @@ pub enum CompressedInstruction {
 		dst: GPRegisterIndex,
 		imm: i64,
 	},
-
 	LoadWord {
 		dst: GPRegisterIndex,
 		src: GPRegisterIndex,
@@ -20,6 +19,55 @@ pub enum CompressedInstruction {
 	StoreWord {
 		dst: GPRegisterIndex,
 		dst_offset: i64,
+		src: GPRegisterIndex,
+	},
+	LoadDoubleWord {
+		dst: GPRegisterIndex,
+		src: GPRegisterIndex,
+		src_offset: i64,
+	},
+	StoreDoubleWord {
+		dst: GPRegisterIndex,
+		dst_offset: i64,
+		src: GPRegisterIndex,
+	},
+	StoreDoubleWordToSP {
+		src2: GPRegisterIndex,
+		offset: i64,
+	},
+	LoadDoubleWordFromSP {
+		dst: GPRegisterIndex,
+		offset: i64,
+	},
+	ADDI4SPN {
+		dst: GPRegisterIndex,
+		imm: i64,
+	},
+	Add {
+		src: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	BranchIfZero {
+		src: GPRegisterIndex,
+		offset: i64,
+	},
+	AddImmediateWord {
+		dst: GPRegisterIndex,
+		rhs: i32,
+	},
+	Jump {
+		offset: i64,
+	},
+	Nop,
+	Move {
+		src: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	LoadImmediate {
+		dst: GPRegisterIndex,
+		imm: i64,
+	},
+	JumpToRegister {
 		src: GPRegisterIndex,
 	},
 }

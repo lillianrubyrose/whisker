@@ -5,7 +5,5 @@ edition = "2021"
 
 [dependencies]
 clap.workspace = true
-cmd_lib = "1.9.5"
-
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -32,12 +32,14 @@ impl Memory {
 
 			match page_entry {
 				PageEntry::PhysBacked { phys_base } => {
-					trace!("Reading from physmem @ {:#018X}", phys_base);
-					*val = self.phys[(phys_base + page_offset) as usize];
+					let offset = phys_base + page_offset;
+					trace!("Reading from physmem @ {:#018X}", offset);
+					*val = self.phys[offset as usize];
 				}
 				PageEntry::Bootrom { page_base } => {
-					trace!("Reading from bootrom @ 0x{:#018X}", page_base);
-					*val = self.bootrom[(page_base + page_offset) as usize];
+					let offset = page_base + page_offset;
+					trace!("Reading from bootrom @ {:#018X}", offset);
+					*val = self.bootrom[offset as usize];
 				}
 				PageEntry::MMIO { on_read, .. } => {
 					trace!("Reading from MMIO @ {:#018X}", offset);

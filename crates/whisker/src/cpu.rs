@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use tracing::*;
 
@@ -147,6 +148,8 @@ impl WhiskerCpu {
 					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn, start_pc),
 				}
+				self.dump();
+
 				Ok(())
 			}
 			Err(()) => {
@@ -369,6 +372,31 @@ macro_rules! get_csr_mut {
 }
 
 impl WhiskerCpu {
+	pub fn dump(&self) {
+		// UNWRAPS: writing to string cannot fail
+
+		let mut out = String::from("CPU State:\n");
+		writeln!(&mut out, "     pc: {:#018X}\n", self.pc).unwrap();
+		let regs = self.registers.regs();
+		for idx in 0..32 {
+			writeln!(&mut out, "    {:>3}: {:#018X}", format!("x{idx}"), regs[idx]).unwrap();
+		}
+
+		writeln!(&mut out).unwrap();
+		let fpregs = self.fp_registers.regs();
+		for idx in 0..32 {
+			writeln!(
+				&mut out,
+				"   {:>4}: {:#018X}",
+				format!("fp{idx}"),
+				u64::from_le_bytes(fpregs[idx].to_le_bytes())
+			)
+			.unwrap();
+		}
+
+		trace!("{}", out);
+	}
+
 	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
 		let cause = self.csrs.read_mcause();
 		let mtval = self.csrs.read_mtval();

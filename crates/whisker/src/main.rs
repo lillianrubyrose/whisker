@@ -21,6 +21,7 @@ use std::{fs, io};
 use clap::{command, Parser, Subcommand};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use ty::GPRegisterIndex;
@@ -61,7 +62,11 @@ fn parse_dec_or_hex(s: &str) -> Result<u64, <u64 as FromStr>::Err> {
 fn main() {
 	tracing_subscriber::registry()
 		.with(tracing_subscriber::fmt::layer().without_time())
-		.with(tracing_subscriber::EnvFilter::from_default_env())
+		.with(
+			tracing_subscriber::EnvFilter::builder()
+				.with_default_directive(LevelFilter::INFO.into())
+				.from_env_lossy(),
+		)
 		.init();
 
 	let cli = CliArgs::parse();

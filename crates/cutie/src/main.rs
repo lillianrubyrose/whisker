@@ -1,10 +1,35 @@
+use std::collections::HashSet;
 use std::process::exit;
 use std::{path::PathBuf, process::Command};
 
 use clap::{Parser, Subcommand};
+use tracing::level_filters::LevelFilter;
 use tracing::*;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ISAExtension {
+	Compressed,
+	Float,
+}
+
+impl ISAExtension {
+	pub fn to_char(self) -> char {
+		match self {
+			ISAExtension::Compressed => 'c',
+			ISAExtension::Float => 'f',
+		}
+	}
+
+	pub fn parse(str: &str) -> Result<Self, String> {
+		match str.to_lowercase().as_str() {
+			"c" => Ok(Self::Compressed),
+			"f" => Ok(Self::Float),
+			_ => Err(format!("Invalid extension: {str}")),
+		}
+	}
+}
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -19,17 +44,23 @@ enum Commands {
 		#[arg(short, default_value_t = String::from("boot.bin"))]
 		out: String,
 		files: Vec<PathBuf>,
+		#[arg(short = 'f', long = "flags", value_delimiter = ',', value_parser = ISAExtension::parse)]
+		extensions: Vec<ISAExtension>,
 	},
 }
 
 fn main() {
 	tracing_subscriber::registry()
 		.with(tracing_subscriber::fmt::layer().without_time())
-		.with(tracing_subscriber::EnvFilter::from_default_env())
+		.with(
+			tracing_subscriber::EnvFilter::builder()
+				.with_default_directive(LevelFilter::INFO.into())
+				.from_env_lossy(),
+		)
 		.init();
 	let args = Args::parse();
 	match args.command {
-		Commands::Compile { out, files } => compile(out, files),
+		Commands::Compile { out, files, extensions } => compile(out, files, flatten_to_set(extensions)),
 	}
 }
 
@@ -44,7 +75,13 @@ fn find_command(options: &[&'static str]) -> Option<&'static str> {
 	None
 }
 
-fn compile(out_name: String, files: Vec<PathBuf>) {
+fn flatten_to_set<T: Eq + std::hash::Hash>(mut vec: Vec<T>) -> HashSet<T> {
+	let mut set = HashSet::with_capacity(vec.len());
+	set.extend(vec.drain(..));
+	set
+}
+
+fn compile(out_name: String, files: Vec<PathBuf>, extensions: HashSet<ISAExtension>) {
 	if files.is_empty() {
 		error!("no input files given");
 		exit(1)
@@ -102,8 +139,15 @@ fn compile(out_name: String, files: Vec<PathBuf>) {
 
 		let out_path = target_dir.join(file.file_stem().unwrap()).with_extension("o");
 
+		// This is the base ISA + D, GCC needs D even when it doesn't emit D instructions for some reason
+		let mut march = String::from("rv64id");
+		for ele in &extensions {
+			march.push(ele.to_char());
+		}
+		info!("compiling with march: {march}");
+
 		let mut cmd = Command::new(cc);
-		cmd.args(["-march=rv64idc", "-c", "-std=c23", "-O0", "-Wall", "-Wextra"])
+		cmd.args([&format!("-march={march}"), "-c", "-std=c23", "-O0", "-Wall", "-Wextra"])
 			.arg(file)
 			.arg("-o")
 			.arg(&out_path)

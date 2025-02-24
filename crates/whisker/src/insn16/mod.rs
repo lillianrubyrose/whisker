@@ -1,4 +1,4 @@
-use log::trace;
+use tracing::trace;
 use ty::{extract_reg, CRType, CSSType};
 
 use crate::{

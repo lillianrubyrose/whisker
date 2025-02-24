@@ -4,3 +4,5 @@ resolver = "2"
 
 [workspace.dependencies]
 clap = { version = "4.5.29", features = ["derive"] }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

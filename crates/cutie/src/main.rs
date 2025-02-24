@@ -3,7 +3,9 @@ use std::{path::PathBuf, process::Command};
 
 use clap::{Parser, Subcommand};
 use cmd_lib::run_cmd;
-use log::*;
+use tracing::*;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -26,7 +28,10 @@ enum Commands {
 }
 
 fn main() {
-	env_logger::init();
+	tracing_subscriber::registry()
+		.with(tracing_subscriber::fmt::layer().without_time())
+		.with(tracing_subscriber::EnvFilter::from_default_env())
+		.init();
 	let args = Args::parse();
 	match args.command {
 		Commands::Compile { input } => compile(&input),

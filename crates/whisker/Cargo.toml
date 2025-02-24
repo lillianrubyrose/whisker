@@ -7,7 +7,8 @@ default-run = "whisker"
 [dependencies]
 clap.workspace = true
 paste = "1.0.15"
-env_logger = "0.11.6"
 gdbstub = "0.7.3"
 gdbstub_arch = "0.3.1"
-log = "0.4.25"
+
+tracing.workspace = true
+tracing-subscriber.workspace = true

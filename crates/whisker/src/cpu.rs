@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use log::*;
+use tracing::*;
 
 use crate::csr::ControlStatusRegisters;
 use crate::insn::compressed::CompressedInstruction;

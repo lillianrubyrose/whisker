@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use log::*;
+use tracing::*;
 
 pub struct Memory {
 	phys: Box<[u8]>,

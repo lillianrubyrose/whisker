@@ -81,17 +81,21 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 
 	let supported = SupportedExtensions::INTEGER | SupportedExtensions::FLOAT | SupportedExtensions::COMPRESSED;
 
+	let dram_base = 0x8000_0000u64;
+	let dram_size = 0x1000_0000u64;
+	let uart_addr = 0x1000_0000u64;
+
 	let mem = MemoryBuilder::default()
 		.bootrom(prog, PageBase::from_addr(bootrom_offset))
-		.physical_size(0x40_000)
-		.phys_mapping(PageBase::from_addr(0x1_0000), PageBase::from_addr(0), 0x40_000)
+		.physical_size(dram_size)
+		.phys_mapping(PageBase::from_addr(dram_base), PageBase::from_addr(0), dram_size)
 		// MMIO UART mapping
 		.add_mapping(
-			PageBase::from_addr(0x1000_0000),
+			PageBase::from_addr(uart_addr),
 			PageEntry::MMIO {
 				on_read: Box::new(|_| unimplemented!("read from UART")),
-				on_write: Box::new(|addr, val| {
-					if addr == 0x1000_0000 {
+				on_write: Box::new(move |addr, val| {
+					if addr == uart_addr {
 						print!("{}", val as char);
 						io::stdout().flush().unwrap();
 					}
@@ -103,7 +107,7 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let mut cpu = WhiskerCpu::new(supported, mem);
 
 	cpu.pc = bootrom_offset;
-	cpu.registers.set(GPRegisterIndex::SP, (0x1_0000 + 0x40_000) & !0xF);
+	cpu.registers.set(GPRegisterIndex::SP, (dram_base + dram_size) & !0xF);
 	cpu
 }
 

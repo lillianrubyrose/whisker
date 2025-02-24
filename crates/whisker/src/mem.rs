@@ -32,13 +32,16 @@ impl Memory {
 
 			match page_entry {
 				PageEntry::PhysBacked { phys_base } => {
+					trace!("Reading from physmem @ {:#018X}", phys_base);
 					*val = self.phys[(phys_base + page_offset) as usize];
 				}
-				PageEntry::MMIO { on_read, .. } => {
-					*val = on_read(offset);
-				}
 				PageEntry::Bootrom { page_base } => {
+					trace!("Reading from bootrom @ 0x{:#018X}", page_base);
 					*val = self.bootrom[(page_base + page_offset) as usize];
+				}
+				PageEntry::MMIO { on_read, .. } => {
+					trace!("Reading from MMIO @ {:#018X}", offset);
+					*val = on_read(offset);
 				}
 			}
 		}
@@ -61,15 +64,18 @@ impl Memory {
 
 			match page_entry {
 				PageEntry::PhysBacked { phys_base } => {
+					trace!("Writing to physmem @ {:#018X}", phys_base);
 					self.phys[(phys_base + page_offset) as usize] = *val;
-				}
-				PageEntry::MMIO { on_write, .. } => {
-					on_write(offset, *val);
 				}
 				// writing to bootrom is allowed, this makes it easier to write bootrom code
 				// without having to do loader shenanigans
 				PageEntry::Bootrom { page_base } => {
+					trace!("Writing to bootrom @ 0x{:#018X}", page_base);
 					self.bootrom[(page_base + page_offset) as usize] = *val;
+				}
+				PageEntry::MMIO { on_write, .. } => {
+					trace!("Writing to MMIO @ {:#018X}", offset);
+					on_write(offset, *val);
 				}
 			}
 		}

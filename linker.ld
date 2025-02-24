@@ -1,8 +1,8 @@
 ENTRY(_start)
 
 MEMORY {
-    bootrom (rwx) : ORIGIN = 0x20000000, LENGTH = 65K
-    dram (rw)     : ORIGIN = 0x00010000, LENGTH = 0x400000
+    bootrom (rwx) : ORIGIN = 0x00001000, LENGTH = 65K
+    dram (rw)     : ORIGIN = 0x80000000, LENGTH = 0x10000000
 }
 
 SECTIONS {

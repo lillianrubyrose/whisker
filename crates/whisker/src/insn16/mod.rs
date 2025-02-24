@@ -65,8 +65,8 @@ impl CompressedInstruction {
 				}
 			}
 			STORE_DOUBLE_WORD => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
+				let src = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
 				let imm = ((extract_bits_16(parcel, 10, 11) << 3)
 					| (extract_bits_16(parcel, 5, 5) << 5)
 					| (extract_bits_16(parcel, 6, 6) << 6)

@@ -1,326 +1,402 @@
 use tracing::trace;
-use ty::{extract_reg, CRType, CSSType};
 
+use crate::insn16::ty::CWideImmType;
 use crate::{
-	cpu::{GPRegisters, WhiskerCpu},
-	insn::{compressed::CompressedInstruction, Instruction},
-	ty::GPRegisterIndex,
-	util::{extract_bits_16, sign_ext_imm},
+	cpu::WhiskerCpu,
+	insn::{compressed::CompressedInstruction, int::IntInstruction, Instruction},
+	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},
+	ty::{GPRegisterIndex, TrapIdx},
+	util::extract_bits_16,
 };
 
 impl CompressedInstruction {
-	pub fn parse_c0(parcel: u16) -> Self {
+	pub fn parse_c0(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
 		use consts::opcode::c0::*;
 
 		let ty = extract_bits_16(parcel, 13, 15) as u8;
 		match ty {
 			ADDI4SPN => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let imm = ((extract_bits_16(parcel, 6, 6) << 2)
-					| (extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 11, 11) << 4)
-					| (extract_bits_16(parcel, 12, 12) << 5)
-					| (extract_bits_16(parcel, 7, 7) << 6)
-					| (extract_bits_16(parcel, 8, 8) << 7)
-					| (extract_bits_16(parcel, 9, 9) << 8)
-					| (extract_bits_16(parcel, 10, 10) << 9)) as u32;
-
-				let imm = sign_ext_imm(imm, 9);
-				CompressedInstruction::ADDI4SPN { dst, imm }
+				let iw = CWideImmType::parse(parcel);
+				if iw.imm() == 0 {
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else {
+					Ok(IntInstruction::AddImmediate {
+						dst: iw.dst(),
+						lhs: GPRegisterIndex::SP,
+						rhs: iw.imm(),
+					}
+					.into())
+				}
+			}
+			FLD => {
+				todo!("FLD (D ext)")
 			}
 			LOAD_WORD => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let imm = ((extract_bits_16(parcel, 5, 6) << 2) | (extract_bits_16(parcel, 10, 12) << 6)) as i64;
-				CompressedInstruction::LoadWord {
-					dst,
-					src,
-					src_offset: imm,
-					// src_offset: 4i64.wrapping_mul(imm),
+				let cl = CLoadType::parse(parcel);
+				Ok(IntInstruction::LoadWord {
+					dst: cl.dst(),
+					src: cl.src(),
+					// the immediate was zero extended so this will never do a sign extension
+					src_offset: cl.imm().cast_signed(),
 				}
+				.into())
 			}
 			LOAD_DOUBLE_WORD => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let imm = ((extract_bits_16(parcel, 10, 11) << 3)
-					| (extract_bits_16(parcel, 5, 5) << 5)
-					| (extract_bits_16(parcel, 6, 6) << 6)
-					| (extract_bits_16(parcel, 12, 12) << 7)) as i64;
-
-				CompressedInstruction::LoadDoubleWord {
-					dst,
-					src,
-					src_offset: imm,
+				let cl = CLoadType::parse(parcel);
+				Ok(IntInstruction::LoadDoubleWord {
+					dst: cl.dst(),
+					src: cl.src(),
+					// the immediate was zero extended so this will never do a sign extension
+					src_offset: cl.imm().cast_signed(),
 				}
+				.into())
+			}
+			RESERVED => {
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+				Err(())
+			}
+			FSD => {
+				todo!("FSD (D ext)")
 			}
 			STORE_WORD => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let imm = ((extract_bits_16(parcel, 5, 6) << 2) | (extract_bits_16(parcel, 10, 12) << 6)) as i64;
-				CompressedInstruction::StoreWord {
-					dst,
-					dst_offset: imm,
-					// dst_offset: 4i64.wrapping_mul(imm),
-					src,
+				let cs = CStoreType::parse(parcel);
+				Ok(IntInstruction::StoreWord {
+					dst: cs.dst(),
+					// the immediate was zero extended so this will never do a sign extension
+					dst_offset: cs.imm().cast_signed(),
+					src: cs.src(),
 				}
+				.into())
 			}
 			STORE_DOUBLE_WORD => {
-				let dst = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let src = GPRegisterIndex::new(extract_bits_16(parcel, 2, 4) as u8 + 8).unwrap();
-				let imm = ((extract_bits_16(parcel, 10, 11) << 3)
-					| (extract_bits_16(parcel, 5, 5) << 5)
-					| (extract_bits_16(parcel, 6, 6) << 6)
-					| (extract_bits_16(parcel, 12, 12) << 7)) as i64;
-
-				CompressedInstruction::StoreDoubleWord {
-					dst,
-					dst_offset: imm,
-					src,
+				let cs = CStoreType::parse(parcel);
+				Ok(IntInstruction::StoreDoubleWord {
+					dst: cs.dst(),
+					// the immediate was zero extended so this will never do a sign extension
+					dst_offset: cs.imm().cast_signed(),
+					src: cs.src(),
 				}
+				.into())
 			}
 			_ => unreachable!(),
 		}
 	}
 
-	pub fn parse_c1(parcel: u16) -> Self {
-		use consts::opcode::*;
-
-		if parcel == 0b0000000000000001 {
-			return CompressedInstruction::Nop;
-		}
-
-		let func6 = extract_bits_16(parcel, 10, 15) as u8;
+	pub fn parse_c1(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 
-		match func6 {
-			c1::SUB_XOR_OR_AND => todo!("SUB XOR OR AND"),
-			c1::SUBW_ADDW => todo!("SUBW ADDW"),
-
-			_ => match func3 {
-				// The difference between ADDI16SP and LUI at a bit level is that ADDI16SP rd must be x2, and LUI rd can't be x0 or x2
-				c1::ADDI16SP_OR_LUI => {
-					let crtype = CRType::parse(parcel);
-					match crtype.dst() {
-						// Must be ADDI16SP
-						GPRegisterIndex::SP => {
-							let imm = ((extract_bits_16(parcel, 6, 6) << 4)
-								| (extract_bits_16(parcel, 2, 2) << 5)
-								| (extract_bits_16(parcel, 5, 5) << 6)
-								| (extract_bits_16(parcel, 3, 3) << 7)
-								| (extract_bits_16(parcel, 4, 4) << 8)
-								| (extract_bits_16(parcel, 12, 12) << 9)) as u32;
-
-							let imm = sign_ext_imm(imm, 9);
-
-							CompressedInstruction::AddImmediate16ToSP {
-								// imm: 16i64.wrapping_mul(imm),
-								imm, // FIXME: This value seems right before the multiplication?
-							}
-						}
-
-						GPRegisterIndex::ZERO => unreachable!("invalid c1 dst {:?}", crtype.dst()),
-
-						// Must be LUI
-						dst => {
-							let imm = ((extract_bits_16(parcel, 2, 6) as u32) << 12)
-								| ((extract_bits_16(parcel, 12, 12) as u32) << 17);
-							let imm = sign_ext_imm(imm, 17);
-							if imm == 0 {
-								unreachable!("invalid instruction: C.LUI imm must be >0");
-							}
-
-							CompressedInstruction::LoadUpperImmediate { dst, imm }
-						}
-					}
-				}
-				c1::BEQZ => {
-					let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
-						| (extract_bits_16(parcel, 4, 4) << 2)
-						| (extract_bits_16(parcel, 10, 10) << 3)
-						| (extract_bits_16(parcel, 11, 11) << 4)
-						| (extract_bits_16(parcel, 2, 2) << 5)
-						| (extract_bits_16(parcel, 5, 5) << 6)
-						| (extract_bits_16(parcel, 6, 6) << 7)
-						| (extract_bits_16(parcel, 12, 12) << 8)) as u32;
-					let offset = sign_ext_imm(offset, 8);
-					CompressedInstruction::BranchIfZero { src, offset }
-				}
-				c1::BNEZ => {
-					let src = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
-						| (extract_bits_16(parcel, 4, 4) << 2)
-						| (extract_bits_16(parcel, 10, 10) << 3)
-						| (extract_bits_16(parcel, 11, 11) << 4)
-						| (extract_bits_16(parcel, 2, 2) << 5)
-						| (extract_bits_16(parcel, 5, 5) << 6)
-						| (extract_bits_16(parcel, 6, 6) << 7)
-						| (extract_bits_16(parcel, 12, 12) << 8)) as u32;
-					let offset = sign_ext_imm(offset, 8);
-					CompressedInstruction::BranchIfNotZero { src, offset }
-				}
-				c1::ADDIW => {
-					let offset = ((extract_bits_16(parcel, 2, 2))
-						| (extract_bits_16(parcel, 3, 3) << 1)
-						| (extract_bits_16(parcel, 4, 4) << 2)
-						| (extract_bits_16(parcel, 5, 5) << 3)
-						| (extract_bits_16(parcel, 6, 6) << 4)
-						| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-					let offset = sign_ext_imm(offset, 5);
-					let dst = extract_reg(parcel, 7, 11);
-					CompressedInstruction::AddImmediateWord {
-						dst,
-						rhs: offset as i32,
-					}
-				}
-				c1::LI => {
-					let dst = extract_reg(parcel, 7, 11);
-					if dst == GPRegisterIndex::ZERO {
-						panic!("Invalid instruction: C.LI RD must not be x0");
-					}
-
-					let imm = ((extract_bits_16(parcel, 2, 2))
-						| (extract_bits_16(parcel, 3, 3) << 1)
-						| (extract_bits_16(parcel, 4, 4) << 2)
-						| (extract_bits_16(parcel, 5, 5) << 3)
-						| (extract_bits_16(parcel, 6, 6) << 4)
-						| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-					let imm = sign_ext_imm(imm, 5);
-					CompressedInstruction::LoadImmediate { dst, imm }
-				}
-				c1::J => {
-					let offset = ((extract_bits_16(parcel, 3, 3) << 1)
-						| (extract_bits_16(parcel, 4, 4) << 2)
-						| (extract_bits_16(parcel, 5, 5) << 3)
-						| (extract_bits_16(parcel, 11, 11) << 4)
-						| (extract_bits_16(parcel, 2, 2) << 5)
-						| (extract_bits_16(parcel, 7, 7) << 6)
-						| (extract_bits_16(parcel, 6, 6) << 7)
-						| (extract_bits_16(parcel, 9, 9) << 8)
-						| (extract_bits_16(parcel, 10, 10) << 9)
-						| (extract_bits_16(parcel, 8, 8) << 10)
-						| (extract_bits_16(parcel, 12, 12) << 11)) as u32;
-					let offset = sign_ext_imm(offset, 11);
-					CompressedInstruction::Jump { offset }
-				}
-				c1::SRLI_SRAI_ANDI => {
-					let func2 = extract_bits_16(parcel, 10, 11) as u8;
-					match func2 {
-						c1::SRLI => {
-							let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-							let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
-								| (extract_bits_16(parcel, 3, 3) << 1)
-								| (extract_bits_16(parcel, 4, 4) << 2)
-								| (extract_bits_16(parcel, 5, 5) << 3)
-								| (extract_bits_16(parcel, 6, 6) << 4)
-								| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-							CompressedInstruction::ShiftRightLogicalImmediate {
-								dst: lhs,
-								shift_amt: uimm,
-							}
-						}
-						c1::SRAI => {
-							let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-							let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
-								| (extract_bits_16(parcel, 3, 3) << 1)
-								| (extract_bits_16(parcel, 4, 4) << 2)
-								| (extract_bits_16(parcel, 5, 5) << 3)
-								| (extract_bits_16(parcel, 6, 6) << 4)
-								| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-							CompressedInstruction::ShiftRightArithmeticImmediate {
-								dst: lhs,
-								shift_amt: uimm,
-							}
-						}
-						c1::ANDI => todo!("ANDI"),
-						_ => unreachable!("(C-Ext) C1: Invalid  instruction"),
-					}
-				}
-				_ => unimplemented!("C1 func3:{func3:#05b} func6:{func6:#08b}"),
-			},
-		}
-	}
-
-	pub fn parse_c2(parcel: u16) -> Self {
-		use consts::opcode::c2::*;
-		let func3 = extract_bits_16(parcel, 13, 15) as u8;
+		use consts::opcode::c1::*;
 		match func3 {
-			SLLI => {
-				let lhs = GPRegisterIndex::new(extract_bits_16(parcel, 7, 9) as u8 + 8).unwrap();
-				let uimm = ((extract_bits_16(parcel, 2, 2) << 0)
-					| (extract_bits_16(parcel, 3, 3) << 1)
-					| (extract_bits_16(parcel, 4, 4) << 2)
-					| (extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 6, 6) << 4)
-					| (extract_bits_16(parcel, 12, 12) << 5)) as u32;
-				CompressedInstruction::ShiftLeftLogicalImmediate {
-					dst: lhs,
-					shift_amt: uimm,
+			ADD_IMM => {
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO && im.imm() == 0 {
+					Ok(CompressedInstruction::Nop.into())
+				} else {
+					Ok(IntInstruction::AddImmediate {
+						dst: im.reg(),
+						lhs: im.reg(),
+						rhs: im.imm(),
+					}
+					.into())
 				}
 			}
-			JR_JALR_MV_EBREAK_ADD => {
-				let crtype = CRType::parse(parcel);
-				match crtype.func() {
-					JR_MV => {
-						if crtype.src2() == GPRegisterIndex::ZERO {
-							CompressedInstruction::JumpToRegister {
-								src: extract_reg(parcel, 7, 11),
+			ADDIW => {
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO {
+					// reserved
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else {
+					Ok(IntInstruction::AddImmediateWord {
+						dst: im.reg(),
+						lhs: im.reg(),
+						rhs: im.imm() as i32,
+					}
+					.into())
+				}
+			}
+			LI => {
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO {
+					todo!("HINT")
+				} else {
+					Ok(IntInstruction::AddImmediate {
+						dst: im.reg(),
+						lhs: GPRegisterIndex::ZERO,
+						rhs: im.imm(),
+					}
+					.into())
+				}
+			}
+			ADDI16SP_OR_LUI => {
+				let im = CImmType::parse(parcel);
+				if im.imm() == 0 {
+					// reserved
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else if im.reg() == GPRegisterIndex::ZERO {
+					todo!("HINT")
+				} else if im.reg().as_usize() == 2 {
+					Ok(IntInstruction::AddImmediate {
+						dst: im.reg(),
+						lhs: im.reg(),
+						rhs: im.imm(),
+					}
+					.into())
+				} else {
+					Ok(IntInstruction::LoadUpperImmediate {
+						dst: im.reg(),
+						val: im.imm(),
+					}
+					.into())
+				}
+			}
+			J => {
+				let j = CJType::parse(parcel);
+				Ok(IntInstruction::JumpAndLink {
+					link_reg: GPRegisterIndex::ZERO,
+					jmp_off: j.offset(),
+				}
+				.into())
+			}
+			BEQZ => {
+				let b = CBranchType::parse(parcel);
+				Ok(IntInstruction::BranchEqual {
+					lhs: b.src(),
+					rhs: GPRegisterIndex::ZERO,
+					imm: b.offset(),
+				}
+				.into())
+			}
+			BNEZ => {
+				let b = CBranchType::parse(parcel);
+				Ok(IntInstruction::BranchNotEqual {
+					lhs: b.src(),
+					rhs: GPRegisterIndex::ZERO,
+					imm: b.offset(),
+				}
+				.into())
+			}
+			MISC_MATH => {
+				let func2 = extract_bits_16(parcel, 10, 11) as u8;
+				// several branches use both of these views
+				let cb = CBArithType::parse(parcel);
+				match func2 {
+					func2::SRLI => {
+						if cb.imm() == 0 {
+							todo!("HINT")
+						} else {
+							Ok(IntInstruction::ShiftRightLogicalImmediate {
+								dst: cb.reg(),
+								lhs: cb.reg(),
+								shift_amt: cb.imm() as u32,
+							}
+							.into())
+						}
+					}
+					func2::SRAI => {
+						if cb.imm() == 0 {
+							todo!("HINT")
+						} else {
+							Ok(IntInstruction::ShiftRightArithmeticImmediate {
+								dst: cb.reg(),
+								lhs: cb.reg(),
+								shift_amt: cb.imm() as u32,
+							}
+							.into())
+						}
+					}
+					func2::ANDI => Ok(IntInstruction::AndImmediate {
+						dst: cb.reg(),
+						lhs: cb.reg(),
+						rhs: cb.imm(),
+					}
+					.into()),
+					func2::SUB_XOR_OR_AND => {
+						let ca = CAType::parse(parcel);
+						let is_word = extract_bits_16(parcel, 12, 12) != 0;
+						let sub_func2 = extract_bits_16(parcel, 5, 6) as u8;
+						if is_word {
+							match sub_func2 {
+								SUBW => {
+									todo!("SUBW (OP-32)")
+								}
+								ADDW => {
+									todo!("ADDW (OP-32)")
+								}
+								_ => {
+									// RESERVED
+									cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+									Err(())
+								}
 							}
 						} else {
-							CompressedInstruction::Move {
-								src: crtype.src2(),
-								dst: crtype.dst(),
+							match sub_func2 {
+								SUB => Ok(IntInstruction::Sub {
+									dst: ca.src1(),
+									lhs: ca.src1(),
+									rhs: ca.src2(),
+								}
+								.into()),
+								XOR => Ok(IntInstruction::Xor {
+									dst: ca.src1(),
+									lhs: ca.src1(),
+									rhs: ca.src2(),
+								}
+								.into()),
+								OR => Ok(IntInstruction::Or {
+									dst: ca.src1(),
+									lhs: ca.src1(),
+									rhs: ca.src2(),
+								}
+								.into()),
+								AND => Ok(IntInstruction::And {
+									dst: ca.src1(),
+									lhs: ca.src1(),
+									rhs: ca.src2(),
+								}
+								.into()),
+								_ => unreachable!(),
 							}
 						}
 					}
-					JALR_EBREAK_ADD => match (crtype.src1(), crtype.src2()) {
-						(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => todo!("EBREAK"),
-						(src1, src2) if src1 != GPRegisterIndex::ZERO && src2 == GPRegisterIndex::ZERO => {
-							todo!("JALR")
-						}
-						(dst, src) if dst != GPRegisterIndex::ZERO && src != GPRegisterIndex::ZERO => {
-							CompressedInstruction::Add { src, dst }
-						}
-
-						_ => unreachable!("(C-Ext) C2 invald instruction"),
-					},
 					_ => unreachable!(),
 				}
 			}
 
-			SDSP => {
-				let src2 = extract_reg(parcel, 2, 6);
+			_ => todo!("C1 func3 {func3:#05b}"),
+		}
+	}
 
-				let imm =
-					((extract_bits_16(parcel, 10, 12) as u16) << 3) | ((extract_bits_16(parcel, 7, 9) as u16) << 6);
-
-				CompressedInstruction::StoreDoubleWordToSP {
-					src2,
-					offset: imm as i64,
-					// offset: 8i64.wrapping_mul(imm as i64),
+	pub fn parse_c2(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+		use consts::opcode::c2::*;
+		let func3 = extract_bits_16(parcel, 13, 15) as u8;
+		match func3 {
+			SLLI => {
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO {
+					todo!("HINT")
+				} else if im.imm() == 0 {
+					todo!("HINT")
+				} else {
+					Ok(IntInstruction::ShiftLeftLogicalImmediate {
+						dst: im.reg(),
+						lhs: im.reg(),
+						shift_amt: im.imm() as u32,
+					}
+					.into())
 				}
 			}
-
+			FLDSP => {
+				todo!("FLDSP (F extension)")
+			}
+			LWSP => {
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO {
+					// reserved
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else {
+					Ok(IntInstruction::LoadWord {
+						dst: im.reg(),
+						src: GPRegisterIndex::SP,
+						src_offset: im.imm(),
+					}
+					.into())
+				}
+			}
 			LDSP => {
-				let dst = extract_reg(parcel, 7, 11);
-				let offset = ((extract_bits_16(parcel, 5, 5) << 3)
-					| (extract_bits_16(parcel, 6, 6) << 4)
-					| (extract_bits_16(parcel, 12, 12) << 5)
-					| (extract_bits_16(parcel, 2, 2) << 6)
-					| (extract_bits_16(parcel, 3, 3) << 7)
-					| (extract_bits_16(parcel, 4, 4) << 8)) as u32;
-				CompressedInstruction::LoadDoubleWordFromSP {
-					dst,
-					offset: offset as i64,
+				let im = CImmType::parse(parcel);
+				if im.reg() == GPRegisterIndex::ZERO {
+					// reserved
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else {
+					Ok(IntInstruction::LoadDoubleWord {
+						dst: im.reg(),
+						src: GPRegisterIndex::SP,
+						src_offset: im.imm(),
+					}
+					.into())
 				}
 			}
-
-			_ => unimplemented!("C2 op:{func3:#05b}"),
+			JR_JALR_MV_EBREAK_ADD => {
+				let func = extract_bits_16(parcel, 12, 15) as u8;
+				let crtype = CRType::parse(parcel);
+				match func {
+					JR_MV => {
+						match (crtype.src1(), crtype.src2()) {
+							(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => {
+								// reserved
+								cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+								Err(())
+							}
+							(GPRegisterIndex::ZERO, _rs2) => {
+								todo!("HINT")
+							}
+							(rs1, GPRegisterIndex::ZERO) => Ok(IntInstruction::JumpAndLinkRegister {
+								link_reg: GPRegisterIndex::ZERO,
+								jmp_reg: rs1,
+								jmp_off: 0,
+							}
+							.into()),
+							(rd, rs2) => Ok(IntInstruction::Add {
+								dst: rd,
+								lhs: GPRegisterIndex::ZERO,
+								rhs: rs2,
+							}
+							.into()),
+						}
+					}
+					JALR_EBREAK_ADD => match (crtype.src1(), crtype.src2()) {
+						(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => Ok(IntInstruction::EBreak.into()),
+						(GPRegisterIndex::ZERO, _rs2) => {
+							todo!("HINT")
+						}
+						(rs1, GPRegisterIndex::ZERO) => Ok(IntInstruction::JumpAndLinkRegister {
+							link_reg: GPRegisterIndex::LINK_REG,
+							jmp_reg: rs1,
+							jmp_off: 0,
+						}
+						.into()),
+						(rd, rs2) => Ok(IntInstruction::Add {
+							dst: rd,
+							lhs: rd,
+							rhs: rs2,
+						}
+						.into()),
+					},
+					_ => unreachable!(),
+				}
+			}
+			FSDSP => {
+				todo!("FSDSP (D extension)")
+			}
+			SWSP => {
+				let ss = CStackStoreType::parse(parcel);
+				Ok(IntInstruction::StoreWord {
+					dst: GPRegisterIndex::SP,
+					dst_offset: ss.imm(),
+					src: ss.src(),
+				}
+				.into())
+			}
+			SDSP => {
+				let ss = CStackStoreType::parse(parcel);
+				Ok(IntInstruction::StoreDoubleWord {
+					dst: GPRegisterIndex::SP,
+					dst_offset: ss.imm(),
+					src: ss.src(),
+				}
+				.into())
+			}
+			_ => unreachable!(),
 		}
 	}
 }
 
-pub fn parse(_cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+pub fn parse(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
 	use consts::opcode::*;
 
 	let opcode_ty = extract_bits_16(parcel, 0, 1) as u8;
@@ -329,31 +405,34 @@ pub fn parse(_cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
 		panic!("Invalid 16-bit instruction. Cannot be all zero bits");
 	}
 	match opcode_ty {
-		C0 => Ok(CompressedInstruction::parse_c0(parcel).into()),
-		C1 => Ok(CompressedInstruction::parse_c1(parcel).into()),
-		C2 => Ok(CompressedInstruction::parse_c2(parcel).into()),
+		C0 => CompressedInstruction::parse_c0(cpu, parcel),
+		C1 => CompressedInstruction::parse_c1(cpu, parcel),
+		C2 => CompressedInstruction::parse_c2(cpu, parcel),
 		_ => unreachable!(),
 	}
 }
 
 mod ty {
 	use crate::{
-		ty::{GPRegisterIndex, RegisterIndex},
-		util::extract_bits_16,
+		ty::GPRegisterIndex,
+		util::{extract_bits_16, sign_ext_imm},
 	};
 
-	pub fn extract_reg(parcel: u16, start: u8, end: u8) -> GPRegisterIndex {
-		RegisterIndex::new(extract_bits_16(parcel, start, end) as u8)
-			.unwrap()
-			.to_gp()
+	fn extract_smol_reg(parcel: u16, start: u8) -> GPRegisterIndex {
+		// small registers are 3 bits
+		let reg = extract_bits_16(parcel, start, start + 2) as u8;
+		// UNWRAP: any 3 bit value plus 8 is in range
+		GPRegisterIndex::new(reg + 8).unwrap()
+	}
+
+	fn extract_reg(parcel: u16, start: u8, end: u8) -> GPRegisterIndex {
+		GPRegisterIndex::new(extract_bits_16(parcel, start, end) as u8).unwrap()
 	}
 
 	#[derive(Debug)]
-	#[allow(unused)]
 	pub struct CRType {
-		src2: GPRegisterIndex,
 		src1: GPRegisterIndex,
-		func: u8,
+		src2: GPRegisterIndex,
 	}
 
 	#[allow(unused)]
@@ -362,7 +441,6 @@ mod ty {
 			Self {
 				src2: extract_reg(parcel, 2, 6),
 				src1: extract_reg(parcel, 7, 11),
-				func: extract_bits_16(parcel, 12, 15) as u8,
 			}
 		}
 
@@ -374,70 +452,388 @@ mod ty {
 		pub fn src1(&self) -> GPRegisterIndex {
 			self.src1
 		}
-		#[inline]
-		pub fn dst(&self) -> GPRegisterIndex {
-			self.src1
+	}
+
+	#[derive(Debug)]
+	pub struct CImmType {
+		// NOTE: this is sometimes used as rs1 and sometimes as rd
+		reg: GPRegisterIndex,
+		imm: i64,
+	}
+
+	#[allow(unused)]
+	impl CImmType {
+		pub fn parse(parcel: u16) -> Self {
+			// the format of the immediate depends on the exact instruction
+			let ty = extract_bits_16(parcel, 0, 1) as u8;
+			let func = extract_bits_16(parcel, 13, 15) as u8;
+			let reg = extract_reg(parcel, 7, 11);
+			use super::consts::opcode::*;
+			let imm = match ty {
+				C1 => {
+					match func {
+						// sign extended 5 bit imm
+						c1::ADD_IMM | c1::ADDIW | c1::LI => {
+							let imm_0_4 = extract_bits_16(parcel, 2, 6) as u32;
+							let imm_5 = extract_bits_16(parcel, 12, 12) as u32;
+							sign_ext_imm(imm_5 << 5 | imm_0_4, 5)
+						}
+						c1::ADDI16SP_OR_LUI => {
+							if reg == GPRegisterIndex::SP {
+								// ADDI16SP
+								let imm_5 = extract_bits_16(parcel, 2, 2) as u32;
+								let imm_7_8 = extract_bits_16(parcel, 3, 4) as u32;
+								let imm_6 = extract_bits_16(parcel, 5, 5) as u32;
+								let imm_4 = extract_bits_16(parcel, 6, 6) as u32;
+								let imm_9 = extract_bits_16(parcel, 12, 12) as u32;
+								sign_ext_imm(imm_9 << 9 | imm_7_8 << 7 | imm_6 << 6 | imm_5 << 5 | imm_4 << 4, 9)
+							} else {
+								// LUI
+								let imm_12_16 = extract_bits_16(parcel, 2, 6) as u32;
+								let imm_17 = extract_bits_16(parcel, 12, 12) as u32;
+								sign_ext_imm(imm_17 << 17 | imm_12_16 << 12, 17)
+							}
+						}
+						_ => unreachable!(),
+					}
+				}
+				C2 => match func {
+					c2::SLLI => {
+						let imm_0_4 = extract_bits_16(parcel, 2, 6);
+						let imm_5 = extract_bits_16(parcel, 12, 12);
+						// zero extended
+						(imm_5 << 5 | imm_0_4) as i64
+					}
+					c2::LDSP | c2::FLDSP => {
+						let imm_6_8 = extract_bits_16(parcel, 2, 4);
+						let imm_3_4 = extract_bits_16(parcel, 5, 6);
+						let imm_5 = extract_bits_16(parcel, 12, 12);
+						(imm_6_8 << 6 | imm_5 << 5 | imm_3_4 << 3) as i64
+					}
+					c2::LWSP => {
+						let imm_6_7 = extract_bits_16(parcel, 2, 3);
+						let imm_2_4 = extract_bits_16(parcel, 4, 6);
+						let imm_5 = extract_bits_16(parcel, 12, 12);
+						(imm_6_7 << 6 | imm_5 << 5 | imm_2_4 << 2) as i64
+					}
+					_ => unreachable!(),
+				},
+				// there are no CI type instructions in C0
+				_ => unreachable!(),
+			};
+			Self { reg, imm }
+		}
+
+		pub fn reg(&self) -> GPRegisterIndex {
+			self.reg
 		}
 		#[inline]
-		pub fn func(&self) -> u8 {
-			self.func
+		pub fn imm(&self) -> i64 {
+			self.imm
 		}
 	}
 
 	#[derive(Debug)]
-	#[allow(unused)]
+	pub struct CStackStoreType {
+		src: GPRegisterIndex,
+		imm: i64,
+	}
+
+	impl CStackStoreType {
+		pub fn parse(parcel: u16) -> Self {
+			let src = extract_reg(parcel, 2, 6);
+			let func = extract_bits_16(parcel, 13, 15) as u8;
+			use super::consts::opcode::c2::*;
+			let imm = match func {
+				FSDSP | SDSP => {
+					let imm_6_8 = extract_bits_16(parcel, 7, 9);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6_8 << 6 | imm_3_5 << 3) as i64
+				}
+				SWSP => {
+					let imm_6_7 = extract_bits_16(parcel, 7, 8);
+					let imm_2_5 = extract_bits_16(parcel, 9, 12);
+					(imm_6_7 << 6 | imm_2_5 << 2) as i64
+				}
+				_ => unreachable!(),
+			};
+
+			Self { src, imm }
+		}
+
+		#[inline]
+		pub fn src(&self) -> GPRegisterIndex {
+			self.src
+		}
+		#[inline]
+		pub fn imm(&self) -> i64 {
+			self.imm
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct CWideImmType {
+		dst: GPRegisterIndex,
+		imm: i64,
+	}
+
+	impl CWideImmType {
+		pub fn parse(parcel: u16) -> Self {
+			let imm = ((extract_bits_16(parcel, 6, 6) << 2)
+				| (extract_bits_16(parcel, 5, 5) << 3)
+				| (extract_bits_16(parcel, 11, 11) << 4)
+				| (extract_bits_16(parcel, 12, 12) << 5)
+				| (extract_bits_16(parcel, 7, 7) << 6)
+				| (extract_bits_16(parcel, 8, 8) << 7)
+				| (extract_bits_16(parcel, 9, 9) << 8)
+				| (extract_bits_16(parcel, 10, 10) << 9)) as i64;
+			let dst = extract_smol_reg(parcel, 2);
+			Self { dst, imm }
+		}
+
+		#[inline]
+		pub fn dst(&self) -> GPRegisterIndex {
+			self.dst
+		}
+		#[inline]
+		pub fn imm(&self) -> i64 {
+			self.imm
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct CLoadType {
+		dst: GPRegisterIndex,
+		src: GPRegisterIndex,
+		imm: u64,
+	}
+
+	impl CLoadType {
+		pub fn parse(parcel: u16) -> Self {
+			// the format of the immediate depends on the exact instruction
+			let func = extract_bits_16(parcel, 13, 15) as u8;
+			use super::consts::opcode::c0::*;
+			// NOTE: imm is ZERO extended not sign extended
+			let imm = match func {
+				LOAD_WORD => {
+					let imm_6 = extract_bits_16(parcel, 5, 5);
+					let imm_2 = extract_bits_16(parcel, 6, 6);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6 << 6 | imm_3_5 << 3 | imm_2 << 2) as u64
+				}
+				LOAD_DOUBLE_WORD => {
+					let imm_6_7 = extract_bits_16(parcel, 5, 6);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6_7 << 6 | imm_3_5 << 3) as u64
+				}
+				// TODO: C.FLD not yet implemented
+				_ => unreachable!("invalid CLoadType func3 {func:#05b}"),
+			};
+
+			Self {
+				dst: extract_smol_reg(parcel, 2),
+				src: extract_smol_reg(parcel, 7),
+				imm,
+			}
+		}
+
+		#[inline]
+		pub fn dst(&self) -> GPRegisterIndex {
+			self.dst
+		}
+		#[inline]
+		pub fn src(&self) -> GPRegisterIndex {
+			self.src
+		}
+		#[inline]
+		pub fn imm(&self) -> u64 {
+			self.imm
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct CStoreType {
+		dst: GPRegisterIndex,
+		src: GPRegisterIndex,
+		imm: u64,
+	}
+
+	impl CStoreType {
+		pub fn parse(parcel: u16) -> Self {
+			// the format of the immediate depends on the exact instruction
+			let func = extract_bits_16(parcel, 13, 15) as u8;
+			use super::consts::opcode::c0::*;
+			// NOTE: imm is ZERO extended not sign extended
+			let imm = match func {
+				STORE_WORD => {
+					let imm_6 = extract_bits_16(parcel, 5, 5);
+					let imm_2 = extract_bits_16(parcel, 6, 6);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6 << 6 | imm_3_5 << 3 | imm_2 << 2) as u64
+				}
+				STORE_DOUBLE_WORD => {
+					let imm_6_7 = extract_bits_16(parcel, 5, 6);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6_7 << 6 | imm_3_5 << 3) as u64
+				}
+				// TODO: C.FSD not yet implemented
+				_ => unreachable!("invalid CStoreType func3 {func:#05b}"),
+			};
+
+			Self {
+				src: extract_smol_reg(parcel, 2),
+				dst: extract_smol_reg(parcel, 7),
+				imm,
+			}
+		}
+
+		#[inline]
+		pub fn dst(&self) -> GPRegisterIndex {
+			self.dst
+		}
+		#[inline]
+		pub fn src(&self) -> GPRegisterIndex {
+			self.src
+		}
+		#[inline]
+		pub fn imm(&self) -> u64 {
+			self.imm
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct CAType {
+		src2: GPRegisterIndex,
+		src1: GPRegisterIndex,
+	}
+
+	impl CAType {
+		pub fn parse(parcel: u16) -> Self {
+			Self {
+				src2: extract_smol_reg(parcel, 2),
+				src1: extract_smol_reg(parcel, 7),
+			}
+		}
+
+		#[inline]
+		pub fn src1(&self) -> GPRegisterIndex {
+			self.src1
+		}
+		#[inline]
+		pub fn src2(&self) -> GPRegisterIndex {
+			self.src2
+		}
+	}
+
+	#[derive(Debug)]
+	// NOTE: this deviates from the spec because we have a different type
+	// for the weird arithmetic instructions that get lumped in here
+	pub struct CBranchType {
+		src: GPRegisterIndex,
+		offset: i64,
+	}
+
+	impl CBranchType {
+		pub fn parse(parcel: u16) -> Self {
+			let imm_5 = extract_bits_16(parcel, 2, 2) as u32;
+			let imm_1_2 = extract_bits_16(parcel, 3, 4) as u32;
+			let imm_6_7 = extract_bits_16(parcel, 5, 6) as u32;
+			let imm_3_4 = extract_bits_16(parcel, 10, 11) as u32;
+			let imm_8 = extract_bits_16(parcel, 12, 12) as u32;
+
+			let offset = sign_ext_imm(imm_1_2 << 1 | imm_3_4 << 3 | imm_5 << 5 | imm_6_7 << 6 | imm_8 << 8, 8);
+
+			Self {
+				src: extract_smol_reg(parcel, 7),
+				offset,
+			}
+		}
+
+		#[inline]
+		pub fn src(&self) -> GPRegisterIndex {
+			self.src
+		}
+		#[inline]
+		pub fn offset(&self) -> i64 {
+			self.offset
+		}
+	}
+
+	#[derive(Debug)]
+	pub struct CBArithType {
+		reg: GPRegisterIndex,
+		imm: i64,
+	}
+
+	impl CBArithType {
+		pub fn parse(parcel: u16) -> Self {
+			// the shift types need to not sign extend, but AND does
+			let func2 = extract_bits_16(parcel, 10, 11) as u8;
+			use super::consts::opcode::c1::*;
+			let imm = match func2 {
+				func2::ANDI => {
+					let imm_0_4 = extract_bits_16(parcel, 2, 6) as u32;
+					let imm_5 = extract_bits_16(parcel, 12, 12) as u32;
+					sign_ext_imm(imm_5 << 5 | imm_0_4, 5)
+				}
+				_ => {
+					let imm_0_4 = extract_bits_16(parcel, 2, 6);
+					let imm_5 = extract_bits_16(parcel, 12, 12);
+					(imm_5 << 5 | imm_0_4) as i64
+				}
+			};
+
+			Self {
+				reg: extract_smol_reg(parcel, 7),
+				imm,
+			}
+		}
+
+		#[inline]
+		pub fn reg(&self) -> GPRegisterIndex {
+			self.reg
+		}
+		#[inline]
+		pub fn imm(&self) -> i64 {
+			self.imm
+		}
+	}
+
+	#[derive(Debug)]
 	pub struct CJType {
-		offset: u16,
-		func: u8,
+		offset: i64,
 	}
 
 	#[allow(unused)]
 	impl CJType {
 		pub fn parse(parcel: u16) -> Self {
-			let offset = extract_bits_16(parcel, 2, 12);
-			let func = extract_bits_16(parcel, 13, 15) as u8;
-			Self { offset, func }
+			let imm_5 = extract_bits_16(parcel, 2, 2) as u32;
+			let imm_1_3 = extract_bits_16(parcel, 3, 5) as u32;
+			let imm_7 = extract_bits_16(parcel, 6, 6) as u32;
+			let imm_6 = extract_bits_16(parcel, 7, 7) as u32;
+			let imm_10 = extract_bits_16(parcel, 8, 8) as u32;
+			let imm_8_9 = extract_bits_16(parcel, 9, 10) as u32;
+			let imm_4 = extract_bits_16(parcel, 11, 11) as u32;
+			let imm_11 = extract_bits_16(parcel, 12, 12) as u32;
+
+			let offset = sign_ext_imm(
+				imm_1_3 << 1
+					| imm_4 << 4 | imm_5 << 5
+					| imm_6 << 6 | imm_7 << 7
+					| imm_8_9 << 8 | imm_10 << 10
+					| imm_11 << 11,
+				11,
+			);
+			Self { offset }
 		}
 
 		#[inline]
-		pub fn offset(&self) -> u16 {
+		pub fn offset(&self) -> i64 {
 			self.offset
-		}
-		#[inline]
-		pub fn func(&self) -> u8 {
-			self.func
-		}
-	}
-
-	#[derive(Debug)]
-	#[allow(unused)]
-	pub struct CSSType {
-		src2: GPRegisterIndex,
-		imm: u16,
-		func: u8,
-	}
-
-	#[allow(unused)]
-	impl CSSType {
-		pub fn parse(parcel: u16) -> Self {
-			let src2 = extract_reg(parcel, 2, 6);
-			let imm = extract_bits_16(parcel, 7, 12);
-			let func = extract_bits_16(parcel, 13, 15) as u8;
-			Self { src2, imm, func }
-		}
-
-		#[inline]
-		pub fn src2(&self) -> GPRegisterIndex {
-			self.src2
-		}
-		#[inline]
-		pub fn imm(&self) -> u16 {
-			self.imm
 		}
 	}
 }
 
-#[allow(unused)]
 mod consts {
 	pub(super) mod opcode {
 		pub const C0: u8 = 0b00;
@@ -447,61 +843,63 @@ mod consts {
 		pub mod c0 {
 			// Add a zero-extended non-zero immediate, scaled by 4, to sp(x2), and writes the result to a gpr
 			pub const ADDI4SPN: u8 = 0b000;
+			pub const FLD: u8 = 0b001;
 			pub const LOAD_WORD: u8 = 0b010;
 			pub const LOAD_DOUBLE_WORD: u8 = 0b011;
+			pub const RESERVED: u8 = 0b100;
+			pub const FSD: u8 = 0b101;
 			pub const STORE_WORD: u8 = 0b110;
 			pub const STORE_DOUBLE_WORD: u8 = 0b111;
 		}
 
 		pub mod c1 {
-			// NOP has 2-15 bits zero'd out
-			pub const NOP: u8 = 0b000;
+			// NOTE: also used for NOP in some invalid cases
 			pub const ADD_IMM: u8 = 0b000;
-
 			pub const ADDIW: u8 = 0b001;
 			pub const LI: u8 = 0b010;
-
 			pub const ADDI16SP_OR_LUI: u8 = 0b011;
+			// these have more function bits encoded in various ways
+			pub const MISC_MATH: u8 = 0b100;
+			pub const J: u8 = 0b101;
+			pub const BEQZ: u8 = 0b110;
+			pub const BNEZ: u8 = 0b111;
 
-			// func3 at 13-15
-			pub const SRLI_SRAI_ANDI: u8 = 0b100;
+			pub mod func2 {
+				pub const SRLI: u8 = 0b00;
+				pub const SRAI: u8 = 0b01;
+				pub const ANDI: u8 = 0b10;
+				pub const SUB_XOR_OR_AND: u8 = 0b11;
+			}
 
-			pub const SRLI: u8 = 0b00;
-			pub const SRAI: u8 = 0b01;
-			pub const ANDI: u8 = 0b10;
-
-			pub const SUB_XOR_OR_AND: u8 = 0b100011;
-
-			// bits 5-6
+			/// bits for the sub-divisions of func2=0b11, func1=0
 			pub const SUB: u8 = 0b00;
 			pub const XOR: u8 = 0b01;
 			pub const OR: u8 = 0b10;
 			pub const AND: u8 = 0b11;
 
-			pub const SUBW_ADDW: u8 = 0b100111;
-
-			// bits 5-6
+			/// bits for the sub-divisions of func2=0b11, func1=1
 			pub const SUBW: u8 = 0b00;
 			pub const ADDW: u8 = 0b01;
-
-			pub const J: u8 = 0b101;
-			pub const BEQZ: u8 = 0b110;
-			pub const BNEZ: u8 = 0b111;
 		}
 
 		pub mod c2 {
-			// for JR, EBREAK, and JALR, src2 bits must be X0
-			// for EBREAK, src1 bits must be X0
-			// for MV and ADD, src1 and src2 bits must not be X0
-			pub const JR_JALR_MV_EBREAK_ADD: u8 = 0b100;
 			// above insns with entire func4
 			pub const JR_MV: u8 = 0b1000;
 			pub const JALR_EBREAK_ADD: u8 = 0b1001;
 
 			pub const SLLI: u8 = 0b000;
-
-			pub const SDSP: u8 = 0b111;
+			pub const FLDSP: u8 = 0b001;
+			pub const LWSP: u8 = 0b010;
 			pub const LDSP: u8 = 0b011;
+
+			// for JR, EBREAK, and JALR, src2 bits must be X0
+			// for EBREAK, src1 bits must be X0
+			// for MV and ADD, src1 and src2 bits must not be X0
+			pub const JR_JALR_MV_EBREAK_ADD: u8 = 0b100;
+
+			pub const FSDSP: u8 = 0b101;
+			pub const SWSP: u8 = 0b110;
+			pub const SDSP: u8 = 0b111;
 		}
 	}
 }

@@ -758,97 +758,11 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_compressed_insn(&mut self, insn: CompressedInstruction, start_pc: u64) {
+	fn exec_compressed_insn(&mut self, insn: CompressedInstruction, _start_pc: u64) {
 		match insn {
-			CompressedInstruction::AddImmediate16ToSP { imm } => {
-				self.registers.set(
-					GPRegisterIndex::SP,
-					self.registers.get(GPRegisterIndex::SP).wrapping_add_signed(imm),
-				);
-			}
-			CompressedInstruction::LoadUpperImmediate { dst, imm } => {
-				self.registers.set(dst, imm as u64);
-			}
-			CompressedInstruction::LoadWord { dst, src, src_offset } => {
-				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset) as u64;
-
-				let reg_val = self.registers.get(dst);
-				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
-				self.registers.set(dst, val);
-			}
-			CompressedInstruction::StoreWord { dst, dst_offset, src } => {
-				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src) as u32;
-				write_mem_u32!(self, offset, val);
-			}
-			CompressedInstruction::StoreDoubleWordToSP { src2, offset } => {
-				let offset = self.registers.get(GPRegisterIndex::SP).wrapping_add_signed(offset);
-				let val = self.registers.get(src2);
-				write_mem_u64!(self, offset, val);
-			}
-			CompressedInstruction::ADDI4SPN { dst, imm } => {
-				self.registers
-					.set(dst, self.registers.get(GPRegisterIndex::SP).wrapping_add_signed(imm));
-			}
-			CompressedInstruction::Add { src, dst } => {
-				let value = self.registers.get(src).wrapping_add(self.registers.get(dst));
-				self.registers.set(dst, value);
-			}
-			CompressedInstruction::BranchIfZero { src, offset } => {
-				if self.registers.get(src) == 0 {
-					self.pc = start_pc.wrapping_add_signed(offset);
-				}
-			}
-			CompressedInstruction::BranchIfNotZero { src, offset } => {
-				if self.registers.get(src) != 0 {
-					self.pc = start_pc.wrapping_add_signed(offset);
-				}
-			}
-			CompressedInstruction::AddImmediateWord { dst, rhs } => {
-				let lhs = self.registers.get(dst) as u32;
-				self.registers.set(dst, lhs.wrapping_add_signed(rhs) as u64);
-			}
-			CompressedInstruction::Jump { offset } => {
-				self.pc = start_pc.wrapping_add_signed(offset);
-			}
+			// this nop is special in that it's designated as an explicit NOP for future standard use
+			// so it cannot be combined into an integer instruction
 			CompressedInstruction::Nop => {}
-			CompressedInstruction::Move { src, dst } => {
-				self.registers.set(dst, self.registers.get(src));
-			}
-			CompressedInstruction::LoadDoubleWordFromSP { dst, offset } => {
-				let offset = self.registers.get(GPRegisterIndex::SP).wrapping_add_signed(offset);
-				let val = read_mem_u64!(self, offset);
-				self.registers.set(dst, val);
-			}
-			CompressedInstruction::LoadImmediate { dst, imm } => {
-				self.registers.set(dst, imm as u64);
-			}
-			CompressedInstruction::JumpToRegister { src } => {
-				self.pc = self.registers.get(src);
-			}
-			CompressedInstruction::LoadDoubleWord { dst, src, src_offset } => {
-				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u64!(self, offset);
-				self.registers.set(dst, val);
-			}
-			CompressedInstruction::StoreDoubleWord { dst, dst_offset, src } => {
-				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src);
-				write_mem_u64!(self, offset, val);
-			}
-			CompressedInstruction::ShiftRightLogicalImmediate { dst, shift_amt } => {
-				let lhs = self.registers.get(dst);
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
-			}
-			CompressedInstruction::ShiftRightArithmeticImmediate { dst, shift_amt } => {
-				let lhs = self.registers.get(dst) as i64;
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
-			}
-			CompressedInstruction::ShiftLeftLogicalImmediate { dst, shift_amt } => {
-				let lhs = self.registers.get(dst);
-				self.registers.set(dst, lhs.wrapping_shl(shift_amt));
-			}
 		}
 	}
 

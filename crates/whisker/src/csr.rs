@@ -129,4 +129,6 @@ define_csrs!(
     mepc,      0x341, RW, Machine,
     mcause,    0x342, RW, Machine,
     mtval,     0x343, RW, Machine,
+
+    fcsr,      0x003, RW, User,
 );

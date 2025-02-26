@@ -261,6 +261,14 @@ mod ty {
 			self.func
 		}
 		#[inline]
+		pub fn func3(&self) -> u8 {
+			(self.func & 0b111) as u8
+		}
+		#[inline]
+		pub fn func7(&self) -> u8 {
+			((self.func & 0b1111111000) >> 3) as u8
+		}
+		#[inline]
 		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
@@ -348,6 +356,14 @@ mod ty {
 			self.func
 		}
 		#[inline]
+		pub fn func2(&self) -> u8 {
+			(self.func & 0b11000) >> 3
+		}
+		#[inline]
+		pub fn func3(&self) -> u8 {
+			self.func & 0b00111
+		}
+		#[inline]
 		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
@@ -367,6 +383,14 @@ mod ty {
 }
 
 mod consts {
+	pub const SINGLE_PRECISION: u8 = 0b00;
+	#[allow(unused)]
+	pub const DOUBLE_PRECISION: u8 = 0b01;
+	#[allow(unused)]
+	pub const HALF_PRECISION: u8 = 0b10;
+	#[allow(unused)]
+	pub const QUAD_PRECISION: u8 = 0b11;
+
 	// ==========================================
 	// opcode types, from ISA volume 1 chapter 34
 	// ==========================================

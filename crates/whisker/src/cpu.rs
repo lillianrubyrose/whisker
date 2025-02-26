@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
@@ -11,7 +12,7 @@ use crate::insn::int::IntInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
-use crate::soft::RoundingMode;
+use crate::soft::ExceptionFlags;
 use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -566,9 +567,6 @@ impl WhiskerCpu {
 	}
 
 	fn execute_f_insn(&mut self, insn: FloatInstruction, _start_pc: u64) {
-		// FIXME: Decode rounding mode in instructions
-		const FIXME_ROUNDING_MODE: RoundingMode = RoundingMode::RoundToNearestTieEven;
-
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
@@ -580,28 +578,123 @@ impl WhiskerCpu {
 				let val = self.fp_registers.get_float(src).to_u32();
 				write_mem_u32!(self, offset, val);
 			}
-			FloatInstruction::AddSinglePrecision { dst, lhs, rhs } => {
+			FloatInstruction::Add { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.add(&rhs, FIXME_ROUNDING_MODE));
+				let result = lhs.add(&rhs, rm, self);
+				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::SubSinglePrecision { dst, lhs, rhs } => {
+			FloatInstruction::Sub { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.sub(&rhs, FIXME_ROUNDING_MODE));
+				let result = lhs.sub(&rhs, rm, self);
+				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::MulAddSinglePrecision {
+			FloatInstruction::MulAdd {
 				dst,
 				mul_lhs,
 				mul_rhs,
 				add,
+				rm,
 			} => {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let add = self.fp_registers.get_float(add);
+				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::Mul { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				let result = lhs.mul(&rhs, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::Div { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				let result = lhs.div(&rhs, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::Sqrt { dst, val, rm } => {
+				let result = self.fp_registers.get_float(val).sqrt(rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::Min { dst, lhs, rhs } => {
+				// TODO: Fix this implementation
+				// PAGE: 115
+				warn!("FMIN.S Implementation is incorrect");
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				if lhs.lt(&rhs) {
+					self.fp_registers.set_float(dst, lhs);
+				} else {
+					self.fp_registers.set_float(dst, rhs);
+				}
+			}
+			FloatInstruction::Max { dst, lhs, rhs } => {
+				// TODO: Fix this implementation
+				// PAGE: 115
+				warn!("FMAX.S Implementation is incorrect");
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				if lhs.gt(&rhs) {
+					self.fp_registers.set_float(dst, lhs);
+				} else {
+					self.fp_registers.set_float(dst, rhs);
+				}
+			}
+			FloatInstruction::Equal { dst, lhs, rhs } => {
+				//FEQ.S performs a quiet comparison:
+				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
+				//instructions, the result is 0 if either operand is NaN.
 
-				self.fp_registers
-					.set_float(dst, mul_lhs.mul_add(&mul_rhs, &add, FIXME_ROUNDING_MODE));
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is NaN
+				let Some(cmp) = lhs.partial_cmp(&rhs) else {
+					// if any input was NaN, the output is 0
+					self.registers.set(dst, 0);
+					// if either input was sNaN, write invalid operation
+					if lhs.is_snan() || rhs.is_snan() {
+						let val = self.csrs.read_fcsr() | u64::from(ExceptionFlags::FLAG_INVALID);
+						self.csrs.write_fcsr(val);
+					}
+					return;
+				};
+
+				self.registers.set(dst, u64::from(cmp == Ordering::Equal));
+			}
+			//FLT.S and FLE.S perform what the IEEE 754-2008 standard refers to as signaling comparisons: that is,
+			//they set the invalid operation exception flag if either input is NaN.
+			FloatInstruction::LessThan { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is nan
+				let Some(cmp) = lhs.partial_cmp(&rhs) else {
+					self.registers.set(dst, 0);
+					let val = self.csrs.read_fcsr() | u64::from(ExceptionFlags::FLAG_INVALID);
+					self.csrs.write_fcsr(val);
+					return;
+				};
+
+				self.registers.set(dst, u64::from(cmp == Ordering::Less));
+			}
+			FloatInstruction::LessOrEqual { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is nan
+				let Some(cmp) = lhs.partial_cmp(&rhs) else {
+					self.registers.set(dst, 0);
+					let val = self.csrs.read_fcsr() | u64::from(ExceptionFlags::FLAG_INVALID);
+					self.csrs.write_fcsr(val);
+					return;
+				};
+
+				self.registers
+					.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
 			}
 		}
 	}

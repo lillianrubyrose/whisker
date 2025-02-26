@@ -51,9 +51,12 @@ impl From<UnknownRegisterIndex> for FPRegisterIndex {
 	}
 }
 
+impl<T> RegisterIndex<T> {
+	pub const ZERO: RegisterIndex<T> = RegisterIndex(0, PhantomData);
+}
+
 #[allow(unused)]
 impl GPRegisterIndex {
-	pub const ZERO: GPRegisterIndex = RegisterIndex(0, PhantomData);
 	pub const LINK_REG: GPRegisterIndex = RegisterIndex(1, PhantomData);
 	pub const SP: GPRegisterIndex = RegisterIndex(2, PhantomData);
 	pub const GLOBAL_PTR: GPRegisterIndex = RegisterIndex(3, PhantomData);

@@ -1,6 +1,11 @@
-use crate::insn::float::FloatInstruction;
+use crate::{
+	cpu::WhiskerCpu,
+	insn::float::FloatInstruction,
+	soft::RoundingMode,
+	ty::{RegisterIndex, TrapIdx},
+};
 
-use super::{IType, R4Type, RType, SType};
+use super::{IType, RType, SType};
 
 impl FloatInstruction {
 	pub fn parse_load_fp(itype: IType) -> FloatInstruction {
@@ -27,38 +32,84 @@ impl FloatInstruction {
 		}
 	}
 
-	pub fn parse_op_fp(rtype: RType, rm: u8, func7: u8) -> FloatInstruction {
+	pub fn parse_op_fp(cpu: &mut WhiskerCpu, rtype: RType, rm: RoundingMode) -> Result<FloatInstruction, ()> {
 		use crate::insn32::op_fp::consts::*;
-		match func7 {
-			ADD_SINGLE => FloatInstruction::AddSinglePrecision {
+		match rtype.func7() {
+			ADD_SINGLE => Ok(FloatInstruction::Add {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
-			}
-			.into(),
-			SUB_SINGLE => FloatInstruction::SubSinglePrecision {
+				rm,
+			}),
+			SUB_SINGLE => Ok(FloatInstruction::Sub {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
+				rm,
+			}),
+			MUL_SINGLE => Ok(FloatInstruction::Mul {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}),
+			DIV_SINGLE => Ok(FloatInstruction::Div {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}),
+			SQRT_SINGLE => {
+				if rtype.src2() != RegisterIndex::ZERO {
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				} else {
+					Ok(FloatInstruction::Sqrt {
+						dst: rtype.dst().to_fp(),
+						val: rtype.src1().to_fp(),
+						rm,
+					})
+				}
 			}
-			.into(),
-			EQ_SINGLE => match rm {
-				_ => unimplemented!("OP-FP rm={rm:#05b}"),
+			MIN_MAX => match rtype.func3() {
+				min_max::MIN => Ok(FloatInstruction::Min {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}),
+				min_max::MAX => Ok(FloatInstruction::Max {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}),
+				_ => {
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				}
 			},
-			_ => unimplemented!("OP-FP func7={func7:#09b}"),
-		}
-	}
+			CMP_SINGLE => match rtype.func3() {
+				cmp::EQ => Ok(FloatInstruction::Equal {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}),
+				cmp::LESS_EQ => Ok(FloatInstruction::LessOrEqual {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}),
+				cmp::LESS_THAN => Ok(FloatInstruction::LessThan {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}),
+				_ => {
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					Err(())
+				}
+			},
 
-	pub fn parse_madd(r4type: R4Type, func2: u8) -> FloatInstruction {
-		use crate::insn32::madd::consts::*;
-		match func2 {
-			FLOAT_MUL_ADD_SINGLE => FloatInstruction::MulAddSinglePrecision {
-				dst: r4type.dst().to_fp(),
-				mul_lhs: r4type.src1().to_fp(),
-				mul_rhs: r4type.src2().to_fp(),
-				add: r4type.src3().to_fp(),
-			},
-			_ => unimplemented!("madd func2:{func2:#04b}"),
+			_ => unimplemented!("OP-FP func7={:#09b}", rtype.func7()),
 		}
 	}
 }

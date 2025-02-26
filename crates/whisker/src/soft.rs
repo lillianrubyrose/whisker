@@ -1,3 +1,5 @@
+use crate::cpu::WhiskerCpu;
+
 pub mod double;
 pub mod float;
 
@@ -43,32 +45,26 @@ pub enum RoundingMode {
 	/// Round to Nearest, ties to Even
 	///
 	/// Mnemonic: RNE
-	RoundToNearestTieEven,
+	RoundToNearestTieEven = 0,
 	/// Round towards Zero
 	///
 	/// Mnemonic: RTZ
-	RoundTowardsZero,
+	RoundTowardsZero = 1,
 	/// Round Down (towards neg infinity)
 	///
 	/// Mnemonic: RDN
-	RoundDown,
+	RoundDown = 2,
 	/// Round Up (towards pos infinity)
 	///
 	/// Mnemonic: RUP
-	RoundUp,
+	RoundUp = 3,
 	/// Round to Nearest, ties to Max Magnitude
 	///
 	/// Mnemonic: RMM
-	RoundToNearestTiesMaxMagnitude,
+	RoundToNearestTiesMaxMagnitude = 4,
 
-	#[allow(unused)]
-	Reserved,
-	#[allow(unused)]
-	Reserved2,
-
-	/// In instruction’s rm field, selects dynamic rounding mode; In Rounding Mode register, reserved
-	#[allow(unused)]
-	ReservedDynamic,
+	/// In instruction’s rm field, selects dynamic rounding mode; In Rounding Mode register
+	Dynamic = 7,
 }
 
 #[allow(unused)]
@@ -80,7 +76,7 @@ impl RoundingMode {
 			0b010 => Some(Self::RoundDown),
 			0b011 => Some(Self::RoundUp),
 			0b100 => Some(Self::RoundToNearestTiesMaxMagnitude),
-			// Definitely shouldn't parse the reserved ones
+			0b111 => Some(Self::Dynamic),
 			_ => None,
 		}
 	}
@@ -92,28 +88,30 @@ impl RoundingMode {
 			RoundingMode::RoundDown => 0b010,
 			RoundingMode::RoundUp => 0b011,
 			RoundingMode::RoundToNearestTiesMaxMagnitude => 0b100,
-			// Should these even be defined?
-			RoundingMode::Reserved => 0b101,
-			RoundingMode::Reserved2 => 0b110,
-			RoundingMode::ReservedDynamic => 0b110,
+			RoundingMode::Dynamic => 0b111,
 		}
 	}
 
-	const fn to_sf_u8(self) -> u8 {
+	fn to_sf_u8(self) -> u8 {
 		match self {
 			RoundingMode::RoundToNearestTieEven => softfloat_sys::softfloat_round_near_even,
 			RoundingMode::RoundTowardsZero => softfloat_sys::softfloat_round_minMag,
 			RoundingMode::RoundDown => softfloat_sys::softfloat_round_min,
 			RoundingMode::RoundUp => softfloat_sys::softfloat_round_max,
 			RoundingMode::RoundToNearestTiesMaxMagnitude => softfloat_sys::softfloat_round_near_maxMag,
+			RoundingMode::Dynamic => unreachable!("dynamic should read from a CSR"),
 			_ => unreachable!(),
 		}
 	}
 
 	/// This should NEVER be used outside of the `soft` module, hence marked as unsafe
-	pub unsafe fn write_thread_local(self) {
+	pub unsafe fn write_thread_local(self, cpu: &WhiskerCpu) {
+		let val = match self {
+			RoundingMode::Dynamic => (cpu.csrs.read_fcsr() & FCSR_ROUNDING_MODE_MASK >> 5) as u8,
+			rm => rm.to_sf_u8(),
+		};
 		unsafe {
-			softfloat_sys::softfloat_roundingMode_write_helper(self.to_sf_u8());
+			softfloat_sys::softfloat_roundingMode_write_helper(val);
 		}
 	}
 }
@@ -124,11 +122,11 @@ pub struct ExceptionFlags(u8);
 
 #[allow(unused)]
 impl ExceptionFlags {
-	const FLAG_INEXACT: u8 = softfloat_sys::softfloat_flag_inexact;
-	const FLAG_INFINITE: u8 = softfloat_sys::softfloat_flag_infinite;
-	const FLAG_OVERFLOW: u8 = softfloat_sys::softfloat_flag_overflow;
-	const FLAG_UNDERFLOW: u8 = softfloat_sys::softfloat_flag_underflow;
-	const FLAG_INVALID: u8 = softfloat_sys::softfloat_flag_invalid;
+	pub const FLAG_INEXACT: u8 = softfloat_sys::softfloat_flag_inexact;
+	pub const FLAG_UNDERFLOW: u8 = softfloat_sys::softfloat_flag_underflow;
+	pub const FLAG_OVERFLOW: u8 = softfloat_sys::softfloat_flag_overflow;
+	pub const FLAG_INFINITE: u8 = softfloat_sys::softfloat_flag_infinite;
+	pub const FLAG_INVALID: u8 = softfloat_sys::softfloat_flag_invalid;
 
 	pub fn is_inexact(&self) -> bool {
 		self.0 & Self::FLAG_INEXACT != 0
@@ -150,8 +148,14 @@ impl ExceptionFlags {
 		self.0 & Self::FLAG_INVALID != 0
 	}
 
-	pub fn fetch(&mut self) {
+	pub fn update_cpu(self, cpu: &mut WhiskerCpu) {
+		todo!()
+	}
+
+	pub fn get_from_softfloat() -> Self {
 		let val = unsafe { softfloat_sys::softfloat_exceptionFlags_read_helper() };
-		self.0 = val;
+		Self(val)
 	}
 }
+
+pub const FCSR_ROUNDING_MODE_MASK: u64 = 0b11100000;

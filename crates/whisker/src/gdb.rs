@@ -144,7 +144,7 @@ impl SingleThreadBase for WhiskerCpu {
 		regs: &mut <Self::Arch as gdbstub::arch::Arch>::Registers,
 	) -> gdbstub::target::TargetResult<(), Self> {
 		regs.x.copy_from_slice(self.registers.regs());
-		regs.f.copy_from_slice(self.fp_registers.regs());
+		regs.f = self.fp_registers.get_all_raw().map(f64::from_bits);
 		regs.pc = self.pc;
 		Ok(())
 	}
@@ -155,7 +155,7 @@ impl SingleThreadBase for WhiskerCpu {
 	) -> gdbstub::target::TargetResult<(), Self> {
 		assert_eq!(regs.x[0], 0, "tried to write non-zero to x0(zero) register");
 		self.registers.set_all(&regs.x);
-		self.fp_registers.set_all(&regs.f);
+		self.fp_registers.set_all_raw(&regs.f.map(f64::to_bits));
 		self.pc = regs.pc;
 		Ok(())
 	}

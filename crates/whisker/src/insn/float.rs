@@ -25,11 +25,6 @@ pub enum FloatInstruction {
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	EqSinglePrecision {
-		dst: GPRegisterIndex,
-		lhs: FPRegisterIndex,
-		rhs: FPRegisterIndex,
-	},
 
 	MulAddSinglePrecision {
 		dst: FPRegisterIndex,

@@ -1,5 +1,3 @@
-#![feature(structural_match)]
-
 mod cpu;
 mod csr;
 mod gdb;
@@ -7,6 +5,8 @@ mod insn;
 mod insn16;
 mod insn32;
 mod mem;
+mod regs;
+mod soft;
 mod ty;
 mod util;
 
@@ -24,11 +24,11 @@ use gdbstub::stub::GdbStub;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
-use ty::GPRegisterIndex;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
 use crate::mem::{MemoryBuilder, PageBase, PageEntry};
+use crate::ty::GPRegisterIndex;
 use crate::ty::SupportedExtensions;
 
 #[derive(Debug, Parser)]
@@ -55,7 +55,7 @@ fn parse_dec_or_hex(s: &str) -> Result<u64, <u64 as FromStr>::Err> {
 		u64::from_str_radix(hex, 16)
 	} else {
 		// try decimal and non-prefixed hex
-		u64::from_str_radix(s, 10).or_else(|_| u64::from_str_radix(s, 16))
+		s.parse::<u64>().or_else(|_| u64::from_str_radix(s, 16))
 	}
 }
 

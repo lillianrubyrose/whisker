@@ -80,6 +80,7 @@
               pkgs.rust-analyzer
               rust-toolchain.defaultToolchain
               pkgs.clang-tools
+              pkgs.cmake
 
               pkgsRiscv.buildPackages.gcc
               pkgsRiscv.buildPackages.gdb

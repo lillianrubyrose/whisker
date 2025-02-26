@@ -100,7 +100,7 @@ pub fn extract_src2(inst: u32) -> UnknownRegisterIndex {
 mod ty {
 	use super::{extract_dst, extract_src1, extract_src2};
 	use crate::{
-		ty::{RegisterIndex, UnknownRegisterIndex},
+		ty::UnknownRegisterIndex,
 		util::{extract_bits_32, sign_ext_imm},
 	};
 

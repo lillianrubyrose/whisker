@@ -1,5 +1,3 @@
-use crate::ty::GPRegisterIndex;
-
 use super::Instruction;
 
 #[derive(Debug)]

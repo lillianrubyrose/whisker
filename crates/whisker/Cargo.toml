@@ -12,3 +12,4 @@ gdbstub_arch = "0.3.1"
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
+softfloat-sys = { version = "0.1.4", default-features = false, features = ["riscv"] }

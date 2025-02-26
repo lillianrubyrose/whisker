@@ -1,34 +1,17 @@
 use std::fmt::Debug;
-use std::marker::{PhantomData, StructuralPartialEq};
+use std::marker::PhantomData;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
-
-use crate::cpu::{FPRegisters, GPRegisters};
 
 // Do we want to make specific structs for this?
 // I think it's fine to use the <X>Registers struct since it's only-
 // used for compiler help.
-pub type GPRegisterIndex = RegisterIndex<GPRegisters>;
-pub type FPRegisterIndex = RegisterIndex<FPRegisters>;
+pub type GPRegisterIndex = RegisterIndex<GPRegsIdx>;
+pub type FPRegisterIndex = RegisterIndex<FPRegsIdx>;
 pub type UnknownRegisterIndex = RegisterIndex<()>;
 
 /// a valid register index 0..=31
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RegisterIndex<T>(u8, PhantomData<T>);
-
-impl<T> Clone for RegisterIndex<T> {
-	fn clone(&self) -> Self {
-		*self
-	}
-}
-impl<T> Copy for RegisterIndex<T> {}
-
-impl<T> StructuralPartialEq for RegisterIndex<T> {}
-impl<T> PartialEq for RegisterIndex<T> {
-	fn eq(&self, other: &Self) -> bool {
-		self.0 == other.0
-	}
-}
-
-impl<T> Eq for RegisterIndex<T> {}
 
 impl<T> RegisterIndex<T> {
 	pub fn new(idx: u8) -> Option<Self> {
@@ -273,3 +256,10 @@ impl TrapIdx {
 	pub const HARDWARE_CHECK: Self = Self(19);
 	pub const MEOW_ERR: Self = Self(31);
 }
+
+/// these exist to allow the generic RegisterIndex to derive things without needing the underlying register
+/// container type to derive things
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GPRegsIdx {}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FPRegsIdx {}

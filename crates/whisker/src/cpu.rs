@@ -10,70 +10,9 @@ use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
-use crate::ty::{FPRegisterIndex, GPRegisterIndex, SupportedExtensions, TrapIdx};
-
-pub type GPRegisters = Registers<u64>;
-pub type FPRegisters = Registers<f64>;
-
-#[derive(Default, Debug)]
-pub struct Registers<T>
-where
-	T: Copy,
-{
-	x: [T; 32],
-}
-
-impl<T> Registers<T>
-where
-	T: Copy,
-{
-	pub fn regs(&self) -> &[T; 32] {
-		&self.x
-	}
-}
-
-impl GPRegisters {
-	pub fn get(&self, index: GPRegisterIndex) -> u64 {
-		let index = index.as_usize();
-		if index == 0 {
-			0
-		} else {
-			self.x[index]
-		}
-	}
-
-	pub fn set(&mut self, index: GPRegisterIndex, value: u64) {
-		let index = index.as_usize();
-		if index == 0 {
-			// writes to r0 are ignored
-		} else {
-			self.x[index] = value;
-		}
-	}
-
-	/// sets all general purpose registers
-	/// NOTE: writes to zero register are ignored
-	pub fn set_all(&mut self, regs: &[u64; 32]) {
-		self.x[1..].copy_from_slice(&regs[1..]);
-	}
-}
-
-impl FPRegisters {
-	pub fn get(&self, index: FPRegisterIndex) -> f64 {
-		let index = index.as_usize();
-		self.x[index]
-	}
-
-	pub fn set(&mut self, index: FPRegisterIndex, value: f64) {
-		let index = index.as_usize();
-		self.x[index] = value;
-	}
-
-	/// sets all fp registers
-	pub fn set_all(&mut self, regs: &[f64; 32]) {
-		self.x.copy_from_slice(regs);
-	}
-}
+use crate::regs::{FPRegisters, GPRegisters};
+use crate::soft::RoundingMode;
+use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
@@ -112,8 +51,8 @@ impl WhiskerCpu {
 		Self {
 			supported_extensions,
 			mem,
-			registers: Registers::default(),
-			fp_registers: Registers::default(),
+			registers: GPRegisters::default(),
+			fp_registers: FPRegisters::default(),
 
 			should_trap: false,
 			csrs: ControlStatusRegisters::new(),
@@ -238,9 +177,9 @@ macro_rules! read_mem_u64 {
 	};
 }
 
-macro_rules! read_mem_f32 {
+macro_rules! read_mem_float {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_f32($offset) {
+		match $self.mem.read_soft_float($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -250,9 +189,10 @@ macro_rules! read_mem_f32 {
 	};
 }
 
-macro_rules! read_mem_f64 {
+#[allow(unused)]
+macro_rules! read_mem_double {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_f64($offset) {
+		match $self.mem.read_soft_double($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -301,30 +241,6 @@ macro_rules! write_mem_u32 {
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $val:ident) => {
 		match $self.mem.write_u64($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
-}
-
-macro_rules! write_mem_f32 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_f32($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
-}
-
-macro_rules! write_mem_f64 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_f64($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -383,7 +299,7 @@ impl WhiskerCpu {
 		}
 
 		writeln!(&mut out).unwrap();
-		let fpregs = self.fp_registers.regs();
+		let fpregs = self.fp_registers.get_all_raw();
 		for idx in 0..32 {
 			writeln!(
 				&mut out,
@@ -404,12 +320,12 @@ impl WhiskerCpu {
 		let mtvec = self.csrs.read_mtvec();
 		trace!("trap handler at {mtvec:#018X}");
 
-		panic!("pc={:#08X}", self.pc);
+		let start_pc = self.pc;
 		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
 		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
 		self.should_trap = false;
-		Ok(())
+		panic!("pc={:#08X}", start_pc);
 	}
 
 	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {
@@ -650,26 +566,29 @@ impl WhiskerCpu {
 	}
 
 	fn execute_f_insn(&mut self, insn: FloatInstruction, _start_pc: u64) {
+		// FIXME: Decode rounding mode in instructions
+		const FIXME_ROUNDING_MODE: RoundingMode = RoundingMode::RoundToNearestTieEven;
+
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_f32!(self, offset);
-				self.fp_registers.set(dst, val as f64);
+				let val = read_mem_float!(self, offset);
+				self.fp_registers.set_float(dst, val);
 			}
 			FloatInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.fp_registers.get(src) as f32;
-				write_mem_f32!(self, offset, val);
+				let val = self.fp_registers.get_float(src).to_u32();
+				write_mem_u32!(self, offset, val);
 			}
 			FloatInstruction::AddSinglePrecision { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get(lhs) as f32;
-				let rhs = self.fp_registers.get(rhs) as f32;
-				self.fp_registers.set(dst, f64::from(lhs + rhs));
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				self.fp_registers.set_float(dst, lhs.add(&rhs, FIXME_ROUNDING_MODE));
 			}
 			FloatInstruction::SubSinglePrecision { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get(lhs) as f32;
-				let rhs = self.fp_registers.get(rhs) as f32;
-				self.fp_registers.set(dst, f64::from(lhs - rhs));
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				self.fp_registers.set_float(dst, lhs.sub(&rhs, FIXME_ROUNDING_MODE));
 			}
 			FloatInstruction::MulAddSinglePrecision {
 				dst,
@@ -677,17 +596,12 @@ impl WhiskerCpu {
 				mul_rhs,
 				add,
 			} => {
-				let mul_lhs = self.fp_registers.get(mul_lhs) as f32;
-				let mul_rhs = self.fp_registers.get(mul_rhs) as f32;
-				let add = self.fp_registers.get(add) as f32;
+				let mul_lhs = self.fp_registers.get_float(mul_lhs);
+				let mul_rhs = self.fp_registers.get_float(mul_rhs);
+				let add = self.fp_registers.get_float(add);
 
-				let result = mul_lhs * mul_rhs + add;
-				self.fp_registers.set(dst, f64::from(result));
-			}
-			FloatInstruction::EqSinglePrecision { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get(lhs) as f32;
-				let rhs = self.fp_registers.get(rhs) as f32;
-				self.registers.set(dst, lhs.eq(&rhs) as u8 as _);
+				self.fp_registers
+					.set_float(dst, mul_lhs.mul_add(&mul_rhs, &add, FIXME_ROUNDING_MODE));
 			}
 		}
 	}

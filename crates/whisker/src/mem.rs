@@ -3,6 +3,9 @@ use std::fmt::Debug;
 
 use tracing::*;
 
+use crate::soft::double::SoftDouble;
+use crate::soft::float::SoftFloat;
+
 pub struct Memory {
 	phys: Box<[u8]>,
 	bootrom: Box<[u8]>,
@@ -126,13 +129,13 @@ macro_rules! impl_mem_rw {
 		#[allow(unused)]
 		impl Memory {
 			$(paste::paste!{
-				pub fn [<read_ $ty>](&self, offset: u64) -> Result<$ty, u64> {
+				pub fn [<read_ $ty:snake>](&self, offset: u64) -> Result<$ty, u64> {
 					let mut buf = <$ty>::to_le_bytes($ty::default());
 					self.read_slice(offset, &mut buf)?;
 					Ok(<$ty>::from_le_bytes(buf))
 				}
 
-				pub fn [<write_ $ty>](&mut self, offset: u64, val: $ty) -> Result<(), u64> {
+				pub fn [<write_ $ty:snake>](&mut self, offset: u64, val: $ty) -> Result<(), u64> {
 					self.write_slice(offset, $ty::to_le_bytes(val).as_slice())?;
 					Ok(())
 				}
@@ -141,7 +144,7 @@ macro_rules! impl_mem_rw {
 	};
 }
 
-impl_mem_rw!(u8, u16, u32, u64, f32, f64);
+impl_mem_rw!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 #[derive(Default)]
 pub struct MemoryBuilder {

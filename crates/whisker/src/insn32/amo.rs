@@ -2,7 +2,7 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{atomic::AtomicInstruction, Instruction},
 	insn32::RType,
-	ty::{RegisterIndex, TrapIdx},
+	ty::{RegisterIndex, SupportedExtensions, TrapIdx},
 	util::extract_bits_8,
 };
 
@@ -202,6 +202,11 @@ impl AtomicInstruction {
 
 pub fn parse_amo(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 	use consts::*;
+
+	if !cpu.supported_extensions.has(SupportedExtensions::ATOMIC) {
+		cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+		return Err(());
+	}
 
 	let rtype = RType::parse(parcel);
 

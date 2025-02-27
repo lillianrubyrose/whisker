@@ -2,12 +2,12 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{atomic::AtomicInstruction, Instruction},
 	insn32::RType,
-	ty::RegisterIndex,
+	ty::{RegisterIndex, TrapIdx},
 	util::extract_bits_8,
 };
 
 impl AtomicInstruction {
-	pub fn parse_word_insn(_cpu: &mut WhiskerCpu, rtype: RType) -> Self {
+	pub fn parse_word_insn(cpu: &mut WhiskerCpu, rtype: RType) -> Result<Self, ()> {
 		use consts::*;
 
 		let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
@@ -15,10 +15,11 @@ impl AtomicInstruction {
 
 		let func5 = extract_bits_8(rtype.func7(), 2, 7);
 
-		match func5 {
+		Ok(match func5 {
 			LOAD_RESERVED => {
 				if rtype.src2() != RegisterIndex::ZERO {
-					todo!("raise invalid instruction");
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					return Err(());
 				}
 
 				Self::LoadReservedWord {
@@ -99,10 +100,10 @@ impl AtomicInstruction {
 				_rl: rl,
 			},
 			_ => unreachable!(),
-		}
+		})
 	}
 
-	pub fn parse_double_word_insn(_cpu: &mut WhiskerCpu, rtype: RType) -> Self {
+	pub fn parse_double_word_insn(cpu: &mut WhiskerCpu, rtype: RType) -> Result<Self, ()> {
 		use consts::*;
 
 		let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
@@ -110,10 +111,11 @@ impl AtomicInstruction {
 
 		let func5 = extract_bits_8(rtype.func7(), 2, 7);
 
-		match func5 {
+		Ok(match func5 {
 			LOAD_RESERVED => {
 				if rtype.src2() != RegisterIndex::ZERO {
-					todo!("raise invalid instruction");
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					return Err(());
 				}
 
 				Self::LoadReservedDoubleWord {
@@ -194,7 +196,7 @@ impl AtomicInstruction {
 				_rl: rl,
 			},
 			_ => unreachable!(),
-		}
+		})
 	}
 }
 
@@ -204,8 +206,8 @@ pub fn parse_amo(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 	let rtype = RType::parse(parcel);
 
 	match rtype.func3() {
-		WORD => Ok(AtomicInstruction::parse_word_insn(cpu, rtype).into()),
-		DWORD => Ok(AtomicInstruction::parse_double_word_insn(cpu, rtype).into()),
+		WORD => Ok(AtomicInstruction::parse_word_insn(cpu, rtype).map(AtomicInstruction::into)?),
+		DWORD => Ok(AtomicInstruction::parse_double_word_insn(cpu, rtype).map(AtomicInstruction::into)?),
 		_ => unreachable!(),
 	}
 }

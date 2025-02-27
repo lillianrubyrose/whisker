@@ -10,6 +10,7 @@ use crate::insn::compressed::CompressedInstruction;
 use crate::insn::csr::CSRInstruction;
 use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
+use crate::insn::multiply::MultiplyInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
@@ -89,6 +90,7 @@ impl WhiskerCpu {
 					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn, start_pc),
 					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn, start_pc),
+					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn, start_pc),
 				}
 				self.dump();
 
@@ -1200,6 +1202,150 @@ impl WhiskerCpu {
 						Some(new_val)
 					})
 					.expect("addr to be in physmem");
+			}
+		}
+	}
+
+	fn exec_multiply_insn(&mut self, insn: MultiplyInstruction, _start_pc: u64) {
+		match insn {
+			MultiplyInstruction::Multiply { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+
+				self.registers.set(dst, lhs.wrapping_mul(rhs));
+			}
+			MultiplyInstruction::MultiplyHigh { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs) as i64;
+
+				// full 128bit signed mul
+				let product = (lhs as i128) * (rhs as i128);
+				let hi_bits = (product >> 64) as u64;
+
+				self.registers.set(dst, hi_bits);
+			}
+			MultiplyInstruction::MultiplyHighSignedUnsigned { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs);
+
+				// full 128bit signed x unsigned mul. i think this is right????
+				let product = (lhs as i128) * (rhs as u128 as i128);
+				let hi_bits = (product >> 64) as u64;
+
+				self.registers.set(dst, hi_bits);
+			}
+			MultiplyInstruction::MultiplyHighUnsigned { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+
+				// full 128bit unsigned mul
+				let product = (lhs as u128) * (rhs as u128);
+				let hi_bits = (product >> 64) as u64;
+
+				self.registers.set(dst, hi_bits);
+			}
+			MultiplyInstruction::Divide { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs) as i64;
+
+				let result = if rhs == 0 {
+					-1i64 // div by zero returns -1
+				} else if lhs == i64::MIN && rhs == -1 {
+					lhs // overflow returns dividend
+				} else {
+					lhs.wrapping_div(rhs)
+				};
+
+				self.registers.set(dst, result as u64);
+			}
+			MultiplyInstruction::DivideUnsigned { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+
+				// div by zero returns 0b1111111111...
+				let result = if rhs == 0 { u64::MAX } else { lhs.wrapping_div(rhs) };
+
+				self.registers.set(dst, result);
+			}
+			MultiplyInstruction::Remainder { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i64;
+				let rhs = self.registers.get(rhs) as i64;
+
+				let result = if rhs == 0 {
+					lhs // rem by zero returns dividend
+				} else if lhs == i64::MIN && rhs == -1 {
+					0 // overflow returns nothing
+				} else {
+					lhs.wrapping_rem(rhs)
+				};
+
+				self.registers.set(dst, result as u64);
+			}
+			MultiplyInstruction::RemainderUnsigned { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+
+				// rem by zero returns dividend
+				let result = if rhs == 0 { lhs } else { lhs.wrapping_rem(rhs) };
+
+				self.registers.set(dst, result);
+			}
+
+			MultiplyInstruction::MultiplyWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let rhs = self.registers.get(rhs) as u32;
+
+				// TODO: babygirl is this right? lily is only like, half sure of this.
+				// ty in advance~ <3
+				let result = ((lhs as i32).wrapping_mul(rhs as i32)) as i64;
+
+				self.registers.set(dst, result as u64);
+			}
+			MultiplyInstruction::DivideWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i32;
+				let rhs = self.registers.get(rhs) as i32;
+
+				let result = if rhs == 0 {
+					-1i32 // div by zero returns -1
+				} else if lhs == i32::MIN && rhs == -1 {
+					lhs // overflow returns dividend
+				} else {
+					lhs.wrapping_div(rhs)
+				};
+
+				self.registers.set(dst, result as i64 as u64);
+			}
+			MultiplyInstruction::DivideUnsignedWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let rhs = self.registers.get(rhs) as u32;
+
+				// div by zero returns 0b111111111...
+				let result = if rhs == 0 { u32::MAX } else { lhs.wrapping_div(rhs) };
+
+				self.registers.set(dst, result as u64);
+			}
+			MultiplyInstruction::RemainderWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i32;
+				let rhs = self.registers.get(rhs) as i32;
+
+				let result = if rhs == 0 {
+					lhs // rem by zero returns dividend
+				} else if lhs == i32::MIN && rhs == -1 {
+					0 // overflow returns nothing
+				} else {
+					lhs.wrapping_rem(rhs)
+				};
+
+				self.registers.set(dst, result as i64 as u64);
+			}
+			MultiplyInstruction::RemainderUnsignedWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let rhs = self.registers.get(rhs) as u32;
+
+				// rem by zero returns dividend
+				let result = if rhs == 0 { lhs } else { lhs.wrapping_rem(rhs) };
+
+				self.registers.set(dst, result as u64);
 			}
 		}
 	}

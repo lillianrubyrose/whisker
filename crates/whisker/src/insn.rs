@@ -3,11 +3,13 @@ pub mod compressed;
 pub mod csr;
 pub mod float;
 pub mod int;
+pub mod multiply;
 
 use atomic::AtomicInstruction;
 use compressed::CompressedInstruction;
 use float::FloatInstruction;
 use int::IntInstruction;
+use multiply::MultiplyInstruction;
 
 use crate::insn::csr::CSRInstruction;
 use crate::ty::{SupportedExtensions, TrapIdx};
@@ -21,6 +23,7 @@ pub enum Instruction {
 	Csr(CSRInstruction),
 	CompressedExtension(CompressedInstruction),
 	AtomicExtension(AtomicInstruction),
+	MultiplyInstruction(MultiplyInstruction),
 }
 
 impl Instruction {

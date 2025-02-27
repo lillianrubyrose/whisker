@@ -117,10 +117,8 @@ void int_to_string(int64_t val, char buf[21]){
     }
     // build up the array from least significant digit to most
     do {
-        int64_t q, r;
-        div_10(val, &q, &r);
-        buf[idx++] = r + '0';
-        val = q;
+        buf[idx++] = '0' + (val % 10);
+        val /= 10;
     } while(val > 0);
     // idx now points to the byte after the written characters
     // reverse the digits, skipping the negative sign if it exists

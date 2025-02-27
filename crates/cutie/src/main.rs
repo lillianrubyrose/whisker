@@ -13,6 +13,7 @@ enum ISAExtension {
 	Compressed,
 	Float,
 	Atomic,
+	Multiplication,
 }
 
 impl ISAExtension {
@@ -21,6 +22,7 @@ impl ISAExtension {
 			ISAExtension::Compressed => 'c',
 			ISAExtension::Float => 'f',
 			ISAExtension::Atomic => 'a',
+			ISAExtension::Multiplication => 'm',
 		}
 	}
 
@@ -29,6 +31,7 @@ impl ISAExtension {
 			"c" => Ok(Self::Compressed),
 			"f" => Ok(Self::Float),
 			"a" => Ok(Self::Atomic),
+			"m" => Ok(Self::Multiplication),
 			_ => Err(format!("Invalid extension: {str}")),
 		}
 	}

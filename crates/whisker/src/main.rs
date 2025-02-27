@@ -93,7 +93,8 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 	let supported = SupportedExtensions::INTEGER
 		| SupportedExtensions::FLOAT
 		| SupportedExtensions::COMPRESSED
-		| SupportedExtensions::ATOMIC;
+		| SupportedExtensions::ATOMIC
+		| SupportedExtensions::MULTIPLY;
 
 	let dram_base = 0x8000_0000u64;
 	let dram_size = 0x1000_0000u64;

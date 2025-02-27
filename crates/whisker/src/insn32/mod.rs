@@ -6,7 +6,9 @@ pub mod jalr;
 pub mod load;
 pub mod load_fp;
 pub mod madd;
+pub mod multiply;
 pub mod op;
+pub mod op_32;
 pub mod op_fp;
 pub mod op_imm;
 pub mod op_imm_32;
@@ -55,7 +57,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 			}
 			.into())
 		}
-		OP_32 => todo!("OP_32"),
+		OP_32 => op_32::parse_op_32(cpu, parcel),
 		UNK_64B => todo!("UNK_64B"),
 		MADD => madd::parse_madd(cpu, parcel),
 		MSUB => todo!("MSUB"),

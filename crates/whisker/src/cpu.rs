@@ -990,6 +990,217 @@ impl WhiskerCpu {
 					})
 					.expect("addr to be in physmem");
 			}
+
+			AtomicInstruction::LoadReservedDoubleWord { src, dst, _aq, _rl } => {
+				let addr = self.registers.get(src);
+
+				let val = self
+					.mem
+					.load_reserved_dword(addr, HART_ID)
+					.expect("addr to be in physmem");
+
+				self.registers.set(dst, val);
+			}
+			AtomicInstruction::StoreConditionalDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				let val = self.registers.get(src2);
+				let success = self
+					.mem
+					.store_conditional_dword(addr, HART_ID, val)
+					.expect("addr to be in physmem");
+				if success {
+					self.registers.set(dst, 0);
+				} else {
+					// TODO: From the little bit I read it says "nonzero code on failure"
+					// We should figure out what that value should be, unless it's arbitrary
+					self.registers.set(dst, 1);
+				}
+			}
+			AtomicInstruction::SwapDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// swap src2 to (src1)
+						let src2_val = self.registers.get(src2);
+						Some(src2_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::AddDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// add src2 value to (src1)
+						let src2_val = self.registers.get(src2);
+						let new_val = dword.wrapping_add(src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::XorDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// xor src2 value with (src1)
+						let src2_val = self.registers.get(src2);
+						let new_val = dword ^ src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::AndDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// and src2 value with (src1)
+						let src2_val = self.registers.get(src2);
+						let new_val = dword & src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::OrDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// or src2 value with (src1)
+						let src2_val = self.registers.get(src2);
+						let new_val = dword | src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MinDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// min of src2 value and (src1) (signed)
+						let src2_val = self.registers.get(src2) as i64;
+						let new_val = std::cmp::min(dword as i64, src2_val) as u64;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MaxDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// max of src2 value and (src1) (signed)
+						let src2_val = self.registers.get(src2) as i64;
+						let new_val = std::cmp::max(dword as i64, src2_val) as u64;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MinUnsignedDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// min of src2 value and (src1) (unsigned)
+						let src2_val = self.registers.get(src2);
+						let new_val = std::cmp::min(dword, src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MaxUnsignedDoubleWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_dword(addr, |dword| {
+						// put (src1) value into rd
+						self.registers.set(dst, dword);
+
+						// max of src2 value and (src1) (unsigned)
+						let src2_val = self.registers.get(src2);
+						let new_val = std::cmp::max(dword, src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
 		}
 	}
 

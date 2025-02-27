@@ -80,6 +80,83 @@ pub enum AtomicInstruction {
 		_aq: bool,
 		_rl: bool,
 	},
+
+	LoadReservedDoubleWord {
+		src: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	StoreConditionalDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	SwapDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	AddDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	XorDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	AndDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	OrDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	MinDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	MaxDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	MinUnsignedDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
+	MaxUnsignedDoubleWord {
+		src1: GPRegisterIndex,
+		src2: GPRegisterIndex,
+		dst: GPRegisterIndex,
+		_aq: bool,
+		_rl: bool,
+	},
 }
 
 impl Into<Instruction> for AtomicInstruction {

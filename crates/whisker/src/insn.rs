@@ -1,8 +1,10 @@
+pub mod atomic;
 pub mod compressed;
 pub mod csr;
 pub mod float;
 pub mod int;
 
+use atomic::AtomicInstruction;
 use compressed::CompressedInstruction;
 use float::FloatInstruction;
 use int::IntInstruction;
@@ -18,6 +20,7 @@ pub enum Instruction {
 	FloatExtension(FloatInstruction),
 	Csr(CSRInstruction),
 	CompressedExtension(CompressedInstruction),
+	AtomicExtension(AtomicInstruction),
 }
 
 impl Instruction {

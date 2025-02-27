@@ -1,3 +1,4 @@
+pub mod amo;
 pub mod branch;
 pub mod float;
 pub mod int;
@@ -44,7 +45,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		STORE => store::parse_store(cpu, parcel),
 		STORE_FP => store_fp::parse_store_fp(cpu, parcel),
 		CUSTOM_1 => todo!("CUSTOM_1"),
-		AMO => todo!("AMO"),
+		AMO => amo::parse_amo(cpu, parcel),
 		OP => op::parse_op(cpu, parcel),
 		LUI => {
 			let utype = UType::parse(parcel);

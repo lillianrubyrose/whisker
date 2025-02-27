@@ -1,4 +1,17 @@
 /// extracts bits start..=end from val
+pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
+	assert!(start <= end);
+	assert!(start < u8::BITS as u8);
+	assert!(end < u8::BITS as u8);
+
+	// masks off the low bits
+	let low_mask = (u8::MAX >> start) << start;
+	// shift off the high bits
+	let high_mask = (u8::MAX << (u8::BITS - u32::from(end) - 1)) >> (u8::BITS - u32::from(end) - 1);
+	(val & low_mask & high_mask) >> start
+}
+
+/// extracts bits start..=end from val
 pub fn extract_bits_16(val: u16, start: u8, end: u8) -> u16 {
 	assert!(start <= end);
 	assert!(start < u16::BITS as u8);

@@ -12,6 +12,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 enum ISAExtension {
 	Compressed,
 	Float,
+	Atomic,
 }
 
 impl ISAExtension {
@@ -19,6 +20,7 @@ impl ISAExtension {
 		match self {
 			ISAExtension::Compressed => 'c',
 			ISAExtension::Float => 'f',
+			ISAExtension::Atomic => 'a',
 		}
 	}
 
@@ -26,6 +28,7 @@ impl ISAExtension {
 		match str.to_lowercase().as_str() {
 			"c" => Ok(Self::Compressed),
 			"f" => Ok(Self::Float),
+			"a" => Ok(Self::Atomic),
 			_ => Err(format!("Invalid extension: {str}")),
 		}
 	}

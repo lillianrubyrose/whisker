@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use tracing::*;
 
 use crate::csr::ControlStatusRegisters;
+use crate::insn::atomic::AtomicInstruction;
 use crate::insn::compressed::CompressedInstruction;
 use crate::insn::csr::CSRInstruction;
 use crate::insn::float::FloatInstruction;
@@ -87,6 +88,7 @@ impl WhiskerCpu {
 					Instruction::FloatExtension(insn) => self.execute_f_insn(insn, start_pc),
 					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn, start_pc),
+					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn, start_pc),
 				}
 				self.dump();
 
@@ -770,6 +772,224 @@ impl WhiskerCpu {
 			// this nop is special in that it's designated as an explicit NOP for future standard use
 			// so it cannot be combined into an integer instruction
 			CompressedInstruction::Nop => {}
+		}
+	}
+
+	fn exec_atomic_insn(&mut self, insn: AtomicInstruction, _start_pc: u64) {
+		// TODO: For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic and other things we do-
+		// not currently implement.
+		const HART_ID: usize = 0;
+		match insn {
+			AtomicInstruction::LoadReservedWord { src, dst, _aq, _rl } => {
+				let addr = self.registers.get(src);
+
+				let val = self
+					.mem
+					.load_reserved_word(addr, HART_ID)
+					.expect("addr to be in physmem");
+
+				self.registers.set(dst, val as u64);
+			}
+			AtomicInstruction::StoreConditionalWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				let val = self.registers.get(src2) as u32;
+				let success = self
+					.mem
+					.store_conditional_word(addr, HART_ID, val)
+					.expect("addr to be in physmem");
+				if success {
+					self.registers.set(dst, 0);
+				} else {
+					// TODO: From the little bit I read it says "nonzero code on failure"
+					// We should figure out what that value should be, unless it's arbitrary
+					self.registers.set(dst, 1);
+				}
+			}
+			AtomicInstruction::SwapWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// swap src2 to (src1)
+						let src2_val = self.registers.get(src2);
+						Some(src2_val as u32)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::AddWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// add src2 value to (src1)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = word.wrapping_add(src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::XorWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// xor src2 value with (src1)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = word ^ src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::AndWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// and src2 value with (src1)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = word & src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::OrWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// or src2 value with (src1)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = word | src2_val;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MinWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// min of src2 value and (src1) (signed)
+						let src2_val = self.registers.get(src2) as i32;
+						let new_val = std::cmp::min(word as i32, src2_val) as u32;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MaxWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// max of src2 value and (src1) (signed)
+						let src2_val = self.registers.get(src2) as i32;
+						let new_val = std::cmp::max(word as i32, src2_val) as u32;
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MinUnsignedWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// min of src2 value and (src1) (unsigned)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = std::cmp::min(word, src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
+			AtomicInstruction::MaxUnsignedWord {
+				src1,
+				src2,
+				dst,
+				_aq,
+				_rl,
+			} => {
+				let addr = self.registers.get(src1);
+				self.mem
+					.atomic_op_word(addr, |word| {
+						// put (src1) value into rd
+						self.registers.set(dst, u64::from(word));
+
+						// max of src2 value and (src1) (unsigned)
+						let src2_val = self.registers.get(src2) as u32;
+						let new_val = std::cmp::max(word, src2_val);
+						Some(new_val)
+					})
+					.expect("addr to be in physmem");
+			}
 		}
 	}
 

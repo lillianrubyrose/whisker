@@ -1,15 +1,53 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::*;
 
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
 
+struct MemoryReservations {
+	// Physical address to hart id, this would be important if we ever do multithreading
+	reservations: HashMap<u64, usize>,
+}
+
+impl MemoryReservations {
+	// For RV64 hardware I believe this is common
+	const CACHE_LINE_SIZE: u64 = 64;
+
+	fn new() -> Self {
+		Self {
+			reservations: HashMap::with_capacity(1024),
+		}
+	}
+
+	fn reserve(&mut self, phys_addr: u64, hart_id: usize) {
+		let aligned_addr = phys_addr & !(Self::CACHE_LINE_SIZE - 1);
+		self.reservations.insert(aligned_addr, hart_id);
+	}
+
+	fn unreserve(&mut self, phys_addr: u64) {
+		let aligned_addr = phys_addr & !(Self::CACHE_LINE_SIZE - 1);
+		self.reservations.remove(&aligned_addr);
+	}
+
+	fn is_reserved(&mut self, phys_addr: u64, hart_id: usize) -> bool {
+		let aligned_addr = phys_addr & !(Self::CACHE_LINE_SIZE - 1);
+		self.reservations
+			.get(&aligned_addr)
+			.is_some_and(|hart| *hart == hart_id)
+	}
+}
+
 pub struct Memory {
 	phys: Box<[u8]>,
 	bootrom: Box<[u8]>,
 	mappings: HashMap<PageBase, PageEntry>,
+
+	// If we were to do multithreading, this would probably need to be a Send Cell type
+	reservations: MemoryReservations,
+	atomic_lock: AtomicBool,
 }
 
 impl Debug for Memory {
@@ -69,8 +107,12 @@ impl Memory {
 
 			match page_entry {
 				PageEntry::PhysBacked { phys_base } => {
+					// Invalidate reservations on memory whenever it's written to
+					let phys_addr = phys_base + page_offset;
+					self.reservations.unreserve(phys_addr);
+
 					trace!("Writing to physmem @ {:#018X}", phys_base);
-					self.phys[(phys_base + page_offset) as usize] = *val;
+					self.phys[phys_addr as usize] = *val;
 				}
 				// writing to bootrom is allowed, this makes it easier to write bootrom code
 				// without having to do loader shenanigans
@@ -85,6 +127,117 @@ impl Memory {
 			}
 		}
 		Ok(())
+	}
+
+	/// Returns Err(virt_addr) on failure
+	fn translate_address(&self, virt_addr: u64) -> Result<u64, u64> {
+		let base = PageBase::from_addr(virt_addr);
+		let Some(page_entry) = self.mappings.get(&base) else {
+			return Err(virt_addr);
+		};
+		let page_offset = virt_addr - base.0;
+
+		match page_entry {
+			PageEntry::PhysBacked { phys_base } => Ok(phys_base + page_offset),
+			PageEntry::Bootrom { page_base: _ }
+			| PageEntry::MMIO {
+				on_read: _,
+				on_write: _,
+			} => Err(virt_addr), // TODO: What to do for Bootrom & MMIO?
+		}
+	}
+
+	#[inline(always)]
+	fn with_atomic_lock<R, F: FnOnce(&mut Memory) -> R>(&mut self, f: F) -> R {
+		while self.atomic_lock.swap(true, Ordering::Acquire) {
+			std::hint::spin_loop();
+		}
+
+		let result = f(self);
+
+		self.atomic_lock.store(false, Ordering::Release);
+
+		result
+	}
+
+	/// Returns Err(virt_addr) on failure
+	pub fn load_reserved_word(&mut self, virt_addr: u64, hart_id: usize) -> Result<u32, u64> {
+		let phys_addr = self.translate_address(virt_addr)?;
+		self.reservations.reserve(phys_addr, hart_id);
+		Ok(self.read_u32(virt_addr)?)
+	}
+
+	/// Returns Err(virt_addr) on failure
+	pub fn load_reserved_dword(&mut self, virt_addr: u64, hart_id: usize) -> Result<u64, u64> {
+		let phys_addr = self.translate_address(virt_addr)?;
+		self.reservations.reserve(phys_addr, hart_id);
+		Ok(self.read_u64(virt_addr)?)
+	}
+
+	/// Returns Ok(successful) or Err(virt_addr)
+	pub fn store_conditional_word(&mut self, virt_addr: u64, hart_id: usize, word: u32) -> Result<bool, u64> {
+		let phys_addr = self.translate_address(virt_addr)?;
+
+		let is_reserved = self.reservations.is_reserved(phys_addr, hart_id);
+		if !is_reserved {
+			return Ok(false);
+		}
+
+		self.with_atomic_lock(|this| {
+			let write_result = this.write_u32(virt_addr, word);
+
+			this.reservations.unreserve(phys_addr);
+
+			Ok(write_result.is_ok())
+		})
+	}
+
+	/// Returns Ok(successful) or Err(virt_addr)
+	pub fn store_conditional_dword(&mut self, virt_addr: u64, hart_id: usize, dword: u64) -> Result<bool, u64> {
+		let phys_addr = self.translate_address(virt_addr)?;
+
+		let is_reserved = self.reservations.is_reserved(phys_addr, hart_id);
+		if !is_reserved {
+			return Ok(false);
+		}
+
+		self.with_atomic_lock(|this| {
+			let write_result = this.write_u64(virt_addr, dword);
+
+			this.reservations.unreserve(phys_addr);
+
+			Ok(write_result.is_ok())
+		})
+	}
+
+	/// Returns Ok(original_value) or Err(virt_addr)
+	pub fn atomic_op_word<F: FnOnce(u32) -> Option<u32>>(&mut self, virt_addr: u64, op: F) -> Result<u32, u64> {
+		self.with_atomic_lock(|this| {
+			let word = this.read_u32(virt_addr)?;
+
+			if let Some(replacement) = op(word) {
+				if let Err(failure_addr) = this.write_u32(virt_addr, replacement) {
+					return Err(failure_addr);
+				}
+			}
+
+			Ok(word)
+		})
+	}
+
+	/// Returns Ok(original_value) or Err(virt_addr)
+	pub fn atomic_op_dword<F: FnOnce(u64) -> Option<u64>>(&mut self, virt_addr: u64, op: F) -> Result<u64, u64> {
+		self.with_atomic_lock(|this| {
+			let dword = this.read_u64(virt_addr)?;
+
+			if let Some(replacement) = op(dword) {
+				if let Err(failure_addr) = this.write_u64(virt_addr, replacement) {
+					return Err(failure_addr);
+				}
+			}
+
+			Ok(dword)
+		})
 	}
 }
 
@@ -235,6 +388,8 @@ impl MemoryBuilder {
 			phys,
 			mappings,
 			bootrom,
+			reservations: MemoryReservations::new(),
+			atomic_lock: AtomicBool::default(),
 		}
 	}
 }

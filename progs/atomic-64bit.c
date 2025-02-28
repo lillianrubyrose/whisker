@@ -2,7 +2,7 @@
 
 #define DRAM_BASE 0x80000000
 
-volatile uint64_t* atomic_word = (volatile uint64_t*)DRAM_BASE;
+volatile uint64_t* atomic_word = (volatile uint64_t*)(DRAM_BASE + 0x2048);
 
 void print_string(const char* str) {
     whisker_write_uart(str);

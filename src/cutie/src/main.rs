@@ -52,7 +52,7 @@ enum Commands {
 	Compile {
 		#[arg(short, long, default_value_t = String::from("kernel.bin"))]
 		out: String,
-		#[arg(long, short = 'T', default_value = String::from("kernel.ld"))]
+		#[arg(long, short = 'T', default_value = String::from("progs/kernel.ld"))]
 		linker_script: PathBuf,
 		#[arg(short = 'f', long, value_delimiter = ',', value_parser = ISAExtension::parse)]
 		extensions: Vec<ISAExtension>,
@@ -89,8 +89,8 @@ fn main() {
 		),
 		Commands::CompileBootLoader {} => {
 			let bootloader_name = "boot.bin";
-			let bootloader_path = PathBuf::from("progs/boot/boot.s");
-			let linker_script = PathBuf::from("progs/boot/boot.ld");
+			let bootloader_path = PathBuf::from("src/boot/boot.s");
+			let linker_script = PathBuf::from("src/boot/boot.ld");
 			compile(
 				bootloader_name,
 				&[bootloader_path],

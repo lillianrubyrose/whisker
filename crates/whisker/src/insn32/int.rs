@@ -232,4 +232,36 @@ impl IntInstruction {
     		BRANCH_GREATER_EQ_UNSIGNED, BranchGreaterEqualUnsigned
     	)
 	}
+
+	pub fn parse_op_32(rtype: RType) -> IntInstruction {
+		use crate::insn32::op_32::consts::*;
+		match rtype.func() {
+			ADD_WORD => Self::AddWord {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			},
+			SUB_WORD => Self::SubWord {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			},
+			SHIFT_LOGICAL_LEFT_WORD => Self::ShiftLeftLogicalWord {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			},
+			SHIFT_LOGICAL_RIGHT_WORD => Self::ShiftRightLogicalWord {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			},
+			SHIFT_ARITHMETIC_RIGHT_WORD => Self::ShiftRightArithmeticWord {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			},
+			_ => unreachable!(),
+		}
+	}
 }

@@ -507,7 +507,9 @@ impl WhiskerCpu {
 			}
 			IntInstruction::AddImmediateWord { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs) as u32;
-				self.registers.set(dst, lhs.wrapping_add_signed(rhs) as u64);
+				let result = lhs.wrapping_add_signed(rhs);
+				// sign extend
+				self.registers.set(dst, (result as i32) as i64 as u64);
 			}
 			IntInstruction::ShiftLeftLogicalImmediateWord { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs) as u32;
@@ -554,6 +556,39 @@ impl WhiskerCpu {
 				if self.registers.get(lhs) >= self.registers.get(rhs) {
 					self.pc = start_pc.wrapping_add_signed(imm);
 				}
+			}
+
+			IntInstruction::AddWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let rhs = self.registers.get(rhs) as u32;
+				self.registers.set(dst, lhs.wrapping_add(rhs) as u64);
+			}
+			IntInstruction::SubWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let rhs = self.registers.get(rhs) as u32;
+				self.registers.set(dst, lhs.wrapping_sub(rhs) as u64);
+			}
+			// These only use the lower 5 bits of the rhs register for shamt
+			IntInstruction::ShiftLeftLogicalWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
+				let result = lhs.wrapping_shl(shamt);
+				// sign extension
+				self.registers.set(dst, (result as i32) as i64 as u64);
+			}
+			IntInstruction::ShiftRightLogicalWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as u32;
+				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
+				let result = lhs.wrapping_shr(shamt);
+				// sign extension
+				self.registers.set(dst, (result as i32) as i64 as u64);
+			}
+			IntInstruction::ShiftRightArithmeticWord { lhs, rhs, dst } => {
+				let lhs = self.registers.get(lhs) as i32;
+				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
+				let result = lhs.wrapping_shr(shamt);
+				// sign extension
+				self.registers.set(dst, result as i64 as u64);
 			}
 
 			// =========

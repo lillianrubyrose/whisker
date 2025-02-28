@@ -223,6 +223,32 @@ pub enum IntInstruction {
 		shift_amt: u32,
 	},
 
+	AddWord {
+		lhs: GPRegisterIndex,
+		rhs: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	SubWord {
+		lhs: GPRegisterIndex,
+		rhs: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	ShiftLeftLogicalWord {
+		lhs: GPRegisterIndex,
+		rhs: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	ShiftRightLogicalWord {
+		lhs: GPRegisterIndex,
+		rhs: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+	ShiftRightArithmeticWord {
+		lhs: GPRegisterIndex,
+		rhs: GPRegisterIndex,
+		dst: GPRegisterIndex,
+	},
+
 	// =========
 	// SYSTEM
 	// =========

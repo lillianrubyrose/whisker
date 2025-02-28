@@ -1,6 +1,6 @@
 use crate::{
 	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, multiply::MultiplyInstruction, Instruction},
+	insn::{multiply::MultiplyInstruction, Instruction},
 	insn32::RType,
 	ty::{SupportedExtensions, TrapIdx},
 };

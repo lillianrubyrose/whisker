@@ -52,7 +52,7 @@ impl MultiplyInstruction {
 	}
 
 	pub fn parse_op_32(_cpu: &mut WhiskerCpu, rtype: RType) -> Result<Self, ()> {
-		use crate::insn32::op::consts::*;
+		use crate::insn32::op_32::consts::*;
 
 		Ok(match rtype.func() {
 			MUL_WORD => Self::MultiplyWord {

@@ -52,7 +52,7 @@ enum Commands {
 	Compile {
 		#[arg(short, long, default_value_t = String::from("kernel.bin"))]
 		out: String,
-		#[arg(long, short = 'T', default_value = String::from("progs/kernel.ld"))]
+		#[arg(long, short = 'T', default_value = String::from("examples/kernel.ld"))]
 		linker_script: PathBuf,
 		#[arg(short = 'f', long, value_delimiter = ',', value_parser = ISAExtension::parse)]
 		extensions: Vec<ISAExtension>,

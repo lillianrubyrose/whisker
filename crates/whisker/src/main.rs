@@ -15,7 +15,6 @@ compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::{fs, io};
 
 use clap::{command, Parser, Subcommand};
@@ -28,7 +27,6 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
 use crate::mem::{MemoryBuilder, PageBase, PageEntry};
-use crate::ty::GPRegisterIndex;
 use crate::ty::SupportedExtensions;
 
 #[derive(Debug, Parser)]
@@ -45,18 +43,9 @@ enum Commands {
 		use_gdb: bool,
 		#[arg()]
 		bootrom: PathBuf,
-		#[arg(long, value_parser = parse_dec_or_hex)]
-		bootrom_offset: u64,
+		#[arg()]
+		kernel: PathBuf,
 	},
-}
-
-fn parse_dec_or_hex(s: &str) -> Result<u64, <u64 as FromStr>::Err> {
-	if let Some(hex) = s.strip_prefix("0x") {
-		u64::from_str_radix(hex, 16)
-	} else {
-		// try decimal and non-prefixed hex
-		s.parse::<u64>().or_else(|_| u64::from_str_radix(s, 16))
-	}
 }
 
 fn main() {
@@ -75,9 +64,9 @@ fn main() {
 		Commands::Run {
 			use_gdb: gdb,
 			bootrom,
-			bootrom_offset,
+			kernel,
 		} => {
-			let cpu = init_cpu(bootrom, bootrom_offset);
+			let cpu = init_cpu(bootrom, kernel);
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -87,8 +76,15 @@ fn main() {
 	}
 }
 
-fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
-	let prog = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+// THESE MUST BE IN SYNC WITH LINKER SCRIPTS
+const BOOTROM_OFFSET: u64 = 0x00001000;
+const DRAM_BASE: u64 = 0x8000_0000;
+const DRAM_SIZE: u64 = 0x1000_0000;
+const UART_ADDR: u64 = 0x1000_0000;
+
+fn init_cpu(bootrom: PathBuf, kernel: PathBuf) -> WhiskerCpu {
+	let bootrom = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+	let kernel = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
 	let supported = SupportedExtensions::INTEGER
 		| SupportedExtensions::FLOAT
@@ -96,21 +92,17 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		| SupportedExtensions::ATOMIC
 		| SupportedExtensions::MULTIPLY;
 
-	let dram_base = 0x8000_0000u64;
-	let dram_size = 0x1000_0000u64;
-	let uart_addr = 0x1000_0000u64;
-
-	let mem = MemoryBuilder::default()
-		.bootrom(prog, PageBase::from_addr(bootrom_offset))
-		.physical_size(dram_size)
-		.phys_mapping(PageBase::from_addr(dram_base), PageBase::from_addr(0), dram_size)
+	let mut mem = MemoryBuilder::default()
+		.bootrom(bootrom, PageBase::from_addr(BOOTROM_OFFSET))
+		.physical_size(DRAM_BASE)
+		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
 		// MMIO UART mapping
 		.add_mapping(
-			PageBase::from_addr(uart_addr),
+			PageBase::from_addr(UART_ADDR),
 			PageEntry::MMIO {
 				on_read: Box::new(|_| unimplemented!("read from UART")),
 				on_write: Box::new(move |addr, val| {
-					if addr == uart_addr {
+					if addr == UART_ADDR {
 						print!("{}", val as char);
 						io::stdout().flush().unwrap();
 					}
@@ -119,10 +111,12 @@ fn init_cpu(bootrom: PathBuf, bootrom_offset: u64) -> WhiskerCpu {
 		)
 		.build();
 
+	mem.write_slice(DRAM_BASE, kernel.as_slice())
+		.expect("unable to copy kernel to memory");
+
 	let mut cpu = WhiskerCpu::new(supported, mem);
 
-	cpu.pc = bootrom_offset;
-	cpu.registers.set(GPRegisterIndex::SP, (dram_base + dram_size) & !0xF);
+	cpu.pc = BOOTROM_OFFSET;
 	cpu
 }
 

@@ -3,6 +3,6 @@ members = ["crates/whisker", "crates/cutie"]
 resolver = "2"
 
 [workspace.dependencies]
-clap = { version = "4.5.29", features = ["derive"] }
+clap = { version = "4.5.29", features = ["derive", "string"] }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,5 +1,6 @@
 #include "whisker.h"
 
+/*
 int64_t int_mul(int64_t lhs, int64_t rhs) {
     // considers each bit in rhs, and if it is set, adds
     // lhs * bit_value to the accumulator
@@ -79,6 +80,7 @@ void int_div(int64_t lhs, int64_t rhs, int64_t* quotient, int64_t* remainder){
     *quotient = quot;
     *remainder = rem;
 }
+*/
 
 int32_t whisker_strlen(const char *str) {
   int32_t len = 0;

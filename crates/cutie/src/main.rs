@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::process::exit;
 use std::{path::PathBuf, process::Command};
 
@@ -46,10 +47,14 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
+	/// a shortcut for compiling the boot loader with its default settings
+	CompileBootLoader,
 	Compile {
-		#[arg(short, default_value_t = String::from("boot.bin"))]
+		#[arg(short, default_value_t = String::from("kernel.bin"))]
 		out: String,
 		files: Vec<PathBuf>,
+		#[arg(long, default_value = String::from("linker.ld"))]
+		linker_script: PathBuf,
 		#[arg(short = 'f', long = "flags", value_delimiter = ',', value_parser = ISAExtension::parse)]
 		extensions: Vec<ISAExtension>,
 	},
@@ -66,7 +71,28 @@ fn main() {
 		.init();
 	let args = Args::parse();
 	match args.command {
-		Commands::Compile { out, files, extensions } => compile(out, files, flatten_to_set(extensions)),
+		Commands::Compile {
+			out,
+			files,
+			linker_script,
+			extensions,
+		} => compile(
+			out.as_str(),
+			files.as_slice(),
+			linker_script.as_path(),
+			flatten_to_set(extensions),
+		),
+		Commands::CompileBootLoader {} => {
+			let bootloader_name = "boot.bin";
+			let bootloader_path = PathBuf::from("progs/boot.s");
+			let linker_script = PathBuf::from("progs/boot.ld");
+			compile(
+				bootloader_name,
+				&[bootloader_path],
+				linker_script.as_path(),
+				HashSet::new(),
+			);
+		}
 	}
 }
 
@@ -87,7 +113,7 @@ fn flatten_to_set<T: Eq + std::hash::Hash>(mut vec: Vec<T>) -> HashSet<T> {
 	set
 }
 
-fn compile(out_name: String, files: Vec<PathBuf>, extensions: HashSet<ISAExtension>) {
+fn compile(out_name: &str, files: &[PathBuf], linker_script: &Path, extensions: HashSet<ISAExtension>) {
 	if files.is_empty() {
 		error!("no input files given");
 		exit(1)
@@ -153,11 +179,20 @@ fn compile(out_name: String, files: Vec<PathBuf>, extensions: HashSet<ISAExtensi
 		info!("compiling with march: {march}");
 
 		let mut cmd = Command::new(cc);
-		cmd.args([&format!("-march={march}"), "-c", "-std=c23", "-O0", "-Wall", "-Wextra"])
-			.arg(file)
-			.arg("-o")
-			.arg(&out_path)
-			.args(["-ffreestanding", "-fno-stack-protector"]);
+		cmd.args([
+			&format!("-march={march}"),
+			"-mcmodel=medany",
+			"-c",
+			"-std=c23",
+			"-O0",
+			"-Wall",
+			"-Wpedantic",
+			"-Wextra",
+		])
+		.arg(file)
+		.arg("-o")
+		.arg(&out_path)
+		.args(["-ffreestanding", "-fno-stack-protector"]);
 		let output = cmd.output().unwrap();
 		if !output.status.success() {
 			error!("failed to compile: {}", String::from_utf8_lossy(&output.stderr));
@@ -175,13 +210,28 @@ fn compile(out_name: String, files: Vec<PathBuf>, extensions: HashSet<ISAExtensi
 
 	let linked_path = target_dir.join("out.elf");
 	let mut cmd = Command::new(cc);
-	cmd.args(["-T", "linker.ld", "-nostdlib", "-o"])
-		.arg(&linked_path)
-		.args(out_files);
+	cmd.args([
+		"-mcmodel=medany",
+		"-nostdlib",
+		"-Wl,--fatal-warnings",
+		"-Wl,--no-warn-rwx-segments", // this is not ideal, but we do it anyway
+		"-o",
+	])
+	.arg(&linked_path)
+	.arg("-T")
+	.arg(linker_script)
+	.args(out_files);
 	let output = cmd.output().unwrap();
 	if !output.status.success() {
 		error!("failed to link: {}", String::from_utf8_lossy(&output.stderr));
 		exit(1);
+	}
+
+	if !output.stdout.is_empty() {
+		info!("linker stdout:\n{}", String::from_utf8_lossy(output.stdout.as_slice()));
+	}
+	if !output.stderr.is_empty() {
+		warn!("linker stderr:\n{}", String::from_utf8_lossy(output.stderr.as_slice()));
 	}
 
 	// =======================

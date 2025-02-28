@@ -6,7 +6,7 @@ int main() {
 
   int64_t mrow = 7519;
   int64_t mrrp = -142;
-  int64_t res = int_mul(mrow, mrrp);
+  int64_t res = mrow * mrrp;
 
   char buf[21];
   int_to_string(res, buf);

@@ -4,6 +4,7 @@
 
 static char *UART = (char *)0x10000000;
 
+/*
 // if lhs or rhs are int64_t::MIN, behavior is undefined
 // if the computation of lhs * rhs overflows, behavior is undefined
 int64_t int_mul(int64_t lhs, int64_t rhs);
@@ -15,6 +16,7 @@ void div_10(int64_t lhs, int64_t *restrict quot, int64_t *restrict rem);
 // lhs and rhs must not be int64_t::MIN or behavior is undefined
 // if lhs or rhs are negative, the remainder will likely not be useful
 void int_div(int64_t lhs, int64_t rhs, int64_t* quotient, int64_t* remainder);
+*/
 
 // str must be nul-terminated, and it should be free'd by the caller if
 // necessary if str is not nul-terminated the program will go into an infinite

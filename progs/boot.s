@@ -1,4 +1,6 @@
 .section .text
+
+.pushsection .text.entry
 .global __bootrom_start
 __bootrom_start:
     # set up a default trap handler that just spins
@@ -6,6 +8,7 @@ __bootrom_start:
     csrw 0x305, t0
 
     tail _user_start
+.popsection
 
 trap:
     # this is just here to do something visible at the moment

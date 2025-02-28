@@ -1,4 +1,4 @@
-.section .text
+.section .text.entry
 .global _start
 _start:
     # zero bss segment

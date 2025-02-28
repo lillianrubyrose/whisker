@@ -6,7 +6,10 @@ MEMORY {
 
 SECTIONS {
     .text : {
-        *(.text)
+        /* ensure that the entry point comes first */
+        *(.text.entry)
+        /* .text and any subsections should be here */
+        *(.text.*)
     } > dram
 
     .rodata : {

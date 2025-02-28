@@ -7,7 +7,8 @@ MEMORY {
 
 SECTIONS {
     .text : {
-        *(.text)
+        *(.text.entry)
+        *(.text.*)
     } > bootrom
 
     .rodata : {

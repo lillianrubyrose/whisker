@@ -1,4 +1,6 @@
-.section .text.entry
+.section .text
+
+.pushsection .text.entry
 .global _start
 _start:
     # zero bss segment
@@ -15,3 +17,5 @@ _zero_bss:
     call main
     # insurance for if main returns
     9: j 9b
+
+.popsection

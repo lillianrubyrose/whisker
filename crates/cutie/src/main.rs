@@ -50,13 +50,16 @@ enum Commands {
 	/// a shortcut for compiling the boot loader with its default settings
 	CompileBootLoader,
 	Compile {
-		#[arg(short, default_value_t = String::from("kernel.bin"))]
+		#[arg(short, long, default_value_t = String::from("kernel.bin"))]
 		out: String,
-		files: Vec<PathBuf>,
-		#[arg(long, default_value = String::from("linker.ld"))]
+		#[arg(long, short = 'T', default_value = String::from("linker.ld"))]
 		linker_script: PathBuf,
-		#[arg(short = 'f', long = "flags", value_delimiter = ',', value_parser = ISAExtension::parse)]
+		#[arg(short = 'f', long, value_delimiter = ',', value_parser = ISAExtension::parse)]
 		extensions: Vec<ISAExtension>,
+		#[arg(long, short = 'C')]
+		compile_args: Vec<String>,
+
+		files: Vec<PathBuf>,
 	},
 }
 
@@ -76,11 +79,13 @@ fn main() {
 			files,
 			linker_script,
 			extensions,
+			compile_args,
 		} => compile(
 			out.as_str(),
 			files.as_slice(),
 			linker_script.as_path(),
 			flatten_to_set(extensions),
+			compile_args.as_slice(),
 		),
 		Commands::CompileBootLoader {} => {
 			let bootloader_name = "boot.bin";
@@ -91,6 +96,7 @@ fn main() {
 				&[bootloader_path],
 				linker_script.as_path(),
 				HashSet::new(),
+				&[],
 			);
 		}
 	}
@@ -113,7 +119,13 @@ fn flatten_to_set<T: Eq + std::hash::Hash>(mut vec: Vec<T>) -> HashSet<T> {
 	set
 }
 
-fn compile(out_name: &str, files: &[PathBuf], linker_script: &Path, extensions: HashSet<ISAExtension>) {
+fn compile(
+	out_name: &str,
+	files: &[PathBuf],
+	linker_script: &Path,
+	extensions: HashSet<ISAExtension>,
+	compile_args: &[String],
+) {
 	if files.is_empty() {
 		error!("no input files given");
 		exit(1)
@@ -192,7 +204,8 @@ fn compile(out_name: &str, files: &[PathBuf], linker_script: &Path, extensions: 
 		.arg(file)
 		.arg("-o")
 		.arg(&out_path)
-		.args(["-ffreestanding", "-fno-stack-protector"]);
+		.args(["-ffreestanding", "-fno-stack-protector"])
+		.args(compile_args);
 		let output = cmd.output().unwrap();
 		if !output.status.success() {
 			error!("failed to compile: {}", String::from_utf8_lossy(&output.stderr));

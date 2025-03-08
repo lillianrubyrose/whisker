@@ -39,6 +39,8 @@ struct CliArgs {
 #[derive(Debug, Subcommand)]
 enum Commands {
 	Run {
+		#[arg(long)]
+		logfile: Option<PathBuf>,
 		#[arg(short = 'g', long)]
 		use_gdb: bool,
 		#[arg()]
@@ -65,8 +67,9 @@ fn main() {
 			use_gdb: gdb,
 			bootrom,
 			kernel,
+			logfile,
 		} => {
-			let cpu = init_cpu(bootrom, kernel);
+			let cpu = init_cpu(bootrom, kernel, logfile);
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -82,7 +85,7 @@ const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 const UART_ADDR: u64 = 0x1000_0000;
 
-fn init_cpu(bootrom: PathBuf, kernel: PathBuf) -> WhiskerCpu {
+fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
 	let bootrom = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 	let kernel = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
@@ -114,7 +117,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf) -> WhiskerCpu {
 	mem.write_slice(DRAM_BASE, kernel.as_slice())
 		.expect("unable to copy kernel to memory");
 
-	let mut cpu = WhiskerCpu::new(supported, mem);
+	let mut cpu = WhiskerCpu::new(supported, mem, logfile);
 
 	cpu.pc = BOOTROM_OFFSET;
 	cpu

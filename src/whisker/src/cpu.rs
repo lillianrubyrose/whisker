@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Write as _;
+use std::fs::{File, OpenOptions};
+use std::io::Write as _;
+use std::path::PathBuf;
 
 use tracing::*;
 
@@ -33,6 +36,8 @@ pub enum WhiskerExecStatus {
 
 #[derive(Debug)]
 pub struct WhiskerCpu {
+	logfile: Option<File>,
+
 	pub supported_extensions: SupportedExtensions,
 	pub mem: Memory,
 	pub registers: GPRegisters,
@@ -49,9 +54,30 @@ pub struct WhiskerCpu {
 	pub breakpoints: HashSet<u64>,
 }
 
+macro_rules! log {
+    ($self:ident, $($arg:tt)*) => {
+        if let Some(logfile) = $self.logfile.as_mut() {
+            trace!($($arg)*);
+            logfile.write_fmt(format_args!($($arg)*)).expect("failed to write to log");
+            writeln!(logfile).expect("failed to write to log");
+            logfile.flush().expect("failed to write to log");
+        }
+    };
+}
+
 impl WhiskerCpu {
-	pub fn new(supported_extensions: SupportedExtensions, mem: Memory) -> Self {
+	pub fn new(supported_extensions: SupportedExtensions, mem: Memory, logfile: Option<PathBuf>) -> Self {
+		let logfile = logfile.map(|path| {
+			OpenOptions::new()
+				.write(true)
+				.create(true)
+				.truncate(true)
+				.open(&path)
+				.unwrap_or_else(|e| panic!("failed to create logfile {}: {:?}", path.display(), e))
+		});
 		Self {
+			logfile,
+
 			supported_extensions,
 			mem,
 			registers: GPRegisters::default(),
@@ -69,7 +95,10 @@ impl WhiskerCpu {
 
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		self.cycles += 1;
+		log!(self, "cycle {}", self.cycles);
+
 		if self.should_trap {
+			log!(self, "  trapping");
 			return self.exec_trap();
 		}
 
@@ -77,12 +106,13 @@ impl WhiskerCpu {
 		let start_pc = self.pc;
 
 		if self.breakpoints.contains(&start_pc) {
+			log!(self, "  reached breakpoint at {:#018X}", start_pc);
 			return Err(WhiskerExecStatus::HitBreakpoint);
 		}
 
 		match Instruction::fetch_instruction(self) {
 			Ok((inst, size)) => {
-				trace!("fetched {:#?}", inst);
+				log!(self, "  {:#018X}: fetched {:?}", start_pc, inst);
 				self.pc = self.pc.wrapping_add(size);
 				match inst {
 					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
@@ -92,6 +122,8 @@ impl WhiskerCpu {
 					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn, start_pc),
 					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn, start_pc),
 				}
+
+				log!(self, "state after cycle {}", self.cycles);
 				self.dump();
 
 				Ok(())
@@ -104,7 +136,12 @@ impl WhiskerCpu {
 	}
 
 	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
-		trace!("requesting trap kind cause={:#018X} mtval={mtval:#018X}", trap.inner());
+		log!(
+			self,
+			"  requesting trap kind cause={:#018X} mtval={:#018X}",
+			trap.inner(),
+			mtval,
+		);
 		// trap causes have the high bit set if they are an interrupt, or unset for exceptions
 		self.csrs.write_mcause(trap.inner());
 		self.csrs.write_mtval(mtval);
@@ -294,28 +331,38 @@ macro_rules! get_csr_mut {
 
 impl WhiskerCpu {
 	pub fn dump(&self) {
-		// UNWRAPS: writing to string cannot fail
+		if let Some(mut f) = self.logfile.as_ref() {
+			// UNWRAPS: writing to string cannot fail
 
-		let mut out = String::from("CPU State:\n");
-		writeln!(&mut out, "     pc: {:#018X}\n", self.pc).unwrap();
-		let regs = self.registers.regs();
-		for idx in 0..32 {
-			writeln!(&mut out, "    {:>3}: {:#018X}", format!("x{idx}"), regs[idx]).unwrap();
+			let mut out = String::new();
+			writeln!(&mut out, "    pc: {:#018X}\n", self.pc).unwrap();
+			let regs = self.registers.regs();
+			for idx in 0..32 {
+				let val = regs[idx as usize];
+				// we do this for pretty display purposes
+				let idx = GPRegisterIndex::new(idx).unwrap();
+				writeln!(&mut out, "  {:>4}: {val:#018X} ({val:})", idx.display(),).unwrap();
+			}
+
+			writeln!(&mut out).unwrap();
+			let fpregs = self.fp_registers.get_all_raw();
+			for idx in 0..32 {
+				let val = u64::from_le_bytes(fpregs[idx].to_le_bytes());
+				writeln!(
+					&mut out,
+					"  {:>4}: {:#018X} (f64: {}, f32: {})",
+					format!("fp{idx}"),
+					val,
+					f64::from_bits(val),
+					f32::from_bits(val as u32)
+				)
+				.unwrap();
+			}
+			out.push_str("\n\n");
+
+			write!(f, "{}", out).expect("unable to write to logfile");
+			f.flush().expect("unable to flush logfile");
 		}
-
-		writeln!(&mut out).unwrap();
-		let fpregs = self.fp_registers.get_all_raw();
-		for idx in 0..32 {
-			writeln!(
-				&mut out,
-				"   {:>4}: {:#018X}",
-				format!("fp{idx}"),
-				u64::from_le_bytes(fpregs[idx].to_le_bytes())
-			)
-			.unwrap();
-		}
-
-		trace!("{}", out);
 	}
 
 	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {

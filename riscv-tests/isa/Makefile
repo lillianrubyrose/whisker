@@ -1,0 +1,114 @@
+#=======================================================================
+# Makefile for riscv-tests/isa
+#-----------------------------------------------------------------------
+
+XLEN ?= 64
+
+src_dir := .
+
+ifeq ($(XLEN),64)
+include $(src_dir)/rv64ui/Makefrag
+include $(src_dir)/rv64uc/Makefrag
+include $(src_dir)/rv64um/Makefrag
+include $(src_dir)/rv64ua/Makefrag
+include $(src_dir)/rv64uf/Makefrag
+include $(src_dir)/rv64ud/Makefrag
+include $(src_dir)/rv64uzfh/Makefrag
+include $(src_dir)/rv64uzba/Makefrag
+include $(src_dir)/rv64uzbb/Makefrag
+include $(src_dir)/rv64uzbc/Makefrag
+include $(src_dir)/rv64uzbs/Makefrag
+include $(src_dir)/rv64si/Makefrag
+include $(src_dir)/rv64ssvnapot/Makefrag
+include $(src_dir)/rv64mi/Makefrag
+include $(src_dir)/rv64mzicbo/Makefrag
+include $(src_dir)/hypervisor/Makefrag
+endif
+
+default: all
+
+#--------------------------------------------------------------------
+# Build rules
+#--------------------------------------------------------------------
+
+RISCV_PREFIX ?= riscv$(XLEN)-unknown-elf-
+RISCV_GCC ?= $(RISCV_PREFIX)gcc
+RISCV_GCC_OPTS ?= -mcmodel=medany -nostdlib -fno-stack-protector -ffreestanding -std=c23 --verbose
+RISCV_OBJDUMP ?= $(RISCV_PREFIX)objdump --disassemble-all --disassemble-zeroes --section=.text --section=.text.startup --section=.text.init --section=.data
+RISCV_OBJCOPY ?= $(RISCV_PREFIX)objcopy -O binary
+RISCV_SIM ?= spike
+
+vpath %.S $(src_dir)
+
+#------------------------------------------------------------
+# Build assembly tests
+
+%.bin: %
+	$(RISCV_OBJCOPY) $< $@
+
+%.dump: %
+	$(RISCV_OBJDUMP) $< > $@
+
+%.out: %
+	$(RISCV_SIM) --isa=rv64gch_zfh_zicboz_svnapot_zicntr_zba_zbb_zbc_zbs --misaligned $< 2> $@
+
+define compile_template
+
+$$($(1)_p_tests): $(1)-p-%: $(1)/%.S
+	$$(RISCV_GCC) $(2) $$(RISCV_GCC_OPTS) -I$(src_dir)/../env/p -I$(src_dir)/macros/scalar -T$(src_dir)/../env/p/link.ld $$< -o $$@
+$(1)_tests += $$($(1)_p_tests)
+
+$(1)_tests_dump = $$(addsuffix .dump, $$($(1)_tests))
+$(1)_tests_bin = $$(addsuffix .bin, $$($(1)_tests))
+
+$(1): $$($(1)_tests_dump)
+$(1): $$($(1)_tests_bin)
+
+.PHONY: $(1)
+
+COMPILER_SUPPORTS_$(1) := $$(shell $$(RISCV_GCC) $(2) -c -x c /dev/null -o /dev/null 2> /dev/null; echo $$$$?)
+
+ifeq ($$(COMPILER_SUPPORTS_$(1)),0)
+tests += $$($(1)_tests)
+endif
+
+endef
+
+ifeq ($(XLEN),64)
+$(eval $(call compile_template,rv64ui,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64uc,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64um,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64ua,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64uf,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64ud,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64uzfh,-march=rv64g_zfh -mabi=lp64d))
+$(eval $(call compile_template,rv64uzba,-march=rv64g_zba -mabi=lp64d))
+$(eval $(call compile_template,rv64uzbb,-march=rv64g_zbb -mabi=lp64d))
+$(eval $(call compile_template,rv64uzbc,-march=rv64g_zbc -mabi=lp64d))
+$(eval $(call compile_template,rv64uzbs,-march=rv64g_zbs -mabi=lp64d))
+$(eval $(call compile_template,rv64mzicbo,-march=rv64g_zicboz -mabi=lp64d))
+$(eval $(call compile_template,rv64si,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64ssvnapot,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,rv64mi,-march=rv64g -mabi=lp64d))
+$(eval $(call compile_template,hypervisor,-march=rv64gh -mabi=lp64d))
+endif
+
+tests_dump = $(addsuffix .dump, $(tests))
+tests_bin = $(addsuffix .bin, $(tests))
+tests_hex = $(addsuffix .hex, $(tests))
+tests_out = $(addsuffix .out, $(filter rv64%,$(tests)))
+
+run: $(tests_out)
+
+junk += $(tests) $(tests_dump) $(tests_bin) $(tests_hex) $(tests_out)
+
+#------------------------------------------------------------
+# Default
+
+all: $(tests_dump) $(tests_bin)
+
+#------------------------------------------------------------
+# Clean up
+
+clean:
+	rm -rf $(junk)

@@ -82,6 +82,15 @@
               pkgs.clang-tools
               pkgs.cmake
 
+              # riscv-tests
+              pkgs.autoconf
+              pkgs.python312
+              pkgs.python312Packages.pexpect
+              pkgs.python312Packages.pyyaml
+
+              # RV64 toolchain
+                #pkgsRiscv.glibc.static
+                #pkgsRiscv.glibc.dev
               pkgsRiscv.buildPackages.gcc
               pkgsRiscv.buildPackages.gdb
               pkgsRiscv.buildPackages.binutils
@@ -89,6 +98,7 @@
 
             shellHook = ''
               ${config.pre-commit.installationScript}
+              #export C_INCLUDE_PATH=${pkgsRiscv.glibc.dev}/include:$C_INCLUDE_PATH
             '';
           };
         };

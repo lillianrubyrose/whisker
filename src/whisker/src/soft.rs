@@ -1,4 +1,4 @@
-use crate::cpu::WhiskerCpu;
+use crate::cpu::{csr, WhiskerCpu};
 
 pub mod double;
 pub mod float;
@@ -105,9 +105,9 @@ impl RoundingMode {
 	}
 
 	/// This should NEVER be used outside of the `soft` module, hence marked as unsafe
-	pub unsafe fn write_thread_local(self, cpu: &WhiskerCpu) {
+	pub unsafe fn write_thread_local(self, cpu: &mut WhiskerCpu) {
 		let val = match self {
-			RoundingMode::Dynamic => (cpu.csrs.read_fcsr() & FCSR_ROUNDING_MODE_MASK >> 5) as u8,
+			RoundingMode::Dynamic => (cpu.read_csr_unchecked(csr::FCSR) & FCSR_ROUNDING_MODE_MASK >> 5) as u8,
 			rm => rm.to_sf_u8(),
 		};
 		unsafe {

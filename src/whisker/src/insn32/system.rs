@@ -1,3 +1,4 @@
+use crate::cpu::csr::CSRIndex;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{csr::CSRInstruction, int::IntInstruction, Instruction},
@@ -39,8 +40,9 @@ fn parse_call_break(itype: IType) -> IntInstruction {
 }
 
 // csr numbers are NOT sign extended
-fn imm_to_csr(imm: i64) -> u16 {
-	(imm & 0xFFF) as u16
+fn imm_to_csr(imm: i64) -> CSRIndex {
+	// UNWRAP: this mask makes sure that the value is in range
+	CSRIndex::new((imm & 0xFFF) as u16).unwrap()
 }
 
 fn parse_csr(itype: IType) -> CSRInstruction {
@@ -63,7 +65,7 @@ fn parse_csr(itype: IType) -> CSRInstruction {
 		},
 		funcs::CSRRWI => CSRInstruction::CSRReadWriteImm {
 			dst: itype.dst().to_gp(),
-			src: itype.src().as_usize() as u64,
+			imm: itype.src().as_usize() as u64,
 			csr: imm_to_csr(itype.imm()),
 		},
 		funcs::CSRRSI => CSRInstruction::CSRReadAndSetImm {

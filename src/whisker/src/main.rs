@@ -1,5 +1,4 @@
 mod cpu;
-mod csr;
 mod gdb;
 mod insn;
 mod insn16;

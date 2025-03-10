@@ -1,3 +1,4 @@
+use crate::cpu::csr::CSRIndex;
 use crate::insn::Instruction;
 use crate::ty::GPRegisterIndex;
 
@@ -6,32 +7,32 @@ pub enum CSRInstruction {
 	CSRReadWrite {
 		dst: GPRegisterIndex,
 		src: GPRegisterIndex,
-		csr: u16,
+		csr: CSRIndex,
 	},
 	CSRReadAndSet {
 		dst: GPRegisterIndex,
 		mask: GPRegisterIndex,
-		csr: u16,
+		csr: CSRIndex,
 	},
 	CSRReadAndClear {
 		dst: GPRegisterIndex,
 		mask: GPRegisterIndex,
-		csr: u16,
+		csr: CSRIndex,
 	},
 	CSRReadWriteImm {
 		dst: GPRegisterIndex,
-		src: u64,
-		csr: u16,
+		imm: u64,
+		csr: CSRIndex,
 	},
 	CSRReadAndSetImm {
 		dst: GPRegisterIndex,
 		mask: u64,
-		csr: u16,
+		csr: CSRIndex,
 	},
 	CSRReadAndClearImm {
 		dst: GPRegisterIndex,
 		mask: u64,
-		csr: u16,
+		csr: CSRIndex,
 	},
 }
 

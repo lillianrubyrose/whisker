@@ -124,8 +124,12 @@ define_csrs!(
     mvendorid, 0xF11, RO, Machine, 0,
     marchid,   0xF12, RO, Machine, 0,
     mimpid,    0xF13, RO, Machine, 0,
+    mhartid,   0xF14, RO, Machine, 0, // we only support hart0
 
-    mtvec,     0x305, RW, Machine, 0x4000_0000,
+    // machine trap setup
+    mtvec,     0x305, RW, Machine, 0,
+
+    // machine trap handling
     mepc,      0x341, RW, Machine,
     mcause,    0x342, RW, Machine,
     mtval,     0x343, RW, Machine,

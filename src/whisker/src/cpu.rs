@@ -98,8 +98,9 @@ impl WhiskerCpu {
 		log!(self, "cycle {}", self.cycles);
 
 		if self.should_trap {
-			log!(self, "  trapping");
-			return self.exec_trap();
+			self.exec_trap()?;
+			self.dump();
+			return Ok(());
 		}
 
 		// some instructions (particularly jumps) need the program counter at the start of the instruction
@@ -123,9 +124,7 @@ impl WhiskerCpu {
 					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn, start_pc),
 				}
 
-				log!(self, "state after cycle {}", self.cycles);
 				self.dump();
-
 				Ok(())
 			}
 			Err(()) => {
@@ -300,6 +299,7 @@ macro_rules! get_csr {
 			// FIXME: check privilege
 			Some(info) => info,
 			None => {
+				log!($self, "missing csr {:#05X}", $addr);
 				$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
 				return;
 			}
@@ -316,12 +316,14 @@ macro_rules! get_csr_mut {
 			// FIXME: check privilege
 			Some(info) => {
 				if !info.is_rw() {
+					log!($self, "csr {:#05X} cannot be written to", $addr);
 					$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
 					return;
 				}
 				info
 			}
 			None => {
+				log!($self, "missing csr {:#05X}", $addr);
 				$self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
 				return;
 			}
@@ -334,7 +336,7 @@ impl WhiskerCpu {
 		if let Some(mut f) = self.logfile.as_ref() {
 			// UNWRAPS: writing to string cannot fail
 
-			let mut out = String::new();
+			let mut out = format!("state after cycle {}\n", self.cycles);
 			writeln!(&mut out, "    pc: {:#018X}\n", self.pc).unwrap();
 			let regs = self.registers.regs();
 			for idx in 0..32 {
@@ -368,16 +370,16 @@ impl WhiskerCpu {
 	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
 		let cause = self.csrs.read_mcause();
 		let mtval = self.csrs.read_mtval();
-		trace!("executing trap mcause={cause:#018X} mtval={mtval:#018X}");
+		log!(self, "  executing trap mcause={cause:#018X} mtval={mtval:#018X}");
 		let mtvec = self.csrs.read_mtvec();
-		trace!("trap handler at {mtvec:#018X}");
+		log!(self, "  trap handler at {mtvec:#018X}");
 
-		let start_pc = self.pc;
+		let _start_pc = self.pc;
 		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
 		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
 		self.should_trap = false;
-		panic!("pc={:#08X}", start_pc);
+		Ok(())
 	}
 
 	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {

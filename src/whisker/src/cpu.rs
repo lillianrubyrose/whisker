@@ -49,7 +49,11 @@ pub struct WhiskerCpu {
 
 	pub csrs: ControlStatusRegisters,
 
+	/// the program counter for the currently executing instruction
 	pub pc: u64,
+	/// the value to set pc to at the end of processing the current cycle
+	next_pc: u64,
+
 	pub cycles: u64,
 	pub exec_state: WhiskerExecState,
 
@@ -89,6 +93,7 @@ impl WhiskerCpu {
 			csrs: ControlStatusRegisters::new(),
 
 			pc: 0,
+			next_pc: 0,
 			cycles: 0,
 			exec_state: WhiskerExecState::Paused,
 			breakpoints: HashSet::default(),
@@ -105,35 +110,32 @@ impl WhiskerCpu {
 			return Ok(());
 		}
 
-		// some instructions (particularly jumps) need the program counter at the start of the instruction
-		let start_pc = self.pc;
-
-		if self.breakpoints.contains(&start_pc) {
-			log!(self, "  reached breakpoint at {:#018X}", start_pc);
+		if self.breakpoints.contains(&self.pc) {
+			log!(self, "  reached breakpoint at {:#018X}", self.pc);
 			return Err(WhiskerExecStatus::HitBreakpoint);
 		}
 
 		match Instruction::fetch_instruction(self) {
 			Ok((inst, size)) => {
-				log!(self, "  {:#018X}: fetched {:?}", start_pc, inst);
-				self.pc = self.pc.wrapping_add(size);
+				log!(self, "  {:#018X}: fetched {:?}", self.pc, inst);
+				self.next_pc = self.pc.wrapping_add(size);
 				match inst {
-					Instruction::IntExtension(insn) => self.execute_i_insn(insn, start_pc),
-					Instruction::FloatExtension(insn) => self.execute_f_insn(insn, start_pc),
-					Instruction::Csr(insn) => self.exec_csr(insn, start_pc),
-					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn, start_pc),
-					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn, start_pc),
-					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn, start_pc),
+					Instruction::IntExtension(insn) => self.execute_i_insn(insn),
+					Instruction::FloatExtension(insn) => self.execute_f_insn(insn),
+					Instruction::Csr(insn) => self.exec_csr(insn),
+					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn),
+					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn),
+					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn),
 				}
 
 				self.dump();
-				Ok(())
 			}
-			Err(()) => {
-				// error during instruction decoding, trap was requested
-				Ok(())
-			}
+			// error during instruction decoding, trap was requested
+			Err(()) => {}
 		}
+
+		self.pc = self.next_pc;
+		Ok(())
 	}
 
 	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
@@ -335,7 +337,6 @@ impl WhiskerCpu {
 		let mtvec = self.read_csr_unchecked(csr::MTVEC);
 		log!(self, "  trap handler at {mtvec:#018X}");
 
-		let _start_pc = self.pc;
 		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
 		self.pc = mtvec;
 		// make it so that the next execution cycle of the cpu doesn't go here
@@ -343,13 +344,13 @@ impl WhiskerCpu {
 		Ok(())
 	}
 
-	fn execute_i_insn(&mut self, insn: IntInstruction, start_pc: u64) {
+	fn execute_i_insn(&mut self, insn: IntInstruction) {
 		match insn {
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val as u64);
 			}
 			IntInstruction::AddUpperImmediateToPc { dst, val } => {
-				self.registers.set(dst, start_pc.wrapping_add_signed(val));
+				self.registers.set(dst, self.pc.wrapping_add_signed(val));
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
@@ -416,8 +417,21 @@ impl WhiskerCpu {
 				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
-				self.registers.set(link_reg, start_pc + 4);
-				self.pc = start_pc.wrapping_add_signed(jmp_off);
+				// FIXME: this is not a static +4, it should be "the next instruction"
+				self.registers.set(link_reg, self.pc + 4);
+				// FIXME: if C extension is not enabled, check alignment
+				// note: jmp_off is aligned to 2 by nature of its construction during parsing
+				self.next_pc = self.pc.wrapping_add_signed(jmp_off);
+			}
+			IntInstruction::JumpAndLinkRegister {
+				link_reg,
+				jmp_reg,
+				jmp_off,
+			} => {
+				// FIXME: this is not a static +4, it should be "the next instruction"
+				self.registers.set(link_reg, self.pc + 4);
+				// FIXME: if C extension is not enabled, check alignment
+				self.next_pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
 			}
 			IntInstruction::Add { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
@@ -468,14 +482,6 @@ impl WhiskerCpu {
 				let lhs = self.registers.get(lhs);
 				let rhs = self.registers.get(rhs);
 				self.registers.set(dst, (lhs < rhs) as u64);
-			}
-			IntInstruction::JumpAndLinkRegister {
-				link_reg,
-				jmp_reg,
-				jmp_off,
-			} => {
-				self.registers.set(link_reg, start_pc + 4);
-				self.pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
 			}
 
 			IntInstruction::AddImmediate { dst, lhs, rhs } => {
@@ -539,32 +545,37 @@ impl WhiskerCpu {
 			// ============
 			IntInstruction::BranchEqual { lhs, rhs, imm } => {
 				if self.registers.get(lhs) == self.registers.get(rhs) {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchNotEqual { lhs, rhs, imm } => {
 				if self.registers.get(lhs) != self.registers.get(rhs) {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					// FIXME: if C extension is not enabled, check alignment
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThan { lhs, rhs, imm } => {
 				if (self.registers.get(lhs) as i64) < self.registers.get(rhs) as i64 {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					// FIXME: if C extension is not enabled, check alignment
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqual { lhs, rhs, imm } => {
 				if (self.registers.get(lhs) as i64) >= self.registers.get(rhs) as i64 {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					// FIXME: if C extension is not enabled, check alignment
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThanUnsigned { lhs, rhs, imm } => {
 				if self.registers.get(lhs) < self.registers.get(rhs) {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					// FIXME: if C extension is not enabled, check alignment
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqualUnsigned { lhs, rhs, imm } => {
 				if self.registers.get(lhs) >= self.registers.get(rhs) {
-					self.pc = start_pc.wrapping_add_signed(imm);
+					// FIXME: if C extension is not enabled, check alignment
+					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 
@@ -615,7 +626,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn execute_f_insn(&mut self, insn: FloatInstruction, _start_pc: u64) {
+	fn execute_f_insn(&mut self, insn: FloatInstruction) {
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
@@ -748,7 +759,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_csr(&mut self, insn: CSRInstruction, _start_pc: u64) {
+	fn exec_csr(&mut self, insn: CSRInstruction) {
 		// FIXME: ordering of effects on registers and traps???
 		match insn {
 			CSRInstruction::CSRReadWrite { dst, src, csr } => {
@@ -845,7 +856,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_compressed_insn(&mut self, insn: CompressedInstruction, _start_pc: u64) {
+	fn exec_compressed_insn(&mut self, insn: CompressedInstruction) {
 		match insn {
 			// this nop is special in that it's designated as an explicit NOP for future standard use
 			// so it cannot be combined into an integer instruction
@@ -853,7 +864,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_atomic_insn(&mut self, insn: AtomicInstruction, _start_pc: u64) {
+	fn exec_atomic_insn(&mut self, insn: AtomicInstruction) {
 		// TODO: For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic and other things we do-
 		// not currently implement.
 		const HART_ID: usize = 0;
@@ -1282,7 +1293,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_multiply_insn(&mut self, insn: MultiplyInstruction, _start_pc: u64) {
+	fn exec_multiply_insn(&mut self, insn: MultiplyInstruction) {
 		match insn {
 			MultiplyInstruction::Multiply { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs);

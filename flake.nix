@@ -41,7 +41,12 @@
       }: let
         overlays = [fenix.overlays.default];
         pkgs = import nixpkgs {inherit system overlays;};
-        pkgsRiscv = (import nixpkgs {inherit system;}).pkgsCross.riscv64;
+        pkgsRiscv = import nixpkgs {
+          localSystem = "${system}";
+          crossSystem = {
+            config = "riscv64-elf";
+          };
+        };
         rust-toolchain = (fenix.packages.${system}.fromToolchainName { name = (lib.importTOML ./rust-toolchain.toml).toolchain.channel; sha256 = "sha256-LpkTSfBZY2eJP74wAUUkutiVF6y8m7oUV0ho2SS0W08="; });
         pre-commit-hooks = inputs.pre-commit-hooks.lib.${system};
         craneLib = crane.mkLib pkgs;
@@ -82,10 +87,18 @@
               pkgs.clang-tools
               pkgs.cmake
 
+              # riscv-tests
+              pkgs.autoconf
+              pkgs.python312
+              pkgs.python312Packages.pexpect
+              pkgs.python312Packages.pyyaml
+
               pkgsRiscv.buildPackages.gcc
               pkgsRiscv.buildPackages.gdb
               pkgsRiscv.buildPackages.binutils
             ];
+
+            hardeningDisable = [ "relro" "bindnow" ];
 
             shellHook = ''
               ${config.pre-commit.installationScript}

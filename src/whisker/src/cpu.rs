@@ -763,93 +763,94 @@ impl WhiskerCpu {
 		// FIXME: ordering of effects on registers and traps???
 		match insn {
 			CSRInstruction::CSRReadWrite { dst, src, csr } => {
-				if !self.csr_require_rw(csr) {
+				let Some(token) = self.csr_require_rw(csr) else {
 					return;
-				}
+				};
 				// reads dont happen when dst is zero
 				if dst != GPRegisterIndex::ZERO {
-					let val = self.read_csr(csr).unwrap();
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
 				let new_val = self.registers.get(src);
-				self.write_csr(csr, new_val).unwrap();
+				self.write_csr(&token, new_val);
 			}
 			CSRInstruction::CSRReadAndSet { dst, mask, csr } => {
 				// we must not check for writability if the mask register is x0
 				if mask != GPRegisterIndex::ZERO {
-					if !self.csr_require_rw(csr) {
+					let Some(token) = self.csr_require_rw(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
-					self.write_csr(csr, val | self.registers.get(mask)).unwrap();
+					self.write_csr(&token, val | self.registers.get(mask));
 				} else {
-					if !self.csr_require_ro(csr) {
+					let Some(token) = self.csr_require_ro(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
 			}
 			CSRInstruction::CSRReadAndClear { dst, mask, csr } => {
 				// we must not check for writability if the mask register is x0
 				if mask != GPRegisterIndex::ZERO {
-					if !self.csr_require_rw(csr) {
+					let Some(token) = self.csr_require_rw(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
-					self.write_csr(csr, val & self.registers.get(mask)).unwrap();
+					self.write_csr(&token, val & self.registers.get(mask));
 				} else {
-					if !self.csr_require_ro(csr) {
+					let Some(token) = self.csr_require_ro(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
 			}
-			CSRInstruction::CSRReadWriteImm { dst, imm: src, csr } => {
-				if !self.csr_require_rw(csr) {
+			CSRInstruction::CSRReadWriteImm { dst, imm, csr } => {
+				let Some(token) = self.csr_require_rw(csr) else {
 					return;
-				}
+				};
 				// reads dont happen when dst is zero
 				if dst != GPRegisterIndex::ZERO {
-					let val = self.read_csr(csr).unwrap();
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
-				self.write_csr(csr, src).unwrap();
+				self.write_csr(&token, imm);
 			}
 			CSRInstruction::CSRReadAndSetImm { dst, mask, csr } => {
 				// we must not check for writability if the mask is 0
 				if mask != 0 {
-					if !self.csr_require_rw(csr) {
+					let Some(token) = self.csr_require_rw(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
-					self.write_csr(csr, val | mask).unwrap();
+					self.write_csr(&token, val | mask);
 				} else {
-					if !self.csr_require_ro(csr) {
+					let Some(token) = self.csr_require_ro(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
 			}
 			CSRInstruction::CSRReadAndClearImm { dst, mask, csr } => {
 				// we must not check for writability if the mask is 0
 				if mask != 0 {
-					if !self.csr_require_rw(csr) {
+					let Some(token) = self.csr_require_rw(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
-					self.write_csr(csr, val & mask).unwrap();
+					self.write_csr(&token, val & mask);
 				} else {
-					if !self.csr_require_ro(csr) {
+					let Some(token) = self.csr_require_ro(csr) else {
 						return;
-					}
-					let val = self.read_csr(csr).unwrap();
+					};
+					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
 			}

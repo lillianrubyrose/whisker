@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::ops::Deref;
 
 use crate::cpu::WhiskerCpu;
 use crate::ty::TrapIdx;
@@ -65,12 +66,18 @@ define_csrs!(
 const NUM_CSRS: u16 = 4096;
 
 /// INVARIANT: holds a valid CSR index (0..NUM_CSRS)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CSRIndex(u16);
 
 impl CSRIndex {
 	pub fn new(addr: u16) -> Option<Self> {
 		(addr < NUM_CSRS).then_some(Self(addr))
+	}
+}
+
+impl Debug for CSRIndex {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:#05X}", self.0)
 	}
 }
 
@@ -82,55 +89,50 @@ pub struct ControlStatusRegisters {
 // NOTE: this is on the CPU not CSRs because operations on CSRs may affect cpu state
 impl WhiskerCpu {
 	#[must_use]
-	pub fn csr_require_ro(&mut self, csr: CSRIndex) -> bool {
+	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Option<CSRReadToken> {
 		// all csrs that exist are considered readable
-		if self.csrs.regs.get(&csr).is_some() {
-			true
+		if self.csrs.regs.get(&idx).is_some() {
+			Some(CSRReadToken { idx })
 		} else {
 			self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-			false
+			None
 		}
 	}
 
 	#[must_use]
-	pub fn csr_require_rw(&mut self, csr: CSRIndex) -> bool {
-		if self.csrs.regs.get(&csr).is_some_and(|info| info.is_rw()) {
-			true
+	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Option<CSRReadWriteToken> {
+		if self.csrs.regs.get(&idx).is_some_and(|info| info.is_rw()) {
+			Some(CSRReadWriteToken {
+				inner: CSRReadToken { idx },
+			})
 		} else {
 			self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-			false
+			None
 		}
 	}
 
-	pub fn read_csr(&mut self, csr: CSRIndex) -> Result<u64, ()> {
-		match csr {
-			// registers that need no special handling, or missing registers
-			_ => match self.csrs.regs.get(&csr) {
-				Some(info) => Ok(info.val),
-				None => {
-					// FIXME: right now we unwrap this because of the csr_require_* family
-					// its weird
-					// this should probably be the code path that requests the trap
-					Err(())
-				}
+	pub fn read_csr(&mut self, token: &CSRReadToken) -> u64 {
+		let idx = token.idx;
+		match idx {
+			// registers that need no special handling
+			_ => match self.csrs.regs.get(&idx) {
+				Some(info) => info.val,
+				// the token ensures the CSR exists
+				None => unreachable!(),
 			},
 		}
 	}
 
-	pub fn write_csr(&mut self, csr: CSRIndex, val: u64) -> Result<(), ()> {
-		match csr {
+	pub fn write_csr(&mut self, token: &CSRReadWriteToken, val: u64) {
+		let idx = token.idx;
+		match idx {
 			// registers that need no special handling, or missing registers
-			_ => match self.csrs.regs.get_mut(&csr) {
+			_ => match self.csrs.regs.get_mut(&idx) {
 				Some(info) => {
 					info.val = val;
-					Ok(())
 				}
-				None => {
-					// FIXME: right now we unwrap this because of the csr_require_* family
-					// its weird
-					// this should probably be the code path that requests the trap
-					Err(())
-				}
+				// the token ensures that the CSR exists
+				None => unreachable!(),
 			},
 		}
 	}
@@ -203,4 +205,21 @@ pub enum CSRPrivilege {
 	#[expect(unused, reason = "H mode not implemented")]
 	Hypervisor = 0b10,
 	Machine = 0b11,
+}
+
+pub struct CSRReadToken {
+	idx: CSRIndex,
+}
+
+pub struct CSRReadWriteToken {
+	/// used so that a readwrite token can be used as a read token
+	inner: CSRReadToken,
+}
+
+impl Deref for CSRReadWriteToken {
+	type Target = CSRReadToken;
+
+	fn deref(&self) -> &Self::Target {
+		&self.inner
+	}
 }

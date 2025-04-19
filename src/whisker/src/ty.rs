@@ -158,6 +158,8 @@ impl Debug for FPRegisterIndex {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// INVARIANT: holds a bit pattern compatible with the MISA register
+/// (see: Privileged ISA manual section 3.1.1 table 10)
 pub struct SupportedExtensions(u64);
 
 #[expect(unused, reason = "several of these extensions are reserved in the ISA")]
@@ -205,6 +207,10 @@ impl SupportedExtensions {
 	pub const fn remove(&mut self, other: Self) -> &mut Self {
 		self.0 &= !other.0;
 		self
+	}
+
+	pub const fn inner(&self) -> u64 {
+		self.0
 	}
 }
 
@@ -258,7 +264,20 @@ pub struct TrapIdx(u64);
 
 #[allow(unused)]
 impl TrapIdx {
-	pub fn kind(&self) -> TrapKind {
+	/// creates an exception trap number with a specified code
+	pub const fn exception(code: u64) -> Self {
+		debug_assert!(code & Self::INTERRUPT_MASK == 0);
+		Self(code)
+	}
+
+	/// creates an interrupt trap number with a specified code
+	/// the interrupt bit MUST NOT be set on input to this function
+	pub const fn interrupt(code: u64) -> Self {
+		debug_assert!(code & Self::INTERRUPT_MASK == 0);
+		Self(Self::INTERRUPT_MASK | code)
+	}
+
+	pub const fn kind(&self) -> TrapKind {
 		if self.0 & Self::INTERRUPT_MASK != 0 {
 			TrapKind::Interrupt
 		} else {
@@ -266,11 +285,11 @@ impl TrapIdx {
 		}
 	}
 
-	pub fn code(&self) -> u64 {
-		self.0 & Self::CODE_MASK
+	pub const fn cause(&self) -> u64 {
+		self.0 & Self::CAUSE_MASK
 	}
 
-	pub fn inner(&self) -> u64 {
+	pub const fn inner(&self) -> u64 {
 		self.0
 	}
 }
@@ -278,24 +297,28 @@ impl TrapIdx {
 #[allow(unused)]
 impl TrapIdx {
 	pub const INTERRUPT_MASK: u64 = 0x80000000_00000000;
-	pub const CODE_MASK: u64 = 0x7FFFFFFF_FFFFFFFF;
+	pub const CAUSE_MASK: u64 = 0x7FFFFFFF_FFFFFFFF;
 
-	pub const INSTRUCTION_ADDR_MISALIGNED: Self = Self(0);
-	pub const INSTRUCTION_ACCESS_FAULT: Self = Self(1);
-	pub const ILLEGAL_INSTRUCTION: Self = Self(2);
-	pub const BREAKPOINT: Self = Self(3);
-	pub const LOAD_ADDR_MISALIGNED: Self = Self(4);
-	pub const STORE_ADDR_MISALIGNED: Self = Self(5);
-	pub const STORE_ACCESS_FAULT: Self = Self(6);
-	pub const ECALL_UMODE: Self = Self(7);
-	pub const ECALL_SMODE: Self = Self(8);
-	pub const ECALL_MMODE: Self = Self(10);
-	pub const INSTRUCTION_PAGE_FAULT: Self = Self(12);
-	pub const LOAD_PAGE_FAULT: Self = Self(13);
-	pub const STORE_PAGE_FAULT: Self = Self(15);
-	pub const SOFTWARE_CHECK: Self = Self(18);
-	pub const HARDWARE_CHECK: Self = Self(19);
-	pub const MEOW_ERR: Self = Self(31);
+	pub const INSTRUCTION_ADDR_MISALIGNED: Self = Self::exception(0);
+	pub const INSTRUCTION_ACCESS_FAULT: Self = Self::exception(1);
+	pub const ILLEGAL_INSTRUCTION: Self = Self::exception(2);
+	pub const BREAKPOINT: Self = Self::exception(3);
+	pub const LOAD_ADDR_MISALIGNED: Self = Self::exception(4);
+	pub const STORE_ADDR_MISALIGNED: Self = Self::exception(5);
+	pub const STORE_ACCESS_FAULT: Self = Self::exception(6);
+	pub const ECALL_UMODE: Self = Self::exception(7);
+	pub const ECALL_SMODE: Self = Self::exception(8);
+	pub const ECALL_MMODE: Self = Self::exception(10);
+	pub const INSTRUCTION_PAGE_FAULT: Self = Self::exception(12);
+	pub const LOAD_PAGE_FAULT: Self = Self::exception(13);
+	pub const STORE_PAGE_FAULT: Self = Self::exception(15);
+	pub const SOFTWARE_CHECK: Self = Self::exception(18);
+	pub const HARDWARE_CHECK: Self = Self::exception(19);
+	pub const MEOW_ERR: Self = Self::exception(31);
+
+	pub const MACHINE_SOFTWARE_INTERRUPT: Self = Self::interrupt(3);
+	pub const MACHINE_TIMER_INTERRUPT: Self = Self::interrupt(7);
+	pub const MACHINE_EXTERNAL_INTERRUPT: Self = Self::interrupt(11);
 }
 
 /// these exist to allow the generic RegisterIndex to derive things without needing the underlying register

@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use tracing::error;
+
 use crate::cpu::WhiskerCpu;
 use crate::ty::TrapIdx;
 
 macro_rules! define_csrs {
-    ($($name:ident, $addr:literal, $rw:ident, $priv:ident $(, $init:literal)?),*$(,)*) => {
+    ($($name:ident, $addr:literal, $rw:ident, $priv:ident $(= $init:expr)? ),*$(,)*) => {
 		paste::paste! {
 			$(
             #[allow(dead_code)]
@@ -47,21 +49,31 @@ const RO: bool = false;
 
 #[rustfmt::skip]
 define_csrs!(
-    mvendorid, 0xF11, RO, Machine, 0,
-    marchid,   0xF12, RO, Machine, 0,
-    mimpid,    0xF13, RO, Machine, 0,
-    mhartid,   0xF14, RO, Machine, 0, // we only support hart0
+    mvendorid, 0xF11, RO, Machine = 0,
+    marchid,   0xF12, RO, Machine = 0,
+    mimpid,    0xF13, RO, Machine = 0,
+    mhartid,   0xF14, RO, Machine = 0, // we only support hart0
 
     // machine trap setup
-    mtvec,     0x305, RW, Machine, 0,
+    mstatus,   0x300, RW, Machine = 0, // by default interrupts are disabled
+    misa,      0x301, RW, Machine,
+    // 0x302 and 0x303 MEDELEG and MIDELEG should not exist because S-mode is not implemented
+    mie,       0x304, RW, Machine = 0, // by default all interrupt causes are disabled
+    mtvec,     0x305, RW, Machine = 0,
 
     // machine trap handling
     mepc,      0x341, RW, Machine,
     mcause,    0x342, RW, Machine,
     mtval,     0x343, RW, Machine,
+    mip,       0x344, RW, Machine,
 
     fcsr,      0x003, RW, User,
 );
+
+pub mod mstatus {
+	pub const MIE: u64 = 1 << 3;
+	pub const MPIE: u64 = 1 << 7;
+}
 
 const NUM_CSRS: u16 = 4096;
 
@@ -114,6 +126,8 @@ impl WhiskerCpu {
 	pub fn read_csr(&mut self, token: &CSRReadToken) -> u64 {
 		let idx = token.idx;
 		match idx {
+			// MISA must always match the current cpu extension state
+			MISA => self.read_misa(),
 			// registers that need no special handling
 			_ => match self.csrs.regs.get(&idx) {
 				Some(info) => info.val,
@@ -126,6 +140,11 @@ impl WhiskerCpu {
 	pub fn write_csr(&mut self, token: &CSRReadWriteToken, val: u64) {
 		let idx = token.idx;
 		match idx {
+			MSTATUS => self.write_mstatus(val),
+			// we do not support modifying MISA so writes must be ignored
+			MISA => (),
+			MIE => self.write_mie(val),
+			MIP => self.write_mip(val),
 			// registers that need no special handling, or missing registers
 			_ => match self.csrs.regs.get_mut(&idx) {
 				Some(info) => {
@@ -151,6 +170,40 @@ impl WhiskerCpu {
 	#[cfg_attr(debug_assertions, track_caller)] // provides better panic location info on misuse
 	pub fn write_csr_unchecked(&mut self, csr: CSRIndex, val: u64) {
 		self.csrs.regs.get_mut(&csr).unwrap().val = val;
+	}
+}
+
+/// special CSRs that need to ignore fields or have side effects
+impl WhiskerCpu {
+	fn write_mstatus(&mut self, val: u64) {
+		// we only implement MIE and MPIE
+		// all other bits are read-only 0
+		// FIXME: VS, FS, XS, SD
+		const MSTATUS_WRITE_MASK: u64 = 1 << 3 | 1 << 7;
+		error!("not yet implemented: side effects for MSTATUS");
+		self.write_csr_unchecked(MSTATUS, val & MSTATUS_WRITE_MASK);
+	}
+
+	fn read_misa(&self) -> u64 {
+		// 64 bit XLEN
+		2 << 62 | self.supported_extensions.inner()
+	}
+
+	fn write_mie(&mut self, val: u64) {
+		// machine software, machine timer, and machine external interrupts
+		const INTERRUPT_ENABLE_BITS: u64 = 1 << 3 | 1 << 7 | 1 << 11;
+		self.write_csr_unchecked(MIE, val & INTERRUPT_ENABLE_BITS);
+		self.check_interrupt_trap();
+	}
+
+	fn write_mip(&mut self, val: u64) {
+		// machine software, machine timer, and machine external interrupts all use other mechanisms
+		// to become pending.
+		// this function therefore does not write to MIP, but exists so that future implemented
+		// interrupts might be able to use it.
+		const INTERRUPT_PENDING_BITS: u64 = 0;
+		self.write_csr_unchecked(MIP, val & INTERRUPT_PENDING_BITS);
+		self.check_interrupt_trap();
 	}
 }
 

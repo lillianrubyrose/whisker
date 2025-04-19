@@ -20,7 +20,7 @@ use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
-use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx};
+use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx, TrapKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
@@ -104,6 +104,14 @@ impl WhiskerCpu {
 		self.cycles += 1;
 		log!(self, "cycle {}", self.cycles);
 
+		self.check_interrupt_trap();
+
+		// DEBUG: send timer interrupts occasionally
+		//if self.cycles > 1024 && self.cycles % 150 == 0 {
+		//	self.request_trap(TrapIdx::MACHINE_TIMER_INTERRUPT, 0);
+		//	return Ok(());
+		//}
+
 		if self.should_trap {
 			self.exec_trap()?;
 			self.dump();
@@ -145,9 +153,87 @@ impl WhiskerCpu {
 			trap.inner(),
 			mtval,
 		);
+
+		// interrupts can be disabled or enabled by status bits
+		if let TrapKind::Interrupt = trap.kind() {
+			let status = self.read_csr_unchecked(csr::MSTATUS);
+			if status & csr::mstatus::MIE == 0 {
+				log!(
+					self,
+					"  skipped trap cause {:#018X}: machine interrupts were disabled",
+					trap.inner()
+				);
+				return;
+			}
+
+			let mie = self.read_csr_unchecked(csr::MIE);
+			if mie & (1 << trap.cause()) == 0 {
+				log!(
+					self,
+					"  skipped interrupt cause {:#018X}: cause disabled in MIE CSR",
+					trap.inner()
+				);
+				return;
+			}
+
+			let mip = self.read_csr_unchecked(csr::MIP);
+			if mip & (1 << trap.cause()) == 0 {
+				log!(
+					self,
+					"  skipped interrupt cause {:#018X}: cause not pending in MIP CSR",
+					trap.inner()
+				);
+				return;
+			}
+		}
+
 		self.write_csr_unchecked(csr::MCAUSE, trap.inner());
 		self.write_csr_unchecked(csr::MTVAL, mtval);
 		self.should_trap = true;
+	}
+
+	/// checks whether the CPU should trap due to an interrupt
+	pub fn check_interrupt_trap(&mut self) {
+		log!(self, "checking interrupts");
+		let mstatus = self.read_csr_unchecked(csr::MSTATUS);
+		if mstatus & csr::mstatus::MIE == 0 {
+			log!(self, "  interrupts globally disabled");
+			return;
+		}
+		// NOTE: mideleg CSR does not exist, so we do not need to check it
+
+		let mip = self.read_csr_unchecked(csr::MIP);
+		let mie = self.read_csr_unchecked(csr::MIE);
+		let to_trap = mip & mie;
+		log!(self, " enabled and pending: {:#018X}", to_trap);
+		if to_trap == 0 {
+			return;
+		}
+
+		// this subtraction cannot overflow because we know at least one bit is set
+		let highest_bit = 63 - to_trap.leading_zeros();
+		// implementation specific interrupts have priority from most significant bit to least
+		if highest_bit >= 16 {
+			self.request_trap(TrapIdx::interrupt(highest_bit as u64), 0);
+			return;
+		}
+
+		// standard interrupts have priority:
+		// external interrupt
+		// software interrupt
+		// timer interrupt
+		const EXTERNAL_INTERRUPT_MASK: u64 = 1 << 11;
+		const SOFTWARE_INTERRUPT_MASK: u64 = 1 << 3;
+		const TIMER_INTERRUPT_MASK: u64 = 1 << 7;
+		if to_trap & EXTERNAL_INTERRUPT_MASK != 0 {
+			self.request_trap(TrapIdx::MACHINE_EXTERNAL_INTERRUPT, 0);
+		} else if to_trap & SOFTWARE_INTERRUPT_MASK != 0 {
+			self.request_trap(TrapIdx::MACHINE_SOFTWARE_INTERRUPT, 0);
+		} else if to_trap & TIMER_INTERRUPT_MASK != 0 {
+			self.request_trap(TrapIdx::MACHINE_EXTERNAL_INTERRUPT, 0);
+		} else {
+			error!("unsupported trap bits {:#018X}", to_trap);
+		}
 	}
 
 	/// If this routine returns [None] then there's incoming GDB data

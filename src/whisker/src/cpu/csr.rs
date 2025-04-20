@@ -55,7 +55,8 @@ define_csrs!(
     mhartid,   0xF14, RO, Machine = 0, // we only support hart0
 
     // machine trap setup
-    mstatus,   0x300, RW, Machine = 0, // by default interrupts are disabled
+    // MIE set to 0, MPP set to M mode
+    mstatus,   0x300, RW, Machine = 0b11 << 11,
     misa,      0x301, RW, Machine,
     // 0x302 and 0x303 MEDELEG and MIDELEG should not exist because S-mode is not implemented
     mie,       0x304, RW, Machine = 0, // by default all interrupt causes are disabled
@@ -71,6 +72,11 @@ define_csrs!(
 );
 
 pub mod mstatus {
+	pub const MIE_BIT: u8 = 3;
+	pub const MPIE_BIT: u8 = 7;
+	pub const MPP_START: u8 = 11;
+	pub const MPP_END: u8 = 12;
+
 	pub const MIE: u64 = 1 << 3;
 	pub const MPIE: u64 = 1 << 7;
 }
@@ -176,12 +182,14 @@ impl WhiskerCpu {
 /// special CSRs that need to ignore fields or have side effects
 impl WhiskerCpu {
 	fn write_mstatus(&mut self, val: u64) {
-		// we only implement MIE and MPIE
+		// we only implement MIE, MPIE, and MPP
 		// all other bits are read-only 0
-		// FIXME: VS, FS, XS, SD
+		// however MPP is read-only 0b11
+		// FIXME: VS, FS, XS, SD?
 		const MSTATUS_WRITE_MASK: u64 = 1 << 3 | 1 << 7;
+		const MSTATUS_WRITE_FORCED: u64 = 0b11 << 11;
 		error!("not yet implemented: side effects for MSTATUS");
-		self.write_csr_unchecked(MSTATUS, val & MSTATUS_WRITE_MASK);
+		self.write_csr_unchecked(MSTATUS, val & MSTATUS_WRITE_MASK | MSTATUS_WRITE_FORCED);
 	}
 
 	fn read_misa(&self) -> u64 {

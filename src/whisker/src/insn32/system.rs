@@ -1,4 +1,5 @@
 use crate::cpu::csr::CSRIndex;
+use crate::insn::privileged::PrivilegedInstruction;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{csr::CSRInstruction, int::IntInstruction, Instruction},
@@ -11,9 +12,15 @@ pub fn parse_system(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()
 
 	let itype = IType::parse(parcel);
 	match itype.func() {
-		funcs::E_CALL_BREAK => {
+		funcs::FUNC_0 => {
 			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				Ok(parse_call_break(itype).into())
+				match parse_func_0(itype) {
+					Some(inst) => Ok(inst),
+					None => {
+						cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+						Err(())
+					}
+				}
 			} else {
 				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
 				Err(())
@@ -28,14 +35,19 @@ pub fn parse_system(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()
 	}
 }
 
-fn parse_call_break(itype: IType) -> IntInstruction {
+fn parse_func_0(itype: IType) -> Option<Instruction> {
+	use consts::*;
 	match (itype.dst().to_gp().as_usize(), itype.src().to_gp().as_usize()) {
 		(0, 0) => match itype.imm() {
-			0b000000000000 => IntInstruction::ECall,
-			0b000000000001 => IntInstruction::EBreak,
+			func0::ECALL => Some(IntInstruction::ECall.into()),
+			func0::EBREAK => Some(IntInstruction::EBreak.into()),
+			func0::MRET => Some(PrivilegedInstruction::Mret.into()),
 			imm => unimplemented!("SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}"),
 		},
-		(rd, rs1) => unimplemented!("SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b}"),
+		(rd, rs1) => unimplemented!(
+			"SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b} imm={imm:#014b}",
+			imm = itype.imm()
+		),
 	}
 }
 
@@ -84,12 +96,18 @@ fn parse_csr(itype: IType) -> CSRInstruction {
 
 pub mod consts {
 	pub mod funcs {
-		pub const E_CALL_BREAK: u8 = 0b000;
+		pub const FUNC_0: u8 = 0b000;
 		pub const CSRRW: u8 = 0b001;
 		pub const CSRRS: u8 = 0b010;
 		pub const CSRRC: u8 = 0b011;
 		pub const CSRRWI: u8 = 0b101;
 		pub const CSRRSI: u8 = 0b110;
 		pub const CSRRCI: u8 = 0b111;
+	}
+
+	pub mod func0 {
+		pub const ECALL: i64 = 0;
+		pub const EBREAK: i64 = 1;
+		pub const MRET: i64 = 0b001100000010;
 	}
 }

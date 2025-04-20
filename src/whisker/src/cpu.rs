@@ -16,11 +16,13 @@ use crate::insn::csr::CSRInstruction;
 use crate::insn::float::FloatInstruction;
 use crate::insn::int::IntInstruction;
 use crate::insn::multiply::MultiplyInstruction;
+use crate::insn::privileged::PrivilegedInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
 use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx, TrapKind};
+use crate::util::{extract_bits_64, insert_bits_64};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
@@ -134,15 +136,15 @@ impl WhiskerCpu {
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn),
 					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn),
 					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn),
+					Instruction::PrivilegedInstruction(insn) => self.exec_privileged_insn(insn),
 				}
-
-				self.dump();
 			}
 			// error during instruction decoding, trap was requested
 			Err(()) => {}
 		}
 
 		self.pc = self.next_pc;
+		self.dump();
 		Ok(())
 	}
 
@@ -1520,6 +1522,24 @@ impl WhiskerCpu {
 				let result = if rhs == 0 { lhs } else { lhs.wrapping_rem(rhs) };
 
 				self.registers.set(dst, result as u64);
+			}
+		}
+	}
+
+	fn exec_privileged_insn(&mut self, insn: PrivilegedInstruction) {
+		match insn {
+			PrivilegedInstruction::Mret => {
+				let status = self.read_csr_unchecked(csr::MSTATUS);
+				let mpie = extract_bits_64(status, csr::mstatus::MPIE_BIT, csr::mstatus::MPIE_BIT);
+				let new_priv = extract_bits_64(status, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
+				assert_eq!(new_priv, 0b11, "only M mode is supported");
+
+				// set MIE to MPIE, MPIE to 1, and MPP to 0b11
+				let status = insert_bits_64(status, mpie, csr::mstatus::MIE_BIT, csr::mstatus::MIE_BIT);
+				let status = insert_bits_64(status, 1, csr::mstatus::MPIE_BIT, csr::mstatus::MPIE_BIT);
+				let status = insert_bits_64(status, 0b11, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
+
+				self.write_csr_unchecked(csr::MSTATUS, status);
 			}
 		}
 	}

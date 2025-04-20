@@ -4,12 +4,15 @@ pub mod csr;
 pub mod float;
 pub mod int;
 pub mod multiply;
+pub mod privileged;
 
 use atomic::AtomicInstruction;
 use compressed::CompressedInstruction;
 use float::FloatInstruction;
 use int::IntInstruction;
 use multiply::MultiplyInstruction;
+use privileged::PrivilegedInstruction;
+use tracing::warn;
 
 use crate::insn::csr::CSRInstruction;
 use crate::ty::{SupportedExtensions, TrapIdx};
@@ -24,6 +27,7 @@ pub enum Instruction {
 	CompressedExtension(CompressedInstruction),
 	AtomicExtension(AtomicInstruction),
 	MultiplyInstruction(MultiplyInstruction),
+	PrivilegedInstruction(PrivilegedInstruction),
 }
 
 impl Instruction {
@@ -35,6 +39,7 @@ impl Instruction {
 		let parcel1 = match cpu.mem.read_u16(pc) {
 			Ok(parcel1) => parcel1,
 			Err(addr) => {
+				warn!("could not read start of instruction from {:#018X}", pc);
 				cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 				return Err(());
 			}
@@ -45,6 +50,7 @@ impl Instruction {
 				let insn = insn16::parse(cpu, parcel1)?;
 				Ok((insn.into(), 2))
 			} else {
+				warn!("tried to execute compressed instruction at {:#018X}", pc);
 				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
 				Err(())
 			}
@@ -52,6 +58,7 @@ impl Instruction {
 			let full_parcel = match cpu.mem.read_u32(pc) {
 				Ok(p) => p,
 				Err(addr) => {
+					warn!("could not read u32 instruction from {:#018X}", pc);
 					cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 					return Err(());
 				}

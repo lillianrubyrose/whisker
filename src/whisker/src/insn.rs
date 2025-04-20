@@ -45,6 +45,16 @@ impl Instruction {
 			}
 		};
 
+		// all encodings with the low 16 bits all 0s are invalid.
+		// NOTE: the length of an all-zeros instruction is considered
+		// to be the length of the smallest supported instruction
+		// FIXME: currently we believe this does not matter?
+		if parcel1 == 0 {
+			warn!("tried to execute all 0 instruction at {:#018X}", pc);
+			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+			return Err(());
+		}
+
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
 				let insn = insn16::parse(cpu, parcel1)?;

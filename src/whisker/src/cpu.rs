@@ -701,6 +701,10 @@ impl WhiskerCpu {
 				self.registers.set(dst, result as i64 as u64);
 			}
 
+			IntInstruction::Fence { .. } => {
+				// we don't do reordering, fence is a no-op
+			}
+
 			// =========
 			// SYSTEM
 			// =========

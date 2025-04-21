@@ -249,6 +249,10 @@ pub enum IntInstruction {
 		dst: GPRegisterIndex,
 	},
 
+	Fence {
+		// FIXME: implemnt fence maybe?
+	},
+
 	// =========
 	// SYSTEM
 	// =========

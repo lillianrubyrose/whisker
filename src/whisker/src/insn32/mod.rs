@@ -6,6 +6,7 @@ pub mod jalr;
 pub mod load;
 pub mod load_fp;
 pub mod madd;
+pub mod misc_mem;
 pub mod multiply;
 pub mod op;
 pub mod op_32;
@@ -32,7 +33,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		LOAD => load::parse_load(cpu, parcel),
 		LOAD_FP => load_fp::parse_load_fp(cpu, parcel),
 		CUSTOM_0 => todo!("CUSTOM_0"),
-		MISC_MEM => todo!("MISC_MEM"),
+		MISC_MEM => misc_mem::parse_misc_mem(cpu, parcel),
 		OP_IMM => op_imm::parse_op_imm(cpu, parcel),
 		AUIPC => {
 			let utype = UType::parse(parcel);

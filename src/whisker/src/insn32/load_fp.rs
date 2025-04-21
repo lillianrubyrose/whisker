@@ -18,7 +18,7 @@ pub fn parse_load_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, (
 				Err(())
 			}
 		}
-		_ => unreachable!("LOAD-FP func={:#05b}", itype.func()),
+		_ => unimplemented!("LOAD-FP func={:#05b}", itype.func()),
 	}
 }
 

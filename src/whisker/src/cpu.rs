@@ -191,6 +191,7 @@ impl WhiskerCpu {
 
 		self.write_csr_unchecked(csr::MCAUSE, trap.inner());
 		self.write_csr_unchecked(csr::MTVAL, mtval);
+		self.write_csr_unchecked(csr::MEPC, self.pc);
 		self.should_trap = true;
 	}
 

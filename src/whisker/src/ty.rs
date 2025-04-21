@@ -304,11 +304,12 @@ impl TrapIdx {
 	pub const ILLEGAL_INSTRUCTION: Self = Self::exception(2);
 	pub const BREAKPOINT: Self = Self::exception(3);
 	pub const LOAD_ADDR_MISALIGNED: Self = Self::exception(4);
-	pub const STORE_ADDR_MISALIGNED: Self = Self::exception(5);
-	pub const STORE_ACCESS_FAULT: Self = Self::exception(6);
-	pub const ECALL_UMODE: Self = Self::exception(7);
-	pub const ECALL_SMODE: Self = Self::exception(8);
-	pub const ECALL_MMODE: Self = Self::exception(10);
+	pub const LOAD_ADDR_FAULT: Self = Self::exception(5);
+	pub const STORE_ADDR_MISALIGNED: Self = Self::exception(6);
+	pub const STORE_ADDR_FAULT: Self = Self::exception(7);
+	pub const ECALL_UMODE: Self = Self::exception(8);
+	pub const ECALL_SMODE: Self = Self::exception(9);
+	pub const ECALL_MMODE: Self = Self::exception(11);
 	pub const INSTRUCTION_PAGE_FAULT: Self = Self::exception(12);
 	pub const LOAD_PAGE_FAULT: Self = Self::exception(13);
 	pub const STORE_PAGE_FAULT: Self = Self::exception(15);

@@ -1537,7 +1537,7 @@ impl WhiskerCpu {
 				let status = self.read_csr_unchecked(csr::MSTATUS);
 				let mpie = extract_bits_64(status, csr::mstatus::MPIE_BIT, csr::mstatus::MPIE_BIT);
 				let new_priv = extract_bits_64(status, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
-				assert_eq!(new_priv, 0b11, "only M mode is supported");
+				debug_assert_eq!(new_priv, 0b11, "only M mode is supported");
 
 				// set MIE to MPIE, MPIE to 1, and MPP to 0b11
 				let status = insert_bits_64(status, mpie, csr::mstatus::MIE_BIT, csr::mstatus::MIE_BIT);
@@ -1545,6 +1545,7 @@ impl WhiskerCpu {
 				let status = insert_bits_64(status, 0b11, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
 
 				self.write_csr_unchecked(csr::MSTATUS, status);
+				self.next_pc = self.read_csr_unchecked(csr::MEPC);
 			}
 		}
 	}

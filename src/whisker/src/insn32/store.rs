@@ -2,23 +2,47 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
 	insn32::SType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_store(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_store(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let stype = SType::parse(parcel);
+
 	match stype.func() {
-		STORE_BYTE | STORE_HALF | STORE_WORD | STORE_DOUBLE_WORD => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				Ok(IntInstruction::parse_store(stype).into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		STORE_BYTE => Some(
+			IntInstruction::StoreByte {
+				dst: stype.src1().to_gp(),
+				dst_offset: stype.imm(),
+				src: stype.src2().to_gp(),
 			}
-		}
-		_ => unimplemented!("store func: {:#05b}", stype.func()),
+			.into(),
+		),
+		STORE_HALF => Some(
+			IntInstruction::StoreHalf {
+				dst: stype.src1().to_gp(),
+				dst_offset: stype.imm(),
+				src: stype.src2().to_gp(),
+			}
+			.into(),
+		),
+		STORE_WORD => Some(
+			IntInstruction::StoreWord {
+				dst: stype.src1().to_gp(),
+				dst_offset: stype.imm(),
+				src: stype.src2().to_gp(),
+			}
+			.into(),
+		),
+		STORE_DOUBLE_WORD => Some(
+			IntInstruction::StoreDoubleWord {
+				dst: stype.src1().to_gp(),
+				dst_offset: stype.imm(),
+				src: stype.src2().to_gp(),
+			}
+			.into(),
+		),
+		_ => None,
 	}
 }
 

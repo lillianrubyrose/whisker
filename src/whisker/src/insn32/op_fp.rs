@@ -1,33 +1,127 @@
+use crate::ty::RegisterIndex;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{float::FloatInstruction, Instruction},
 	insn32::RType,
 	soft::RoundingMode,
-	ty::{SupportedExtensions, TrapIdx},
+	ty::SupportedExtensions,
 };
 
-pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+/// Returns the parsed instruction if it was valid, or None if the instruction could not be decoded.
+/// Caller is responsible for error handling in the None case, including producing exceptions.
+pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	// OP-FP type is reserved for standard F extension only
 	// all opcodes in this type require F (and D requires F)
 	if !cpu.supported_extensions.has(SupportedExtensions::FLOAT) {
-		cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-		return Err(());
+		return None;
 	}
 
 	let rtype = RType::parse(parcel);
 
 	let Some(rm) = RoundingMode::from_u8(rtype.func3()) else {
-		cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-		return Err(());
+		return None;
 	};
 	let func7 = rtype.func7();
 	match func7 {
-		ADD_SINGLE | SUB_SINGLE | MUL_SINGLE | DIV_SINGLE | SQRT_SINGLE | MIN_MAX | CMP_SINGLE => {
-			FloatInstruction::parse_op_fp(cpu, rtype, rm).map(|i| i.into())
+		ADD_SINGLE => Some(
+			FloatInstruction::Add {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
+		SUB_SINGLE => Some(
+			FloatInstruction::Sub {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
+		MUL_SINGLE => Some(
+			FloatInstruction::Mul {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
+		DIV_SINGLE => Some(
+			FloatInstruction::Div {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
+		SQRT_SINGLE => {
+			if rtype.src2() != RegisterIndex::ZERO {
+				None
+			} else {
+				Some(
+					FloatInstruction::Sqrt {
+						dst: rtype.dst().to_fp(),
+						val: rtype.src1().to_fp(),
+						rm,
+					}
+					.into(),
+				)
+			}
 		}
-		_ => unimplemented!("op-fp func7={func7:#09b}"),
+		MIN_MAX => match rtype.func3() {
+			min_max::MIN => Some(
+				FloatInstruction::Min {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}
+				.into(),
+			),
+			min_max::MAX => Some(
+				FloatInstruction::Max {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}
+				.into(),
+			),
+			_ => None,
+		},
+		CMP_SINGLE => match rtype.func3() {
+			cmp::EQ => Some(
+				FloatInstruction::Equal {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}
+				.into(),
+			),
+			cmp::LESS_EQ => Some(
+				FloatInstruction::LessOrEqual {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}
+				.into(),
+			),
+			cmp::LESS_THAN => Some(
+				FloatInstruction::LessThan {
+					dst: rtype.dst().to_gp(),
+					lhs: rtype.src1().to_fp(),
+					rhs: rtype.src2().to_fp(),
+				}
+				.into(),
+			),
+			_ => None,
+		},
+		_ => unimplemented!("OP-FP func7={func7:#09b}"),
 	}
 }
 

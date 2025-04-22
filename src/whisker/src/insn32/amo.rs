@@ -2,218 +2,280 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{atomic::AtomicInstruction, Instruction},
 	insn32::RType,
-	ty::{RegisterIndex, SupportedExtensions, TrapIdx},
+	ty::{RegisterIndex, SupportedExtensions},
 	util::extract_bits_8,
 };
 
-impl AtomicInstruction {
-	pub fn parse_word_insn(cpu: &mut WhiskerCpu, rtype: RType) -> Result<Self, ()> {
-		use consts::*;
+impl AtomicInstruction {}
 
-		let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
-		let aq = extract_bits_8(rtype.func7(), 1, 1) != 0;
-
-		let func5 = extract_bits_8(rtype.func7(), 2, 7);
-
-		Ok(match func5 {
-			LOAD_RESERVED => {
-				if rtype.src2() != RegisterIndex::ZERO {
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					return Err(());
-				}
-
-				Self::LoadReservedWord {
-					src: rtype.src1().to_gp(),
-					dst: rtype.dst().to_gp(),
-					_aq: aq,
-					_rl: rl,
-				}
-			}
-			STORE_CONDITIONAL => Self::StoreConditionalWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			SWAP => Self::SwapWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			ADD => Self::AddWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			XOR => Self::XorWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			AND => Self::AndWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			OR => Self::OrWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MIN => Self::MinWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MAX => Self::MaxWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MIN_UNSIGNED => Self::MinUnsignedWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MAX_UNSIGNED => Self::MaxUnsignedWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			_ => unreachable!(),
-		})
-	}
-
-	pub fn parse_double_word_insn(cpu: &mut WhiskerCpu, rtype: RType) -> Result<Self, ()> {
-		use consts::*;
-
-		let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
-		let aq = extract_bits_8(rtype.func7(), 1, 1) != 0;
-
-		let func5 = extract_bits_8(rtype.func7(), 2, 7);
-
-		Ok(match func5 {
-			LOAD_RESERVED => {
-				if rtype.src2() != RegisterIndex::ZERO {
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					return Err(());
-				}
-
-				Self::LoadReservedDoubleWord {
-					src: rtype.src1().to_gp(),
-					dst: rtype.dst().to_gp(),
-					_aq: aq,
-					_rl: rl,
-				}
-			}
-			STORE_CONDITIONAL => Self::StoreConditionalDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			SWAP => Self::SwapDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			ADD => Self::AddDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			XOR => Self::XorDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			AND => Self::AndDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			OR => Self::OrDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MIN => Self::MinDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MAX => Self::MaxDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MIN_UNSIGNED => Self::MinUnsignedDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			MAX_UNSIGNED => Self::MaxUnsignedDoubleWord {
-				src1: rtype.src1().to_gp(),
-				src2: rtype.src2().to_gp(),
-				dst: rtype.dst().to_gp(),
-				_aq: aq,
-				_rl: rl,
-			},
-			_ => unreachable!(),
-		})
-	}
-}
-
-pub fn parse_amo(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_amo(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
+	// all AMO type instructions need the atomic extension
 	if !cpu.supported_extensions.has(SupportedExtensions::ATOMIC) {
-		cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-		return Err(());
+		return None;
 	}
 
 	let rtype = RType::parse(parcel);
-
 	match rtype.func3() {
-		WORD => Ok(AtomicInstruction::parse_word_insn(cpu, rtype).map(AtomicInstruction::into)?),
-		DWORD => Ok(AtomicInstruction::parse_double_word_insn(cpu, rtype).map(AtomicInstruction::into)?),
-		_ => unreachable!(),
+		WORD => parse_word_insn(rtype),
+		DWORD => parse_double_word_insn(rtype),
+		_ => None,
+	}
+}
+
+fn parse_word_insn(rtype: RType) -> Option<Instruction> {
+	use consts::*;
+
+	let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
+	let aq = extract_bits_8(rtype.func7(), 1, 1) != 0;
+
+	let func5 = extract_bits_8(rtype.func7(), 2, 7);
+
+	match func5 {
+		LOAD_RESERVED => {
+			if rtype.src2() != RegisterIndex::ZERO {
+				return None;
+			}
+
+			Some(
+				AtomicInstruction::LoadReservedWord {
+					src: rtype.src1().to_gp(),
+					dst: rtype.dst().to_gp(),
+					_aq: aq,
+					_rl: rl,
+				}
+				.into(),
+			)
+		}
+		STORE_CONDITIONAL => Some(
+			AtomicInstruction::StoreConditionalWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		SWAP => Some(
+			AtomicInstruction::SwapWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		ADD => Some(
+			AtomicInstruction::AddWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		XOR => Some(
+			AtomicInstruction::XorWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		AND => Some(
+			AtomicInstruction::AndWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		OR => Some(
+			AtomicInstruction::OrWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MIN => Some(
+			AtomicInstruction::MinWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MAX => Some(
+			AtomicInstruction::MaxWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MIN_UNSIGNED => Some(
+			AtomicInstruction::MinUnsignedWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MAX_UNSIGNED => Some(
+			AtomicInstruction::MaxUnsignedWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		_ => None,
+	}
+}
+
+fn parse_double_word_insn(rtype: RType) -> Option<Instruction> {
+	use consts::*;
+
+	let rl = extract_bits_8(rtype.func7(), 0, 0) != 0;
+	let aq = extract_bits_8(rtype.func7(), 1, 1) != 0;
+
+	let func5 = extract_bits_8(rtype.func7(), 2, 7);
+	match func5 {
+		LOAD_RESERVED => {
+			if rtype.src2() != RegisterIndex::ZERO {
+				return None;
+			}
+
+			Some(
+				AtomicInstruction::LoadReservedDoubleWord {
+					src: rtype.src1().to_gp(),
+					dst: rtype.dst().to_gp(),
+					_aq: aq,
+					_rl: rl,
+				}
+				.into(),
+			)
+		}
+		STORE_CONDITIONAL => Some(
+			AtomicInstruction::StoreConditionalDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		SWAP => Some(
+			AtomicInstruction::SwapDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		ADD => Some(
+			AtomicInstruction::AddDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		XOR => Some(
+			AtomicInstruction::XorDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		AND => Some(
+			AtomicInstruction::AndDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		OR => Some(
+			AtomicInstruction::OrDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MIN => Some(
+			AtomicInstruction::MinDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MAX => Some(
+			AtomicInstruction::MaxDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MIN_UNSIGNED => Some(
+			AtomicInstruction::MinUnsignedDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		MAX_UNSIGNED => Some(
+			AtomicInstruction::MaxUnsignedDoubleWord {
+				src1: rtype.src1().to_gp(),
+				src2: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+				_aq: aq,
+				_rl: rl,
+			}
+			.into(),
+		),
+		_ => None,
 	}
 }
 

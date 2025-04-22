@@ -2,29 +2,70 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
 	insn32::IType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_load(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_load(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);
 	match itype.func() {
-		LOAD_BYTE
-		| LOAD_HALF
-		| LOAD_WORD
-		| LOAD_DOUBLE_WORD
-		| LOAD_BYTE_ZERO_EXTEND
-		| LOAD_HALF_ZERO_EXTEND
-		| LOAD_WORD_ZERO_EXTEND => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				Ok(IntInstruction::parse_load(itype).into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		LOAD_BYTE => Some(
+			IntInstruction::LoadByte {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
 			}
-		}
-		_ => unreachable!("LOAD func={:#05b}", itype.func()),
+			.into(),
+		),
+		LOAD_HALF => Some(
+			IntInstruction::LoadHalf {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		LOAD_WORD => Some(
+			IntInstruction::LoadWord {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		LOAD_DOUBLE_WORD => Some(
+			IntInstruction::LoadDoubleWord {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		LOAD_BYTE_ZERO_EXTEND => Some(
+			IntInstruction::LoadByteZeroExtend {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		LOAD_HALF_ZERO_EXTEND => Some(
+			IntInstruction::LoadHalfZeroExtend {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		LOAD_WORD_ZERO_EXTEND => Some(
+			IntInstruction::LoadWordZeroExtend {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
+			}
+			.into(),
+		),
+		_ => None,
 	}
 }
 

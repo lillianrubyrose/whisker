@@ -2,43 +2,163 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, multiply::MultiplyInstruction, Instruction},
 	insn32::RType,
-	ty::{SupportedExtensions, TrapIdx},
+	ty::SupportedExtensions,
 };
 
-pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let rtype = RType::parse(parcel);
 	match rtype.func() {
-		ADD
-		| SUB
-		| SHIFT_LEFT_LOGICAL
-		| SHIFT_RIGHT_LOGICAL
-		| SHIFT_RIGHT_ARITHMETIC
-		| AND
-		| OR
-		| XOR
-		| SET_LESS_THAN
-		| SET_LESS_THAN_UNSIGNED => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				let insn = IntInstruction::parse_op(rtype);
-				Ok(insn.into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		ADD => Some(
+			IntInstruction::Add {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
 			}
-		}
+			.into(),
+		),
+		SUB => Some(
+			IntInstruction::Sub {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		SHIFT_LEFT_LOGICAL => Some(
+			IntInstruction::ShiftLeftLogical {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		SHIFT_RIGHT_LOGICAL => Some(
+			IntInstruction::ShiftRightLogical {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		SHIFT_RIGHT_ARITHMETIC => Some(
+			IntInstruction::ShiftRightArithmetic {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		AND => Some(
+			IntInstruction::And {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		OR => Some(
+			IntInstruction::Or {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		XOR => Some(
+			IntInstruction::Xor {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		SET_LESS_THAN => Some(
+			IntInstruction::SetLessThan {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
+		SET_LESS_THAN_UNSIGNED => Some(
+			IntInstruction::SetLessThanUnsigned {
+				dst: rtype.dst().to_gp(),
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+			}
+			.into(),
+		),
 
-		MUL | MULH | MULHSU | MULHU | DIV | DIVU | REM | REMU => {
-			if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) {
-				let insn = MultiplyInstruction::parse_op(cpu, rtype)?;
-				Ok(insn.into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		// ==================
+		// MULTIPLY
+		// ==================
+		MUL if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::Multiply {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
 			}
-		}
-		_ => unimplemented!("OP func={:#014b} | {:#X}", rtype.func(), cpu.pc),
+			.into(),
+		),
+		MULH if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::MultiplyHigh {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		MULHSU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::MultiplyHighSignedUnsigned {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		MULHU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::MultiplyHighUnsigned {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		DIV if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::Divide {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		DIVU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::DivideUnsigned {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		REM if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::Remainder {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		REMU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+			MultiplyInstruction::RemainderUnsigned {
+				lhs: rtype.src1().to_gp(),
+				rhs: rtype.src2().to_gp(),
+				dst: rtype.dst().to_gp(),
+			}
+			.into(),
+		),
+		_ => None,
 	}
 }
 

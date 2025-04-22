@@ -11,6 +11,7 @@ use compressed::CompressedInstruction;
 use float::FloatInstruction;
 use int::IntInstruction;
 use multiply::MultiplyInstruction;
+use num_conv::prelude::*;
 use privileged::PrivilegedInstruction;
 use tracing::warn;
 
@@ -40,6 +41,7 @@ impl Instruction {
 			Ok(parcel1) => parcel1,
 			Err(addr) => {
 				warn!("could not read start of instruction from {:#018X}", pc);
+				// FIXME: this addr is probably not right?
 				cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 				return Err(());
 			}
@@ -51,17 +53,23 @@ impl Instruction {
 		// FIXME: currently we believe this does not matter?
 		if parcel1 == 0 {
 			warn!("tried to execute all 0 instruction at {:#018X}", pc);
-			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 			return Err(());
 		}
 
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
-				let insn = insn16::parse(cpu, parcel1)?;
-				Ok((insn.into(), 2))
+				match insn16::parse(cpu, parcel1) {
+					Some(insn) => Ok((insn, 2)),
+					None => {
+						warn!("unable to parse 16 bit instruction {parcel1:#06X}");
+						cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
+						Err(())
+					}
+				}
 			} else {
 				warn!("tried to execute compressed instruction at {:#018X}", pc);
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
@@ -69,28 +77,37 @@ impl Instruction {
 				Ok(p) => p,
 				Err(addr) => {
 					warn!("could not read u32 instruction from {:#018X}", pc);
+					// FIXME: this addr is probably not right?
 					cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 					return Err(());
 				}
 			};
-			let insn = insn32::parse(cpu, full_parcel)?;
-			Ok((insn, 4))
+			match insn32::parse(cpu, full_parcel) {
+				Some(insn) => Ok((insn, 4)),
+				None => {
+					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, full_parcel.extend());
+					Err(())
+				}
+			}
 		} else if extract_bits_16(parcel1, 0, 5) == 0b011111 {
 			if support_compressed {
 				todo!("implement 48bit instruction")
 			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+				// FIXME: this is probably not the right mtval
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 0, 6) == 0b0111111 {
 			if support_compressed {
 				todo!("implement 64bit instruction")
 			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+				// FIXME: this is probably not the right mtval
+				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 				Err(())
 			}
 		} else {
-			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, pc);
+			// FIXME: this is probably not the right mtval
+			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 			Err(())
 		}
 	}

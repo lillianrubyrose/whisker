@@ -1,24 +1,64 @@
+use crate::util::extract_bits_32;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
 	insn32::IType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_op_imm_32(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_op_imm_32(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);
+
 	match itype.func() {
-		ADD_IMM_WORD | SHIFT_LEFT_IMM_WORD | SHIFT_RIGHT_IMM_WORD => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				Ok(IntInstruction::parse_op_imm_32(itype).into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		ADD_IMM_WORD => Some(
+			IntInstruction::AddImmediateWord {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm() as i32,
+			}
+			.into(),
+		),
+		SHIFT_LEFT_IMM_WORD => {
+			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+
+			match shift_kind {
+				SHIFT_LOGICAL => Some(
+					IntInstruction::ShiftLeftLogicalImmediateWord {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				_ => None,
 			}
 		}
-		_ => unimplemented!("op-imm-32 func: {:#05b}", itype.func()),
+		SHIFT_RIGHT_IMM_WORD => {
+			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+			match shift_kind {
+				SHIFT_LOGICAL => Some(
+					IntInstruction::ShiftRightLogicalImmediateWord {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				SHIFT_ARITHMETIC => Some(
+					IntInstruction::ShiftRightArithmeticImmediateWord {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				_ => None,
+			}
+		}
+		_ => None,
 	}
 }
 

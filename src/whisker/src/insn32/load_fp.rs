@@ -2,23 +2,28 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{float::FloatInstruction, Instruction},
 	insn32::IType,
-	ty::{SupportedExtensions, TrapIdx},
+	ty::SupportedExtensions,
 };
 
-pub fn parse_load_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_load_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
+
+	// all LOAD-FP instructions need the F extension
+	if !cpu.supported_extensions.has(SupportedExtensions::FLOAT) {
+		return None;
+	}
 
 	let itype = IType::parse(parcel);
 	match itype.func() {
-		FLOAT_LOAD_WORD => {
-			if cpu.supported_extensions.has(SupportedExtensions::FLOAT) {
-				Ok(FloatInstruction::parse_load_fp(itype).into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		FLOAT_LOAD_WORD => Some(
+			FloatInstruction::LoadWord {
+				dst: itype.dst().to_fp(),
+				src: itype.src().to_gp(),
+				src_offset: itype.imm(),
 			}
-		}
-		_ => unimplemented!("LOAD-FP func={:#05b}", itype.func()),
+			.into(),
+		),
+		_ => None,
 	}
 }
 

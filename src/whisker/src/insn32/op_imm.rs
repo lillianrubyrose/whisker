@@ -1,30 +1,105 @@
+use crate::util::extract_bits_32;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
 	insn32::IType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_op_imm(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_op_imm(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);
+
 	match itype.func() {
-		ADD_IMM
-		| XOR_IMM
-		| OR_IMM
-		| AND_IMM
-		| SHIFT_LEFT_IMM
-		| SHIFT_RIGHT_IMM
-		| SET_LESS_THAN_IMM
-		| SET_LESS_THAN_UNSIGNED_IMM => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				Ok(IntInstruction::parse_op_imm(itype).into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		ADD_IMM => Some(
+			IntInstruction::AddImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
+		XOR_IMM => Some(
+			IntInstruction::XorImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
+		OR_IMM => Some(
+			IntInstruction::OrImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
+		AND_IMM => Some(
+			IntInstruction::AndImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
+		SHIFT_LEFT_IMM => {
+			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+
+			match shift_kind {
+				SHIFT_LOGICAL => Some(
+					IntInstruction::ShiftLeftLogicalImmediate {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				// left shift only has logical (arithmetic is the same)
+				_ => None,
 			}
 		}
+		SHIFT_RIGHT_IMM => {
+			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+
+			match shift_kind {
+				SHIFT_LOGICAL => Some(
+					IntInstruction::ShiftRightLogicalImmediate {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				SHIFT_ARITHMETIC => Some(
+					IntInstruction::ShiftRightArithmeticImmediate {
+						dst: itype.dst().to_gp(),
+						lhs: itype.src().to_gp(),
+						shift_amt,
+					}
+					.into(),
+				),
+				_ => None,
+			}
+		}
+		SET_LESS_THAN_IMM => Some(
+			IntInstruction::SetLessThanImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
+		SET_LESS_THAN_UNSIGNED_IMM => Some(
+			IntInstruction::SetLessThanUnsignedImmediate {
+				dst: itype.dst().to_gp(),
+				lhs: itype.src().to_gp(),
+				rhs: itype.imm(),
+			}
+			.into(),
+		),
 		// exhaustively matched all 3 bits in func3
 		_ => unreachable!(),
 	}

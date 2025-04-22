@@ -1,37 +1,70 @@
+use tracing::warn;
+
 use crate::cpu::csr::CSRIndex;
 use crate::insn::privileged::PrivilegedInstruction;
 use crate::{
 	cpu::WhiskerCpu,
 	insn::{csr::CSRInstruction, int::IntInstruction, Instruction},
 	insn32::IType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_system(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse_system(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);
+	// FIXME: check csr support somehow?
 	match itype.func() {
-		funcs::FUNC_0 => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				match parse_func_0(itype) {
-					Some(inst) => Ok(inst),
-					None => {
-						cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-						Err(())
-					}
-				}
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
+		funcs::FUNC_0 => parse_func_0(itype),
+		funcs::CSRRW => Some(
+			CSRInstruction::CSRReadWrite {
+				dst: itype.dst().to_gp(),
+				src: itype.src().to_gp(),
+				csr: imm_to_csr(itype.imm()),
 			}
-		}
-		funcs::CSRRW | funcs::CSRRS | funcs::CSRRC | funcs::CSRRWI | funcs::CSRRSI | funcs::CSRRCI => {
-			// FIXME: check csr support somehow
-			Ok(parse_csr(itype).into())
-		}
+			.into(),
+		),
+		funcs::CSRRS => Some(
+			CSRInstruction::CSRReadAndSet {
+				dst: itype.dst().to_gp(),
+				mask: itype.src().to_gp(),
+				csr: imm_to_csr(itype.imm()),
+			}
+			.into(),
+		),
+		funcs::CSRRC => Some(
+			CSRInstruction::CSRReadAndClear {
+				dst: itype.dst().to_gp(),
+				mask: itype.src().to_gp(),
+				csr: imm_to_csr(itype.imm()),
+			}
+			.into(),
+		),
+		funcs::CSRRWI => Some(
+			CSRInstruction::CSRReadWriteImm {
+				dst: itype.dst().to_gp(),
+				imm: itype.src().as_usize() as u64,
+				csr: imm_to_csr(itype.imm()),
+			}
+			.into(),
+		),
+		funcs::CSRRSI => Some(
+			CSRInstruction::CSRReadAndSetImm {
+				dst: itype.dst().to_gp(),
+				mask: itype.src().as_usize() as u64,
+				csr: imm_to_csr(itype.imm()),
+			}
+			.into(),
+		),
+		funcs::CSRRCI => Some(
+			CSRInstruction::CSRReadAndClearImm {
+				dst: itype.dst().to_gp(),
+				mask: itype.src().as_usize() as u64,
+				csr: imm_to_csr(itype.imm()),
+			}
+			.into(),
+		),
 		// NOTE: some of the Zicsr SYSTEM instructions are not yet implemented
-		_ => unimplemented!("SYSTEM func={:#05b}", itype.func()),
+		_ => None,
 	}
 }
 
@@ -42,12 +75,18 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 			func0::ECALL => Some(IntInstruction::ECall.into()),
 			func0::EBREAK => Some(IntInstruction::EBreak.into()),
 			func0::MRET => Some(PrivilegedInstruction::Mret.into()),
-			imm => unimplemented!("SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}"),
+			imm => {
+				warn!("UNIMPLEMENTED: SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}");
+				None
+			}
 		},
-		(rd, rs1) => unimplemented!(
-			"SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b} imm={imm:#014b}",
-			imm = itype.imm()
-		),
+		(rd, rs1) => {
+			warn!(
+				"UNIMPLEMENTED: SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b} imm={imm:#014b}",
+				imm = itype.imm()
+			);
+			None
+		}
 	}
 }
 
@@ -55,43 +94,6 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 fn imm_to_csr(imm: i64) -> CSRIndex {
 	// UNWRAP: this mask makes sure that the value is in range
 	CSRIndex::new((imm & 0xFFF) as u16).unwrap()
-}
-
-fn parse_csr(itype: IType) -> CSRInstruction {
-	use consts::*;
-	match itype.func() {
-		funcs::CSRRW => CSRInstruction::CSRReadWrite {
-			dst: itype.dst().to_gp(),
-			src: itype.src().to_gp(),
-			csr: imm_to_csr(itype.imm()),
-		},
-		funcs::CSRRS => CSRInstruction::CSRReadAndSet {
-			dst: itype.dst().to_gp(),
-			mask: itype.src().to_gp(),
-			csr: imm_to_csr(itype.imm()),
-		},
-		funcs::CSRRC => CSRInstruction::CSRReadAndClear {
-			dst: itype.dst().to_gp(),
-			mask: itype.src().to_gp(),
-			csr: imm_to_csr(itype.imm()),
-		},
-		funcs::CSRRWI => CSRInstruction::CSRReadWriteImm {
-			dst: itype.dst().to_gp(),
-			imm: itype.src().as_usize() as u64,
-			csr: imm_to_csr(itype.imm()),
-		},
-		funcs::CSRRSI => CSRInstruction::CSRReadAndSetImm {
-			dst: itype.dst().to_gp(),
-			mask: itype.src().as_usize() as u64,
-			csr: imm_to_csr(itype.imm()),
-		},
-		funcs::CSRRCI => CSRInstruction::CSRReadAndClearImm {
-			dst: itype.dst().to_gp(),
-			mask: itype.src().as_usize() as u64,
-			csr: imm_to_csr(itype.imm()),
-		},
-		_ => unreachable!(),
-	}
 }
 
 pub mod consts {

@@ -5,12 +5,12 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{compressed::CompressedInstruction, int::IntInstruction, Instruction},
 	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},
-	ty::{GPRegisterIndex, TrapIdx},
+	ty::GPRegisterIndex,
 	util::extract_bits_16,
 };
 
 impl CompressedInstruction {
-	pub fn parse_c0(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+	pub fn parse_c0(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c0::*;
 
 		let ty = extract_bits_16(parcel, 13, 15) as u8;
@@ -18,15 +18,16 @@ impl CompressedInstruction {
 			ADDI4SPN => {
 				let iw = CWideImmType::parse(parcel);
 				if iw.imm() == 0 {
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					Err(())
+					None
 				} else {
-					Ok(IntInstruction::AddImmediate {
-						dst: iw.dst(),
-						lhs: GPRegisterIndex::SP,
-						rhs: iw.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::AddImmediate {
+							dst: iw.dst(),
+							lhs: GPRegisterIndex::SP,
+							rhs: iw.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			FLD => {
@@ -34,56 +35,58 @@ impl CompressedInstruction {
 			}
 			LOAD_WORD => {
 				let cl = CLoadType::parse(parcel);
-				Ok(IntInstruction::LoadWord {
-					dst: cl.dst(),
-					src: cl.src(),
-					// the immediate was zero extended so this will never do a sign extension
-					src_offset: cl.imm().cast_signed(),
-				}
-				.into())
+				Some(
+					IntInstruction::LoadWord {
+						dst: cl.dst(),
+						src: cl.src(),
+						src_offset: cl.imm().cast_signed(),
+					}
+					.into(),
+				)
 			}
 			LOAD_DOUBLE_WORD => {
 				let cl = CLoadType::parse(parcel);
-				Ok(IntInstruction::LoadDoubleWord {
-					dst: cl.dst(),
-					src: cl.src(),
-					// the immediate was zero extended so this will never do a sign extension
-					src_offset: cl.imm().cast_signed(),
-				}
-				.into())
+				Some(
+					IntInstruction::LoadDoubleWord {
+						dst: cl.dst(),
+						src: cl.src(),
+						src_offset: cl.imm().cast_signed(),
+					}
+					.into(),
+				)
 			}
-			RESERVED => {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
-			}
+			RESERVED => None,
 			FSD => {
 				todo!("FSD (D ext)")
 			}
 			STORE_WORD => {
 				let cs = CStoreType::parse(parcel);
-				Ok(IntInstruction::StoreWord {
-					dst: cs.dst(),
-					// the immediate was zero extended so this will never do a sign extension
-					dst_offset: cs.imm().cast_signed(),
-					src: cs.src(),
-				}
-				.into())
+				Some(
+					IntInstruction::StoreWord {
+						dst: cs.dst(),
+						dst_offset: cs.imm().cast_signed(),
+						src: cs.src(),
+					}
+					.into(),
+				)
 			}
 			STORE_DOUBLE_WORD => {
 				let cs = CStoreType::parse(parcel);
-				Ok(IntInstruction::StoreDoubleWord {
-					dst: cs.dst(),
-					// the immediate was zero extended so this will never do a sign extension
-					dst_offset: cs.imm().cast_signed(),
-					src: cs.src(),
-				}
-				.into())
+				Some(
+					IntInstruction::StoreDoubleWord {
+						dst: cs.dst(),
+						dst_offset: cs.imm().cast_signed(),
+						src: cs.src(),
+					}
+					.into(),
+				)
 			}
+			// match was exhaustive over the 3 control bits
 			_ => unreachable!(),
 		}
 	}
 
-	pub fn parse_c1(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+	pub fn parse_c1(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 
 		use consts::opcode::c1::*;
@@ -91,29 +94,32 @@ impl CompressedInstruction {
 			ADD_IMM => {
 				let im = CImmType::parse(parcel);
 				if im.reg() == GPRegisterIndex::ZERO && im.imm() == 0 {
-					Ok(CompressedInstruction::Nop.into())
+					Some(CompressedInstruction::Nop.into())
 				} else {
-					Ok(IntInstruction::AddImmediate {
-						dst: im.reg(),
-						lhs: im.reg(),
-						rhs: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::AddImmediate {
+							dst: im.reg(),
+							lhs: im.reg(),
+							rhs: im.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			ADDIW => {
 				let im = CImmType::parse(parcel);
+				// zero register is reserved
 				if im.reg() == GPRegisterIndex::ZERO {
-					// reserved
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					Err(())
+					None
 				} else {
-					Ok(IntInstruction::AddImmediateWord {
-						dst: im.reg(),
-						lhs: im.reg(),
-						rhs: im.imm() as i32,
-					}
-					.into())
+					Some(
+						IntInstruction::AddImmediateWord {
+							dst: im.reg(),
+							lhs: im.reg(),
+							rhs: im.imm() as i32,
+						}
+						.into(),
+					)
 				}
 			}
 			LI => {
@@ -121,62 +127,73 @@ impl CompressedInstruction {
 				if im.reg() == GPRegisterIndex::ZERO {
 					todo!("HINT")
 				} else {
-					Ok(IntInstruction::AddImmediate {
-						dst: im.reg(),
-						lhs: GPRegisterIndex::ZERO,
-						rhs: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::AddImmediate {
+							dst: im.reg(),
+							lhs: GPRegisterIndex::ZERO,
+							rhs: im.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			ADDI16SP_OR_LUI => {
 				let im = CImmType::parse(parcel);
+				// reserved
 				if im.imm() == 0 {
-					// reserved
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					Err(())
+					None
 				} else if im.reg() == GPRegisterIndex::ZERO {
 					todo!("HINT")
 				} else if im.reg().as_usize() == 2 {
-					Ok(IntInstruction::AddImmediate {
-						dst: im.reg(),
-						lhs: im.reg(),
-						rhs: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::AddImmediate {
+							dst: im.reg(),
+							lhs: im.reg(),
+							rhs: im.imm(),
+						}
+						.into(),
+					)
 				} else {
-					Ok(IntInstruction::LoadUpperImmediate {
-						dst: im.reg(),
-						val: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::LoadUpperImmediate {
+							dst: im.reg(),
+							val: im.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			J => {
 				let j = CJType::parse(parcel);
-				Ok(IntInstruction::JumpAndLink {
-					link_reg: GPRegisterIndex::ZERO,
-					jmp_off: j.offset(),
-				}
-				.into())
+				Some(
+					IntInstruction::JumpAndLink {
+						link_reg: GPRegisterIndex::ZERO,
+						jmp_off: j.offset(),
+					}
+					.into(),
+				)
 			}
 			BEQZ => {
 				let b = CBranchType::parse(parcel);
-				Ok(IntInstruction::BranchEqual {
-					lhs: b.src(),
-					rhs: GPRegisterIndex::ZERO,
-					imm: b.offset(),
-				}
-				.into())
+				Some(
+					IntInstruction::BranchEqual {
+						lhs: b.src(),
+						rhs: GPRegisterIndex::ZERO,
+						imm: b.offset(),
+					}
+					.into(),
+				)
 			}
 			BNEZ => {
 				let b = CBranchType::parse(parcel);
-				Ok(IntInstruction::BranchNotEqual {
-					lhs: b.src(),
-					rhs: GPRegisterIndex::ZERO,
-					imm: b.offset(),
-				}
-				.into())
+				Some(
+					IntInstruction::BranchNotEqual {
+						lhs: b.src(),
+						rhs: GPRegisterIndex::ZERO,
+						imm: b.offset(),
+					}
+					.into(),
+				)
 			}
 			MISC_MATH => {
 				let func2 = extract_bits_16(parcel, 10, 11) as u8;
@@ -187,32 +204,38 @@ impl CompressedInstruction {
 						if cb.imm() == 0 {
 							todo!("HINT")
 						} else {
-							Ok(IntInstruction::ShiftRightLogicalImmediate {
-								dst: cb.reg(),
-								lhs: cb.reg(),
-								shift_amt: cb.imm() as u32,
-							}
-							.into())
+							Some(
+								IntInstruction::ShiftRightLogicalImmediate {
+									dst: cb.reg(),
+									lhs: cb.reg(),
+									shift_amt: cb.imm() as u32,
+								}
+								.into(),
+							)
 						}
 					}
 					func2::SRAI => {
 						if cb.imm() == 0 {
 							todo!("HINT")
 						} else {
-							Ok(IntInstruction::ShiftRightArithmeticImmediate {
-								dst: cb.reg(),
-								lhs: cb.reg(),
-								shift_amt: cb.imm() as u32,
-							}
-							.into())
+							Some(
+								IntInstruction::ShiftRightArithmeticImmediate {
+									dst: cb.reg(),
+									lhs: cb.reg(),
+									shift_amt: cb.imm() as u32,
+								}
+								.into(),
+							)
 						}
 					}
-					func2::ANDI => Ok(IntInstruction::AndImmediate {
-						dst: cb.reg(),
-						lhs: cb.reg(),
-						rhs: cb.imm(),
-					}
-					.into()),
+					func2::ANDI => Some(
+						IntInstruction::AndImmediate {
+							dst: cb.reg(),
+							lhs: cb.reg(),
+							rhs: cb.imm(),
+						}
+						.into(),
+					),
 					func2::SUB_XOR_OR_AND => {
 						let ca = CAType::parse(parcel);
 						let is_word = extract_bits_16(parcel, 12, 12) != 0;
@@ -225,51 +248,58 @@ impl CompressedInstruction {
 								ADDW => {
 									todo!("ADDW (OP-32)")
 								}
-								_ => {
-									// RESERVED
-									cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-									Err(())
-								}
+								// reserved
+								_ => None,
 							}
 						} else {
 							match sub_func2 {
-								SUB => Ok(IntInstruction::Sub {
-									dst: ca.src1(),
-									lhs: ca.src1(),
-									rhs: ca.src2(),
-								}
-								.into()),
-								XOR => Ok(IntInstruction::Xor {
-									dst: ca.src1(),
-									lhs: ca.src1(),
-									rhs: ca.src2(),
-								}
-								.into()),
-								OR => Ok(IntInstruction::Or {
-									dst: ca.src1(),
-									lhs: ca.src1(),
-									rhs: ca.src2(),
-								}
-								.into()),
-								AND => Ok(IntInstruction::And {
-									dst: ca.src1(),
-									lhs: ca.src1(),
-									rhs: ca.src2(),
-								}
-								.into()),
+								SUB => Some(
+									IntInstruction::Sub {
+										dst: ca.src1(),
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+									}
+									.into(),
+								),
+								XOR => Some(
+									IntInstruction::Xor {
+										dst: ca.src1(),
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+									}
+									.into(),
+								),
+								OR => Some(
+									IntInstruction::Or {
+										dst: ca.src1(),
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+									}
+									.into(),
+								),
+								AND => Some(
+									IntInstruction::And {
+										dst: ca.src1(),
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+									}
+									.into(),
+								),
+								// exhaustive over the 2 control bits
 								_ => unreachable!(),
 							}
 						}
 					}
+					// exhaustive over the 2 control bits
 					_ => unreachable!(),
 				}
 			}
-
-			_ => todo!("C1 func3 {func3:#05b}"),
+			// match was exhaustive over the 3 control bits
+			_ => unreachable!(),
 		}
 	}
 
-	pub fn parse_c2(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+	pub fn parse_c2(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c2::*;
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 		match func3 {
@@ -280,12 +310,14 @@ impl CompressedInstruction {
 				} else if im.imm() == 0 {
 					todo!("HINT")
 				} else {
-					Ok(IntInstruction::ShiftLeftLogicalImmediate {
-						dst: im.reg(),
-						lhs: im.reg(),
-						shift_amt: im.imm() as u32,
-					}
-					.into())
+					Some(
+						IntInstruction::ShiftLeftLogicalImmediate {
+							dst: im.reg(),
+							lhs: im.reg(),
+							shift_amt: im.imm() as u32,
+						}
+						.into(),
+					)
 				}
 			}
 			FLDSP => {
@@ -295,30 +327,32 @@ impl CompressedInstruction {
 				let im = CImmType::parse(parcel);
 				if im.reg() == GPRegisterIndex::ZERO {
 					// reserved
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					Err(())
+					None
 				} else {
-					Ok(IntInstruction::LoadWord {
-						dst: im.reg(),
-						src: GPRegisterIndex::SP,
-						src_offset: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::LoadWord {
+							dst: im.reg(),
+							src: GPRegisterIndex::SP,
+							src_offset: im.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			LDSP => {
 				let im = CImmType::parse(parcel);
 				if im.reg() == GPRegisterIndex::ZERO {
 					// reserved
-					cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-					Err(())
+					None
 				} else {
-					Ok(IntInstruction::LoadDoubleWord {
-						dst: im.reg(),
-						src: GPRegisterIndex::SP,
-						src_offset: im.imm(),
-					}
-					.into())
+					Some(
+						IntInstruction::LoadDoubleWord {
+							dst: im.reg(),
+							src: GPRegisterIndex::SP,
+							src_offset: im.imm(),
+						}
+						.into(),
+					)
 				}
 			}
 			JR_JALR_MV_EBREAK_ADD => {
@@ -329,43 +363,50 @@ impl CompressedInstruction {
 						match (crtype.src1(), crtype.src2()) {
 							(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => {
 								// reserved
-								cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-								Err(())
+								None
 							}
 							(GPRegisterIndex::ZERO, _rs2) => {
 								todo!("HINT")
 							}
-							(rs1, GPRegisterIndex::ZERO) => Ok(IntInstruction::JumpAndLinkRegister {
-								link_reg: GPRegisterIndex::ZERO,
-								jmp_reg: rs1,
-								jmp_off: 0,
-							}
-							.into()),
-							(rd, rs2) => Ok(IntInstruction::Add {
-								dst: rd,
-								lhs: GPRegisterIndex::ZERO,
-								rhs: rs2,
-							}
-							.into()),
+							(rs1, GPRegisterIndex::ZERO) => Some(
+								IntInstruction::JumpAndLinkRegister {
+									link_reg: GPRegisterIndex::ZERO,
+									jmp_reg: rs1,
+									jmp_off: 0,
+								}
+								.into(),
+							),
+							(rd, rs2) => Some(
+								IntInstruction::Add {
+									dst: rd,
+									lhs: GPRegisterIndex::ZERO,
+									rhs: rs2,
+								}
+								.into(),
+							),
 						}
 					}
 					JALR_EBREAK_ADD => match (crtype.src1(), crtype.src2()) {
-						(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => Ok(IntInstruction::EBreak.into()),
+						(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => Some(IntInstruction::EBreak.into()),
 						(GPRegisterIndex::ZERO, _rs2) => {
 							todo!("HINT")
 						}
-						(rs1, GPRegisterIndex::ZERO) => Ok(IntInstruction::JumpAndLinkRegister {
-							link_reg: GPRegisterIndex::LINK_REG,
-							jmp_reg: rs1,
-							jmp_off: 0,
-						}
-						.into()),
-						(rd, rs2) => Ok(IntInstruction::Add {
-							dst: rd,
-							lhs: rd,
-							rhs: rs2,
-						}
-						.into()),
+						(rs1, GPRegisterIndex::ZERO) => Some(
+							IntInstruction::JumpAndLinkRegister {
+								link_reg: GPRegisterIndex::LINK_REG,
+								jmp_reg: rs1,
+								jmp_off: 0,
+							}
+							.into(),
+						),
+						(rd, rs2) => Some(
+							IntInstruction::Add {
+								dst: rd,
+								lhs: rd,
+								rhs: rs2,
+							}
+							.into(),
+						),
 					},
 					_ => unreachable!(),
 				}
@@ -375,39 +416,42 @@ impl CompressedInstruction {
 			}
 			SWSP => {
 				let ss = CStackStoreType::parse(parcel);
-				Ok(IntInstruction::StoreWord {
-					dst: GPRegisterIndex::SP,
-					dst_offset: ss.imm(),
-					src: ss.src(),
-				}
-				.into())
+				Some(
+					IntInstruction::StoreWord {
+						dst: GPRegisterIndex::SP,
+						dst_offset: ss.imm(),
+						src: ss.src(),
+					}
+					.into(),
+				)
 			}
 			SDSP => {
 				let ss = CStackStoreType::parse(parcel);
-				Ok(IntInstruction::StoreDoubleWord {
-					dst: GPRegisterIndex::SP,
-					dst_offset: ss.imm(),
-					src: ss.src(),
-				}
-				.into())
+				Some(
+					IntInstruction::StoreDoubleWord {
+						dst: GPRegisterIndex::SP,
+						dst_offset: ss.imm(),
+						src: ss.src(),
+					}
+					.into(),
+				)
 			}
+			// exhaustive over the 3 control bits
 			_ => unreachable!(),
 		}
 	}
 }
 
-pub fn parse(cpu: &mut WhiskerCpu, parcel: u16) -> Result<Instruction, ()> {
+pub fn parse(cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
 	use consts::opcode::*;
 
 	let opcode_ty = extract_bits_16(parcel, 0, 1) as u8;
 	trace!("(C-ext) parcel={parcel:#018b}");
-	if parcel.count_zeros() == u16::BITS {
-		panic!("Invalid 16-bit instruction. Cannot be all zero bits");
-	}
 	match opcode_ty {
 		C0 => CompressedInstruction::parse_c0(cpu, parcel),
 		C1 => CompressedInstruction::parse_c1(cpu, parcel),
 		C2 => CompressedInstruction::parse_c2(cpu, parcel),
+		// bits 0b11 encode 32 bit instructions, so this cannot be reached
 		_ => unreachable!(),
 	}
 }

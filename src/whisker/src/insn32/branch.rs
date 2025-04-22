@@ -2,30 +2,30 @@ use crate::{
 	cpu::WhiskerCpu,
 	insn::{int::IntInstruction, Instruction},
 	insn32::BType,
-	ty::{SupportedExtensions, TrapIdx},
 };
 
-pub fn parse_branch(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
-	use consts::*;
-
-	let btype = BType::parse(parcel);
-	match btype.func() {
-		BRANCH_EQ
-		| BRANCH_NEQ
-		| BRANCH_LESS_THAN
-		| BRANCH_GREATER_EQ
-		| BRANCH_LESS_THAN_UNSIGNED
-		| BRANCH_GREATER_EQ_UNSIGNED => {
-			if cpu.supported_extensions.has(SupportedExtensions::INTEGER) {
-				let insn = IntInstruction::parse_branch(btype);
-				Ok(insn.into())
-			} else {
-				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-				Err(())
-			}
+macro_rules! parse_branch {
+	($btype:ident, $($const:ident, $inst:ident),*) => {{
+		use consts::*;
+		match $btype.func() {
+			$( $const => Some(IntInstruction::$inst { lhs: $btype.src1().to_gp(), rhs: $btype.src2().to_gp(), imm: $btype.imm() }.into()), )*
+			_ => None,
 		}
-		_ => unimplemented!(),
-	}
+	}};
+}
+
+#[rustfmt::skip]
+pub fn parse_branch(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+	let btype = BType::parse(parcel);
+	parse_branch!(
+		btype,
+		BRANCH_EQ, BranchEqual,
+		BRANCH_NEQ, BranchNotEqual,
+		BRANCH_LESS_THAN, BranchLessThan,
+		BRANCH_GREATER_EQ, BranchGreaterEqual,
+		BRANCH_LESS_THAN_UNSIGNED, BranchLessThanUnsigned,
+		BRANCH_GREATER_EQ_UNSIGNED, BranchGreaterEqualUnsigned
+	)
 }
 
 pub mod consts {

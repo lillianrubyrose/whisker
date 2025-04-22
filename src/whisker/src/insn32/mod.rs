@@ -1,13 +1,10 @@
 pub mod amo;
 pub mod branch;
-pub mod float;
-pub mod int;
 pub mod jalr;
 pub mod load;
 pub mod load_fp;
 pub mod madd;
 pub mod misc_mem;
-pub mod multiply;
 pub mod op;
 pub mod op_32;
 pub mod op_fp;
@@ -26,7 +23,7 @@ use crate::{
 	util::extract_bits_32,
 };
 
-pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
+pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	let opcode_ty = extract_bits_32(parcel, 2, 6);
 	use consts::opcode::*;
 	match opcode_ty {
@@ -37,11 +34,13 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		OP_IMM => op_imm::parse_op_imm(cpu, parcel),
 		AUIPC => {
 			let utype = UType::parse(parcel);
-			Ok(IntInstruction::AddUpperImmediateToPc {
-				dst: utype.dst().to_gp(),
-				val: utype.imm(),
-			}
-			.into())
+			Some(
+				IntInstruction::AddUpperImmediateToPc {
+					dst: utype.dst().to_gp(),
+					val: utype.imm(),
+				}
+				.into(),
+			)
 		}
 		OP_IMM_32 => op_imm_32::parse_op_imm_32(cpu, parcel),
 		UNK_48B => todo!("UNK_48B"),
@@ -52,11 +51,13 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		OP => op::parse_op(cpu, parcel),
 		LUI => {
 			let utype = UType::parse(parcel);
-			Ok(IntInstruction::LoadUpperImmediate {
-				dst: utype.dst().to_gp(),
-				val: utype.imm(),
-			}
-			.into())
+			Some(
+				IntInstruction::LoadUpperImmediate {
+					dst: utype.dst().to_gp(),
+					val: utype.imm(),
+				}
+				.into(),
+			)
 		}
 		OP_32 => op_32::parse_op_32(cpu, parcel),
 		UNK_64B => todo!("UNK_64B"),
@@ -73,11 +74,13 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Result<Instruction, ()> {
 		RESERVED => todo!("RESERVED"),
 		JAL => {
 			let jtype = JType::parse(parcel);
-			Ok(IntInstruction::JumpAndLink {
-				link_reg: jtype.dst().to_gp(),
-				jmp_off: jtype.imm(),
-			}
-			.into())
+			Some(
+				IntInstruction::JumpAndLink {
+					link_reg: jtype.dst().to_gp(),
+					jmp_off: jtype.imm(),
+				}
+				.into(),
+			)
 		}
 		SYSTEM => system::parse_system(cpu, parcel),
 		OP_VE => todo!("OP_VE"),

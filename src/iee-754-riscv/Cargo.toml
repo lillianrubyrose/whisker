@@ -1,0 +1,7 @@
+[package]
+name = "iee-754-riscv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+num-conv = "0.1.0"

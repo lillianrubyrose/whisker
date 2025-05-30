@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/whisker", "src/cutie"]
+members = ["src/whisker", "src/cutie", "src/iee-754-riscv"]
 resolver = "2"
 
 [workspace.dependencies]

@@ -246,6 +246,17 @@ impl F32 {
 
 	fn pack_f32(sign: bool, exponent: i8, mantissa: u32) -> u32 {
 		let sign_bit = if sign { 1u32 << 31 } else { 0 };
+
+		if mantissa == 0 {
+			return sign_bit;
+		}
+
+		if exponent == EXPONENT_MIN && mantissa < Self::IMPLICIT_BIT_MASK {
+			// handle subnormals, exponent is 0, mantissa is the fractional part
+			let mantissa_bits = mantissa & MANTISSA_MASK;
+			return sign_bit | mantissa_bits;
+		}
+
 		let biased_exponent = bias_exponent(exponent);
 		let exp_bits = (biased_exponent.cast_unsigned().extend::<u32>()) << MANTISSA_BITS;
 		let mantissa_bits = mantissa & MANTISSA_MASK;
@@ -263,6 +274,8 @@ impl F32 {
 		sign_bit | exp_bits | mantissa_bits
 	}
 
+	// FIXME: I don't believe this function to be correct to the RISC-V specification, at the very least in terms of rounding.
+	// As far as I can tell, overflow&underflow detection should be moved to be after rounding occurs
 	fn round_to_f32(
 		sign: bool,
 		mut exponent: i8,
@@ -362,9 +375,7 @@ impl F32 {
 			RoundingMode::RoundTowardsZero => false,
 			RoundingMode::RoundDown => sign && (guard_bit != 0 || round_bit != 0 || sticky_bit != 0),
 			RoundingMode::RoundUp => !sign && (guard_bit != 0 || round_bit != 0 || sticky_bit != 0),
-			RoundingMode::RoundToNearestTiesMaxMagnitude => {
-				guard_bit != 0 && (round_bit != 0 || sticky_bit != 0 || true)
-			}
+			RoundingMode::RoundToNearestTiesMaxMagnitude => guard_bit != 0, // always round away from zero when either a tie or a tie
 		};
 
 		println!("ROUND DEBUG: round_up={}", round_up);
@@ -390,8 +401,6 @@ impl F32 {
 		);
 
 		// overflow
-		// FIXME: overflow and underflow code doesnt work right, at least not when dealing with zeros. 0 + 90000 still results in zero
-		// maybe not even a flaw of this function, probably not. mew.
 		if exponent == EXPONENT_MAX {
 			flags.overflow = true;
 			flags.inexact = true;
@@ -945,6 +954,36 @@ mod tests {
 				//				println!("\n\n\n\n");
 			}
 		}
+	}
+
+	#[test]
+	fn test_pack_subnormal() {
+		// sign=0, exp=0, mantissa=1 -> 0x00000001
+		let result = F32::pack_f32(false, EXPONENT_MIN, 1);
+		let expected = 0x00000001; // smallest positive subnormal
+
+		println!("Subnormal test:");
+		println!("  Input: sign=false, exp={}, mantissa=1", EXPONENT_MIN);
+		println!("  Result: 0x{:08X}", result);
+		println!("  Expected: 0x{:08X}", expected);
+
+		assert_eq!(result, expected);
+	}
+
+	#[test]
+	fn test_pack_large_subnormal() {
+		// sign=0, exp=0, mantissa=0x400000 -> 0x00400000
+		let result = F32::pack_f32(false, EXPONENT_MIN, 0x400000);
+		let expected = 0x00400000;
+		assert_eq!(result, expected);
+	}
+
+	#[test]
+	fn test_pack_zero_mantissa() {
+		// should always return zero with any exponent
+		let result = F32::pack_f32(false, 5, 0);
+		let expected = 0x00000000;
+		assert_eq!(result, expected);
 	}
 }
 

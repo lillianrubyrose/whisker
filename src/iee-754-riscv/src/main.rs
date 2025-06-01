@@ -164,7 +164,17 @@ impl F32 {
 	}
 
 	fn align_mantissas(mut a: UnpackedF32, mut b: UnpackedF32) -> (UnpackedF32, UnpackedF32, i8) {
-		if a.is_zero() || b.is_zero() {
+		if a.is_zero() && b.is_zero() {
+			return (a, b, 0);
+		}
+
+		if a.is_zero() {
+			a.exponent = b.exponent;
+			return (a, b, 0);
+		}
+
+		if b.is_zero() {
+			b.exponent = a.exponent;
 			return (a, b, 0);
 		}
 
@@ -426,7 +436,10 @@ impl F32 {
 			flags.inexact = true;
 
 			// rounds to zero in all rounding modes for severe underflow
-			println!("UNDERFLOW DEBUG: rounding to zero: {:?}", F32::from_bits(if sign { 0x8000_0000 } else { 0 }));
+			println!(
+				"UNDERFLOW DEBUG: rounding to zero: {:?}",
+				F32::from_bits(if sign { 0x8000_0000 } else { 0 })
+			);
 			return (F32::from_bits(if sign { 0x8000_0000 } else { 0 }), flags);
 		}
 
@@ -446,6 +459,7 @@ impl F32 {
 		}
 
 		let (aligned_a, aligned_b, _exp_diff) = Self::align_mantissas(a, b);
+		println!("aligned_a={aligned_a:?}, aligned_b={aligned_b:?}, _exp_diff={_exp_diff:X}");
 
 		let (mut result_sign, result_exp, result_mantissa, _carry) = Self::add_aligned_mantissas(aligned_a, aligned_b);
 
@@ -894,6 +908,28 @@ mod tests {
 
 		let (res, e) = two.add(neg_two, RoundingMode::RoundToNearestTieEven);
 		assert_eq!(res.to_bits(), 0.0f32.to_bits());
+		assert!(e.no_exceptions());
+	}
+
+	#[test]
+	fn addition_zero_plus_90k() {
+		println!("addition_zero_plus_90k");
+		let zero = F32::from(0f32);
+		let ninety_k = F32::from(90000f32);
+
+		let (res, e) = zero.add(ninety_k, RoundingMode::RoundToNearestTieEven);
+		assert_eq!(res.to_bits(), 90000f32.to_bits());
+		assert!(e.no_exceptions());
+	}
+
+	#[test]
+	fn addition_90k_plus_zero() {
+		println!("addition_90k_plus_zero");
+		let zero = F32::from(0f32);
+		let ninety_k = F32::from(90000f32);
+
+		let (res, e) = ninety_k.add(zero, RoundingMode::RoundToNearestTieEven);
+		assert_eq!(res.to_bits(), 90000f32.to_bits());
 		assert!(e.no_exceptions());
 	}
 

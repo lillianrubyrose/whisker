@@ -20,6 +20,7 @@ use crate::insn::privileged::PrivilegedInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
+use crate::soft::float::SoftFloat;
 use crate::soft::ExceptionFlags;
 use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx, TrapKind};
 use crate::util::{extract_bits_64, insert_bits_64};
@@ -771,6 +772,21 @@ impl WhiskerCpu {
 			FloatInstruction::Sqrt { dst, val, rm } => {
 				let result = self.fp_registers.get_float(val).sqrt(rm, self);
 				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::SignInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				self.fp_registers.set_float(dst, lhs.set_sign(rhs.sign()));
+			}
+			FloatInstruction::SignNotInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.sign()));
+			}
+			FloatInstruction::SignXorInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_float(lhs);
+				let rhs = self.fp_registers.get_float(rhs);
+				self.fp_registers.set_float(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
 			}
 			FloatInstruction::Min { dst, lhs, rhs } => {
 				// TODO: Fix this implementation

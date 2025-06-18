@@ -130,6 +130,20 @@ impl SoftFloat {
 		unsafe { rm.write_thread_local(cpu) };
 		Self(unsafe { softfloat_sys::f32_sqrt(self.0) })
 	}
+
+	/// Returns if the sign is positive
+	pub fn sign(&self) -> bool {
+		if Self::get_sign(self.to_u32()) == 0 {
+			true
+		} else {
+			false
+		}
+	}
+
+	// TODO: Maybe rename? I'm not sure. - Lily
+	pub fn set_sign(&self, sign: bool) -> Self {
+		Self::from_u32(self.to_u32() | ((sign as u32) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+	}
 }
 
 #[allow(unused)]

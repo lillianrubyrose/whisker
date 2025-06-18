@@ -75,6 +75,33 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				)
 			}
 		}
+		SIGN_INJECTION => match rtype.func3() {
+			sign_injection::SIGN_INJECTION => Some(
+				FloatInstruction::SignInjection {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}
+				.into(),
+			),
+			sign_injection::SIGN_NOT_INJECTION => Some(
+				FloatInstruction::SignNotInjection {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}
+				.into(),
+			),
+			sign_injection::SIGN_XOR_INJECTION => Some(
+				FloatInstruction::SignXorInjection {
+					dst: rtype.dst().into(),
+					lhs: rtype.src1().into(),
+					rhs: rtype.src2().into(),
+				}
+				.into(),
+			),
+			_ => None,
+		},
 		MIN_MAX => match rtype.func3() {
 			min_max::MIN => Some(
 				FloatInstruction::Min {
@@ -132,8 +159,15 @@ pub mod consts {
 	pub const MUL_SINGLE: u8 = 0b0001000;
 	pub const DIV_SINGLE: u8 = 0b0001100;
 	pub const SQRT_SINGLE: u8 = 0b0101100;
+	pub const SIGN_INJECTION: u8 = 0b0010000;
 	pub const MIN_MAX: u8 = 0b0010100;
 	pub const CMP_SINGLE: u8 = 0b1010000;
+
+	pub mod sign_injection {
+		pub const SIGN_INJECTION: u8 = 0b000;
+		pub const SIGN_NOT_INJECTION: u8 = 0b001;
+		pub const SIGN_XOR_INJECTION: u8 = 0b010;
+	}
 
 	pub mod min_max {
 		pub const MIN: u8 = 0b000;

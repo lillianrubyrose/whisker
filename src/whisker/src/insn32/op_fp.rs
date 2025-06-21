@@ -26,7 +26,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 	let func7 = rtype.func7();
 	match func7 {
 		ADD_SINGLE => Some(
-			FloatInstruction::Add {
+			FloatInstruction::AddSingle {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -35,7 +35,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		SUB_SINGLE => Some(
-			FloatInstruction::Sub {
+			FloatInstruction::SubSingle {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -44,7 +44,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		MUL_SINGLE => Some(
-			FloatInstruction::Mul {
+			FloatInstruction::MulSingle {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -53,7 +53,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		DIV_SINGLE => Some(
-			FloatInstruction::Div {
+			FloatInstruction::DivSingle {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -66,7 +66,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				None
 			} else {
 				Some(
-					FloatInstruction::Sqrt {
+					FloatInstruction::SqrtSingle {
 						dst: rtype.dst().to_fp(),
 						val: rtype.src1().to_fp(),
 						rm,
@@ -75,9 +75,9 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				)
 			}
 		}
-		SIGN_INJECTION => match rtype.func3() {
+		SIGN_INJECTION_SINGLE => match rtype.func3() {
 			sign_injection::SIGN_INJECTION => Some(
-				FloatInstruction::SignInjection {
+				FloatInstruction::SignInjectionSingle {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -85,7 +85,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			sign_injection::SIGN_NOT_INJECTION => Some(
-				FloatInstruction::SignNotInjection {
+				FloatInstruction::SignNotInjectionSingle {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -93,7 +93,7 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			sign_injection::SIGN_XOR_INJECTION => Some(
-				FloatInstruction::SignXorInjection {
+				FloatInstruction::SignXorInjectionSingle {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -102,17 +102,17 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			),
 			_ => None,
 		},
-		MIN_MAX => match rtype.func3() {
-			min_max::MIN => Some(
-				FloatInstruction::Min {
+		MIN_MAX_SINGLE => match rtype.func3() {
+			min_max_single::MIN => Some(
+				FloatInstruction::MinSingle {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
 				}
 				.into(),
 			),
-			min_max::MAX => Some(
-				FloatInstruction::Max {
+			min_max_single::MAX => Some(
+				FloatInstruction::MaxSingle {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -122,24 +122,24 @@ pub fn parse_op_fp(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			_ => None,
 		},
 		CMP_SINGLE => match rtype.func3() {
-			cmp::EQ => Some(
-				FloatInstruction::Equal {
+			cmp_single::EQ => Some(
+				FloatInstruction::EqualSingle {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
 				}
 				.into(),
 			),
-			cmp::LESS_EQ => Some(
-				FloatInstruction::LessOrEqual {
+			cmp_single::LESS_EQ => Some(
+				FloatInstruction::LessOrEqualSingle {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
 				}
 				.into(),
 			),
-			cmp::LESS_THAN => Some(
-				FloatInstruction::LessThan {
+			cmp_single::LESS_THAN => Some(
+				FloatInstruction::LessThanSingle {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
@@ -159,8 +159,8 @@ pub mod consts {
 	pub const MUL_SINGLE: u8 = 0b0001000;
 	pub const DIV_SINGLE: u8 = 0b0001100;
 	pub const SQRT_SINGLE: u8 = 0b0101100;
-	pub const SIGN_INJECTION: u8 = 0b0010000;
-	pub const MIN_MAX: u8 = 0b0010100;
+	pub const SIGN_INJECTION_SINGLE: u8 = 0b0010000;
+	pub const MIN_MAX_SINGLE: u8 = 0b0010100;
 	pub const CMP_SINGLE: u8 = 0b1010000;
 
 	pub mod sign_injection {
@@ -169,12 +169,12 @@ pub mod consts {
 		pub const SIGN_XOR_INJECTION: u8 = 0b010;
 	}
 
-	pub mod min_max {
+	pub mod min_max_single {
 		pub const MIN: u8 = 0b000;
 		pub const MAX: u8 = 0b001;
 	}
 
-	pub mod cmp {
+	pub mod cmp_single {
 		pub const LESS_EQ: u8 = 0b000;
 		pub const LESS_THAN: u8 = 0b001;
 		pub const EQ: u8 = 0b010;

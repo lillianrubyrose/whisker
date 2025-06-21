@@ -18,82 +18,82 @@ pub enum FloatInstruction {
 		src: FPRegisterIndex,
 	},
 
-	Add {
+	AddSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 		rm: RoundingMode,
 	},
-	Sub {
+	SubSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 		rm: RoundingMode,
 	},
-	Mul {
+	MulSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 		rm: RoundingMode,
 	},
-	Div {
+	DivSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 		rm: RoundingMode,
 	},
-	Sqrt {
+	SqrtSingle {
 		dst: FPRegisterIndex,
 		val: FPRegisterIndex,
 		rm: RoundingMode,
 	},
 	// fsgnj.s
-	SignInjection {
+	SignInjectionSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
 	// fsgnjn.s
-	SignNotInjection {
+	SignNotInjectionSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
 	// fsgnjx.s
-	SignXorInjection {
+	SignXorInjectionSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
 
-	Min {
+	MinSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	Max {
+	MaxSingle {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
 
-	Equal {
+	EqualSingle {
 		dst: GPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	LessThan {
+	LessThanSingle {
 		dst: GPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	LessOrEqual {
+	LessOrEqualSingle {
 		dst: GPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
 
-	MulAdd {
+	MulAddSingle {
 		dst: FPRegisterIndex,
 		mul_lhs: FPRegisterIndex,
 		mul_rhs: FPRegisterIndex,

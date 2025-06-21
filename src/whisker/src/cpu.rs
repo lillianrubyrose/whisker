@@ -732,19 +732,19 @@ impl WhiskerCpu {
 				let val = self.fp_registers.get_float(src).to_u32();
 				write_mem_u32!(self, offset, val);
 			}
-			FloatInstruction::Add { dst, lhs, rhs, rm } => {
+			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.add(&rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::Sub { dst, lhs, rhs, rm } => {
+			FloatInstruction::SubSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.sub(&rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::MulAdd {
+			FloatInstruction::MulAddSingle {
 				dst,
 				mul_lhs,
 				mul_rhs,
@@ -757,38 +757,38 @@ impl WhiskerCpu {
 				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::Mul { dst, lhs, rhs, rm } => {
+			FloatInstruction::MulSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.mul(&rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::Div { dst, lhs, rhs, rm } => {
+			FloatInstruction::DivSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.div(&rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::Sqrt { dst, val, rm } => {
+			FloatInstruction::SqrtSingle { dst, val, rm } => {
 				let result = self.fp_registers.get_float(val).sqrt(rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::SignInjection { dst, lhs, rhs } => {
+			FloatInstruction::SignInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(rhs.sign()));
 			}
-			FloatInstruction::SignNotInjection { dst, lhs, rhs } => {
+			FloatInstruction::SignNotInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.sign()));
 			}
-			FloatInstruction::SignXorInjection { dst, lhs, rhs } => {
+			FloatInstruction::SignXorInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
 			}
-			FloatInstruction::Min { dst, lhs, rhs } => {
+			FloatInstruction::MinSingle { dst, lhs, rhs } => {
 				// TODO: Fix this implementation
 				// PAGE: 115
 				warn!("FMIN.S Implementation is incorrect");
@@ -800,7 +800,7 @@ impl WhiskerCpu {
 					self.fp_registers.set_float(dst, rhs);
 				}
 			}
-			FloatInstruction::Max { dst, lhs, rhs } => {
+			FloatInstruction::MaxSingle { dst, lhs, rhs } => {
 				// TODO: Fix this implementation
 				// PAGE: 115
 				warn!("FMAX.S Implementation is incorrect");
@@ -812,7 +812,7 @@ impl WhiskerCpu {
 					self.fp_registers.set_float(dst, rhs);
 				}
 			}
-			FloatInstruction::Equal { dst, lhs, rhs } => {
+			FloatInstruction::EqualSingle { dst, lhs, rhs } => {
 				//FEQ.S performs a quiet comparison:
 				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
 				//instructions, the result is 0 if either operand is NaN.
@@ -836,7 +836,7 @@ impl WhiskerCpu {
 			}
 			//FLT.S and FLE.S perform what the IEEE 754-2008 standard refers to as signaling comparisons: that is,
 			//they set the invalid operation exception flag if either input is NaN.
-			FloatInstruction::LessThan { dst, lhs, rhs } => {
+			FloatInstruction::LessThanSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 
@@ -850,7 +850,7 @@ impl WhiskerCpu {
 
 				self.registers.set(dst, u64::from(cmp == Ordering::Less));
 			}
-			FloatInstruction::LessOrEqual { dst, lhs, rhs } => {
+			FloatInstruction::LessOrEqualSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 

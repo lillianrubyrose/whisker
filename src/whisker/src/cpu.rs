@@ -757,6 +757,45 @@ impl WhiskerCpu {
 				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
+			FloatInstruction::MulSubSingle {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				sub,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_float(mul_lhs);
+				let mul_rhs = self.fp_registers.get_float(mul_rhs);
+				let sub = self.fp_registers.get_float(sub);
+				let result = mul_lhs.mul_sub(&mul_rhs, &sub, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::NegMulAddSingle {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				add,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
+				let mul_rhs = self.fp_registers.get_float(mul_rhs);
+				let add = self.fp_registers.get_float(add);
+				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
+			FloatInstruction::NegMulSubSingle {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				sub,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
+				let mul_rhs = self.fp_registers.get_float(mul_rhs);
+				let sub = self.fp_registers.get_float(sub);
+				let result = mul_lhs.mul_sub(&mul_rhs, &sub, rm, self);
+				self.fp_registers.set_float(dst, result);
+			}
 			FloatInstruction::MulSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);

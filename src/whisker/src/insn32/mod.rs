@@ -5,6 +5,9 @@ pub mod load;
 pub mod load_fp;
 pub mod madd;
 pub mod misc_mem;
+pub mod msub;
+pub mod nmadd;
+pub mod nmsub;
 pub mod op;
 pub mod op_32;
 pub mod op_fp;
@@ -62,9 +65,9 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 		OP_32 => op_32::parse_op_32(cpu, parcel),
 		UNK_64B => todo!("UNK_64B"),
 		MADD => madd::parse_madd(cpu, parcel),
-		MSUB => todo!("MSUB"),
-		NMSUB => todo!("NMSUB"),
-		NMADD => todo!("NMADD"),
+		MSUB => msub::parse_msub(cpu, parcel),
+		NMSUB => nmsub::parse_nmsub(cpu, parcel),
+		NMADD => nmadd::parse_nmadd(cpu, parcel),
 		OP_FP => op_fp::parse_op_fp(cpu, parcel),
 		OP_V => todo!("OP_V"),
 		CUSTOM_2 => todo!("CUSTOM_2"),

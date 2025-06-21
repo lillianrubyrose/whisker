@@ -100,6 +100,27 @@ pub enum FloatInstruction {
 		add: FPRegisterIndex,
 		rm: RoundingMode,
 	},
+	MulSubSingle {
+		dst: FPRegisterIndex,
+		mul_lhs: FPRegisterIndex,
+		mul_rhs: FPRegisterIndex,
+		sub: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+	NegMulAddSingle {
+		dst: FPRegisterIndex,
+		mul_lhs: FPRegisterIndex,
+		mul_rhs: FPRegisterIndex,
+		add: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+	NegMulSubSingle {
+		dst: FPRegisterIndex,
+		mul_lhs: FPRegisterIndex,
+		mul_rhs: FPRegisterIndex,
+		sub: FPRegisterIndex,
+		rm: RoundingMode,
+	},
 }
 
 impl Into<Instruction> for FloatInstruction {

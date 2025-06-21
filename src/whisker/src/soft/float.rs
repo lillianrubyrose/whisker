@@ -126,6 +126,11 @@ impl SoftFloat {
 		Self(unsafe { softfloat_sys::f32_mulAdd(self.0, mul.0, add.0) })
 	}
 
+	// This is probably fine
+	pub fn mul_sub(&self, mul: &Self, sub: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
+		self.mul_add(mul, &sub.set_sign(!sub.sign()), rm, cpu)
+	}
+
 	pub fn sqrt(&self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
 		unsafe { rm.write_thread_local(cpu) };
 		Self(unsafe { softfloat_sys::f32_sqrt(self.0) })

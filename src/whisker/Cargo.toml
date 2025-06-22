@@ -10,7 +10,9 @@ paste = "1.0.15"
 gdbstub = "0.7.3"
 gdbstub_arch = "0.3.1"
 
+softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.0", default-features = false, features = [
+    "riscv",
+] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-softfloat-sys = { version = "0.1.4", default-features = false, features = ["riscv"] }
 num-conv = "0.1.0"

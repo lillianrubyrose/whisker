@@ -49,6 +49,22 @@ enum Commands {
 	},
 }
 
+macro_rules! log {
+    ($cpu:ident, $($arg:tt)*) => {
+        {
+        use tracing::*;
+        use std::io::Write as _;
+        if let Some(logfile) = $cpu.logfile.as_mut() {
+            trace!($($arg)*);
+            logfile.write_fmt(format_args!($($arg)*)).expect("failed to write to log");
+            writeln!(logfile).expect("failed to write to log");
+            logfile.flush().expect("failed to write to log");
+        }
+        }
+    };
+}
+pub(crate) use log;
+
 fn main() {
 	tracing_subscriber::registry()
 		.with(tracing_subscriber::fmt::layer().without_time())

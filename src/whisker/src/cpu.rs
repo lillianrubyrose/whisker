@@ -19,6 +19,7 @@ use crate::insn::int::IntInstruction;
 use crate::insn::multiply::MultiplyInstruction;
 use crate::insn::privileged::PrivilegedInstruction;
 use crate::insn::Instruction;
+use crate::log;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
@@ -41,14 +42,12 @@ pub enum WhiskerExecStatus {
 
 #[derive(Debug)]
 pub struct WhiskerCpu {
-	logfile: Option<File>,
+	pub logfile: Option<File>,
 
 	pub supported_extensions: SupportedExtensions,
 	pub mem: Memory,
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
-
-	should_trap: bool,
 
 	pub csrs: ControlStatusRegisters,
 
@@ -61,17 +60,6 @@ pub struct WhiskerCpu {
 	pub exec_state: WhiskerExecState,
 
 	pub breakpoints: HashSet<u64>,
-}
-
-macro_rules! log {
-    ($self:ident, $($arg:tt)*) => {
-        if let Some(logfile) = $self.logfile.as_mut() {
-            trace!($($arg)*);
-            logfile.write_fmt(format_args!($($arg)*)).expect("failed to write to log");
-            writeln!(logfile).expect("failed to write to log");
-            logfile.flush().expect("failed to write to log");
-        }
-    };
 }
 
 impl WhiskerCpu {
@@ -92,7 +80,6 @@ impl WhiskerCpu {
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),
 
-			should_trap: false,
 			csrs: ControlStatusRegisters::new(),
 
 			pc: 0,
@@ -114,12 +101,6 @@ impl WhiskerCpu {
 		//	self.request_trap(TrapIdx::MACHINE_TIMER_INTERRUPT, 0);
 		//	return Ok(());
 		//}
-
-		if self.should_trap {
-			self.exec_trap()?;
-			self.dump();
-			return Ok(());
-		}
 
 		if self.breakpoints.contains(&self.pc) {
 			log!(self, "  reached breakpoint at {:#018X}", self.pc);
@@ -149,6 +130,8 @@ impl WhiskerCpu {
 		Ok(())
 	}
 
+	/// requests the specified trap to happen
+	/// sets `next_pc` to the appropriate handler for the trap
 	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
 		log!(
 			self,
@@ -193,7 +176,9 @@ impl WhiskerCpu {
 		self.write_csr_unchecked(csr::MCAUSE, trap.inner());
 		self.write_csr_unchecked(csr::MTVAL, mtval);
 		self.write_csr_unchecked(csr::MEPC, self.pc);
-		self.should_trap = true;
+		let mtvec = self.read_csr_unchecked(csr::MTVEC);
+		log!(self, "  trap handler at {mtvec:#018X}");
+		self.next_pc = mtvec;
 	}
 
 	/// checks whether the CPU should trap due to an interrupt
@@ -443,20 +428,6 @@ impl WhiskerCpu {
 			write!(f, "{}", out).expect("unable to write to logfile");
 			f.flush().expect("unable to flush logfile");
 		}
-	}
-
-	fn exec_trap(&mut self) -> Result<(), WhiskerExecStatus> {
-		let cause = self.read_csr_unchecked(csr::MCAUSE);
-		let mtval = self.read_csr_unchecked(csr::MTVAL);
-		log!(self, "  executing trap mcause={cause:#018X} mtval={mtval:#018X}");
-		let mtvec = self.read_csr_unchecked(csr::MTVEC);
-		log!(self, "  trap handler at {mtvec:#018X}");
-
-		// TODO: there's a lot more CSRs that need to be set up properly here and in request_trap
-		self.pc = mtvec;
-		// make it so that the next execution cycle of the cpu doesn't go here
-		self.should_trap = false;
-		Ok(())
 	}
 
 	fn execute_i_insn(&mut self, insn: IntInstruction) {

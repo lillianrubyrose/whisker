@@ -13,12 +13,11 @@ use int::IntInstruction;
 use multiply::MultiplyInstruction;
 use num_conv::prelude::*;
 use privileged::PrivilegedInstruction;
-use tracing::warn;
 
 use crate::insn::csr::CSRInstruction;
 use crate::ty::{SupportedExtensions, TrapIdx};
 use crate::util::extract_bits_16;
-use crate::{insn16, insn32, WhiskerCpu};
+use crate::{insn16, insn32, log, WhiskerCpu};
 
 #[derive(Debug)]
 pub enum Instruction {
@@ -40,7 +39,7 @@ impl Instruction {
 		let parcel1 = match cpu.mem.read_u16(pc) {
 			Ok(parcel1) => parcel1,
 			Err(addr) => {
-				warn!("could not read start of instruction from {:#018X}", pc);
+				log!(cpu, "  could not read start of instruction from {:#018X}", pc);
 				// FIXME: this addr is probably not right?
 				cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 				return Err(());
@@ -52,7 +51,7 @@ impl Instruction {
 		// to be the length of the smallest supported instruction
 		// FIXME: currently we believe this does not matter?
 		if parcel1 == 0 {
-			warn!("tried to execute all 0 instruction at {:#018X}", pc);
+			log!(cpu, "  tried to execute all 0 instruction at {:#018X}", pc);
 			cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 			return Err(());
 		}
@@ -62,13 +61,18 @@ impl Instruction {
 				match insn16::parse(cpu, parcel1) {
 					Some(insn) => Ok((insn, 2)),
 					None => {
-						warn!("unable to parse 16 bit instruction {parcel1:#06X}");
+						log!(cpu, "  unable to parse 16 bit instruction {parcel1:#06X}");
 						cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 						Err(())
 					}
 				}
 			} else {
-				warn!("tried to execute compressed instruction at {:#018X}", pc);
+				log!(
+					cpu,
+					"  tried to execute compressed instruction {:#06X} at {:#018X} when compressed instructions were disabled",
+					parcel1,
+					pc
+				);
 				cpu.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend());
 				Err(())
 			}
@@ -78,7 +82,7 @@ impl Instruction {
 			let high_parcel = match cpu.mem.read_u16(pc + 2) {
 				Ok(p) => p,
 				Err(addr) => {
-					warn!("could not read u32 instruction from {:#018X}", pc);
+					log!(cpu, "  could not read u32 instruction from {:#018X}", pc);
 					// FIXME: this addr is probably not right?
 					cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr);
 					return Err(());

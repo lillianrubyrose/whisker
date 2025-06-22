@@ -73,7 +73,9 @@ impl Instruction {
 				Err(())
 			}
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
-			let full_parcel = match cpu.mem.read_u32(pc) {
+			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
+			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
+			let high_parcel = match cpu.mem.read_u16(pc + 2) {
 				Ok(p) => p,
 				Err(addr) => {
 					warn!("could not read u32 instruction from {:#018X}", pc);
@@ -82,6 +84,7 @@ impl Instruction {
 					return Err(());
 				}
 			};
+			let full_parcel = high_parcel.extend::<u32>() << 16 | parcel1.extend::<u32>();
 			match insn32::parse(cpu, full_parcel) {
 				Some(insn) => Ok((insn, 4)),
 				None => {

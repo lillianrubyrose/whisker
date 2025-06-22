@@ -5,6 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use num_conv::Extend;
 use tracing::*;
 
 pub mod csr;
@@ -20,9 +21,8 @@ use crate::insn::privileged::PrivilegedInstruction;
 use crate::insn::Instruction;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
-use crate::soft::float::SoftFloat;
 use crate::soft::ExceptionFlags;
-use crate::ty::{GPRegisterIndex, SupportedExtensions, TrapIdx, TrapKind};
+use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind};
 use crate::util::{extract_bits_64, insert_bits_64};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -323,7 +323,7 @@ macro_rules! read_mem_float {
 	};
 }
 
-#[allow(unused)]
+#[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
 	($self:ident, $offset:ident) => {
 		match $self.mem.read_soft_double($offset) {
@@ -375,6 +375,31 @@ macro_rules! write_mem_u32 {
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $val:ident) => {
 		match $self.mem.write_u64($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+macro_rules! write_mem_float {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_soft_float($offset, $val) {
+			Ok(()) => (),
+			Err(addr) => {
+				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+				return;
+			}
+		}
+	};
+}
+
+#[expect(unused, reason = "doubles NYI")]
+macro_rules! write_mem_double {
+	($self:ident, $offset:ident, $val:ident) => {
+		match $self.mem.write_soft_double($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -729,8 +754,8 @@ impl WhiskerCpu {
 			}
 			FloatInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.fp_registers.get_float(src).to_u32();
-				write_mem_u32!(self, offset, val);
+				let val = self.fp_registers.get_float(src);
+				write_mem_float!(self, offset, val);
 			}
 			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
@@ -1014,19 +1039,24 @@ impl WhiskerCpu {
 	}
 
 	fn exec_atomic_insn(&mut self, insn: AtomicInstruction) {
-		// TODO: For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic and other things we do-
-		// not currently implement.
-		const HART_ID: usize = 0;
+		// TODO(atomic): For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic
+		// and other things we do not currently implement.
 		match insn {
 			AtomicInstruction::LoadReservedWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-				let val = self
-					.mem
-					.load_reserved_word(addr, HART_ID)
-					.expect("addr to be in physmem");
-
-				self.registers.set(dst, val as u64);
+				match self.mem.load_reserved_word(addr, HartId::HART0) {
+					Ok(val) => {
+						self.registers.set(dst, val.extend());
+					}
+					Err(addr) => {
+						self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::StoreConditionalWord {
 				src1,
@@ -1036,17 +1066,19 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr);
+					return;
+				}
+
 				let val = self.registers.get(src2) as u32;
-				let success = self
-					.mem
-					.store_conditional_word(addr, HART_ID, val)
-					.expect("addr to be in physmem");
-				if success {
-					self.registers.set(dst, 0);
-				} else {
-					// TODO: From the little bit I read it says "nonzero code on failure"
-					// We should figure out what that value should be, unless it's arbitrary
-					self.registers.set(dst, 1);
+
+				match self.mem.store_conditional_word(addr, HartId::HART0, val) {
+					Ok(true) => self.registers.set(dst, 0),
+					Ok(false) => self.registers.set(dst, 1),
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
 				}
 			}
 			AtomicInstruction::SwapWord {
@@ -1057,16 +1089,24 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// swap src2 to (src1)
-						let src2_val = self.registers.get(src2);
-						Some(src2_val as u32)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// swap src2 to (src1)
+					let src2_val = self.registers.get(src2);
+					Some(src2_val as u32)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::AddWord {
 				src1,
@@ -1076,17 +1116,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// add src2 value to (src1)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = word.wrapping_add(src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// add src2 value to (src1)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = word.wrapping_add(src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::XorWord {
 				src1,
@@ -1096,17 +1144,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// xor src2 value with (src1)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = word ^ src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// xor src2 value with (src1)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = word ^ src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::AndWord {
 				src1,
@@ -1116,17 +1172,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// and src2 value with (src1)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = word & src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// and src2 value with (src1)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = word & src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::OrWord {
 				src1,
@@ -1136,17 +1200,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// or src2 value with (src1)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = word | src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// or src2 value with (src1)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = word | src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MinWord {
 				src1,
@@ -1156,17 +1228,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// min of src2 value and (src1) (signed)
-						let src2_val = self.registers.get(src2) as i32;
-						let new_val = std::cmp::min(word as i32, src2_val) as u32;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// min of src2 value and (src1) (signed)
+					let src2_val = self.registers.get(src2) as i32;
+					let new_val = std::cmp::min(word as i32, src2_val) as u32;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MaxWord {
 				src1,
@@ -1176,17 +1256,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// max of src2 value and (src1) (signed)
-						let src2_val = self.registers.get(src2) as i32;
-						let new_val = std::cmp::max(word as i32, src2_val) as u32;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// max of src2 value and (src1) (signed)
+					let src2_val = self.registers.get(src2) as i32;
+					let new_val = std::cmp::max(word as i32, src2_val) as u32;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MinUnsignedWord {
 				src1,
@@ -1196,17 +1284,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// min of src2 value and (src1) (unsigned)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = std::cmp::min(word, src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// min of src2 value and (src1) (unsigned)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = std::cmp::min(word, src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MaxUnsignedWord {
 				src1,
@@ -1216,28 +1312,42 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_word(addr, |word| {
-						// put (src1) value into rd
-						self.registers.set(dst, u64::from(word));
+				if addr % 4 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// max of src2 value and (src1) (unsigned)
-						let src2_val = self.registers.get(src2) as u32;
-						let new_val = std::cmp::max(word, src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_word(addr, |word| {
+					// put (src1) value into rd
+					self.registers.set(dst, u64::from(word));
+
+					// max of src2 value and (src1) (unsigned)
+					let src2_val = self.registers.get(src2) as u32;
+					let new_val = std::cmp::max(word, src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 
 			AtomicInstruction::LoadReservedDoubleWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-				let val = self
-					.mem
-					.load_reserved_dword(addr, HART_ID)
-					.expect("addr to be in physmem");
-
-				self.registers.set(dst, val);
+				match self.mem.load_reserved_dword(addr, HartId::HART0) {
+					Ok(val) => {
+						self.registers.set(dst, val);
+					}
+					Err(addr) => {
+						self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::StoreConditionalDoubleWord {
 				src1,
@@ -1247,17 +1357,18 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr);
+					return;
+				}
+
 				let val = self.registers.get(src2);
-				let success = self
-					.mem
-					.store_conditional_dword(addr, HART_ID, val)
-					.expect("addr to be in physmem");
-				if success {
-					self.registers.set(dst, 0);
-				} else {
-					// TODO: From the little bit I read it says "nonzero code on failure"
-					// We should figure out what that value should be, unless it's arbitrary
-					self.registers.set(dst, 1);
+				match self.mem.store_conditional_dword(addr, HartId::HART0, val) {
+					Ok(true) => self.registers.set(dst, 0),
+					Ok(false) => self.registers.set(dst, 1),
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
 				}
 			}
 			AtomicInstruction::SwapDoubleWord {
@@ -1268,16 +1379,24 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// swap src2 to (src1)
-						let src2_val = self.registers.get(src2);
-						Some(src2_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// swap src2 to (src1)
+					let src2_val = self.registers.get(src2);
+					Some(src2_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::AddDoubleWord {
 				src1,
@@ -1287,17 +1406,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// add src2 value to (src1)
-						let src2_val = self.registers.get(src2);
-						let new_val = dword.wrapping_add(src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// add src2 value to (src1)
+					let src2_val = self.registers.get(src2);
+					let new_val = dword.wrapping_add(src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::XorDoubleWord {
 				src1,
@@ -1307,17 +1434,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// xor src2 value with (src1)
-						let src2_val = self.registers.get(src2);
-						let new_val = dword ^ src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// xor src2 value with (src1)
+					let src2_val = self.registers.get(src2);
+					let new_val = dword ^ src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::AndDoubleWord {
 				src1,
@@ -1327,17 +1462,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// and src2 value with (src1)
-						let src2_val = self.registers.get(src2);
-						let new_val = dword & src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// and src2 value with (src1)
+					let src2_val = self.registers.get(src2);
+					let new_val = dword & src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::OrDoubleWord {
 				src1,
@@ -1347,17 +1490,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// or src2 value with (src1)
-						let src2_val = self.registers.get(src2);
-						let new_val = dword | src2_val;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// or src2 value with (src1)
+					let src2_val = self.registers.get(src2);
+					let new_val = dword | src2_val;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MinDoubleWord {
 				src1,
@@ -1367,17 +1518,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// min of src2 value and (src1) (signed)
-						let src2_val = self.registers.get(src2) as i64;
-						let new_val = std::cmp::min(dword as i64, src2_val) as u64;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// min of src2 value and (src1) (signed)
+					let src2_val = self.registers.get(src2) as i64;
+					let new_val = std::cmp::min(dword as i64, src2_val) as u64;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MaxDoubleWord {
 				src1,
@@ -1387,17 +1546,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// max of src2 value and (src1) (signed)
-						let src2_val = self.registers.get(src2) as i64;
-						let new_val = std::cmp::max(dword as i64, src2_val) as u64;
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// max of src2 value and (src1) (signed)
+					let src2_val = self.registers.get(src2) as i64;
+					let new_val = std::cmp::max(dword as i64, src2_val) as u64;
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MinUnsignedDoubleWord {
 				src1,
@@ -1407,17 +1574,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// min of src2 value and (src1) (unsigned)
-						let src2_val = self.registers.get(src2);
-						let new_val = std::cmp::min(dword, src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// min of src2 value and (src1) (unsigned)
+					let src2_val = self.registers.get(src2);
+					let new_val = std::cmp::min(dword, src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 			AtomicInstruction::MaxUnsignedDoubleWord {
 				src1,
@@ -1427,17 +1602,25 @@ impl WhiskerCpu {
 				_rl,
 			} => {
 				let addr = self.registers.get(src1);
-				self.mem
-					.atomic_op_dword(addr, |dword| {
-						// put (src1) value into rd
-						self.registers.set(dst, dword);
+				if addr % 8 != 0 {
+					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+					return;
+				}
 
-						// max of src2 value and (src1) (unsigned)
-						let src2_val = self.registers.get(src2);
-						let new_val = std::cmp::max(dword, src2_val);
-						Some(new_val)
-					})
-					.expect("addr to be in physmem");
+				match self.mem.atomic_op_dword(addr, |dword| {
+					// put (src1) value into rd
+					self.registers.set(dst, dword);
+
+					// max of src2 value and (src1) (unsigned)
+					let src2_val = self.registers.get(src2);
+					let new_val = std::cmp::max(dword, src2_val);
+					Some(new_val)
+				}) {
+					Ok(_) => {}
+					Err(addr) => {
+						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+					}
+				}
 			}
 		}
 	}

@@ -20,6 +20,7 @@ use gdbstub::{
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
+use crate::ty::HartId;
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
@@ -177,7 +178,7 @@ impl SingleThreadBase for WhiskerCpu {
 		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
 		data: &[u8],
 	) -> gdbstub::target::TargetResult<(), Self> {
-		match self.mem.write_slice(start_addr, data) {
+		match self.mem.write_slice(HartId::HART0, start_addr, data) {
 			Ok(()) => Ok(()),
 			// EREMOTEIO - causes gdb to report "cannot access memory at <start_addr>"
 			Err(_addr) => Err(TargetError::Errno(121)),

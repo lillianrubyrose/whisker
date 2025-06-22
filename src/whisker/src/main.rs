@@ -26,7 +26,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
 use crate::mem::{MemoryBuilder, PageBase, PageEntry};
-use crate::ty::SupportedExtensions;
+use crate::ty::{HartId, SupportedExtensions};
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -102,10 +102,10 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 		.add_mapping(
 			PageBase::from_addr(UART_ADDR),
 			PageEntry::MMIO {
-				on_read: Box::new(|_| unimplemented!("read from UART")),
-				on_write: Box::new(move |addr, val| {
+				read: Box::new(|_, _| unimplemented!("read from UART")),
+				write: Box::new(move |addr, val| {
 					if addr == UART_ADDR {
-						print!("{}", val as char);
+						print!("{}", val[0] as char);
 						io::stdout().flush().unwrap();
 					}
 				}),
@@ -113,7 +113,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 		)
 		.build();
 
-	mem.write_slice(DRAM_BASE, kernel.as_slice())
+	mem.write_slice(HartId::HART0, DRAM_BASE, kernel.as_slice())
 		.expect("unable to copy kernel to memory");
 
 	let mut cpu = WhiskerCpu::new(supported, mem, logfile);

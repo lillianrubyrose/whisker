@@ -322,6 +322,19 @@ impl TrapIdx {
 	pub const MACHINE_EXTERNAL_INTERRUPT: Self = Self::interrupt(11);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// the ID of a hart
+/// this is a newtype because it really only makes sense as an ID, not a number
+/// math MUST NOT be done on it.
+pub struct HartId(u8);
+
+impl HartId {
+	pub const NUM_HARTS: u8 = 1;
+
+	// FIXME: right now only hart 0 is implemented, audit all uses
+	pub const HART0: Self = Self(0);
+}
+
 /// these exist to allow the generic RegisterIndex to derive things without needing the underlying register
 /// container type to derive things
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

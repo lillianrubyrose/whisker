@@ -153,9 +153,7 @@ impl WhiskerCpu {
 			MIP => self.write_mip(val),
 			// registers that need no special handling, or missing registers
 			_ => match self.csrs.regs.get_mut(&idx) {
-				Some(info) => {
-					info.val = val;
-				}
+				Some(info) => info.val = val,
 				// the token ensures that the CSR exists
 				None => unreachable!(),
 			},
@@ -179,7 +177,15 @@ impl WhiskerCpu {
 	}
 }
 
-/// special CSRs that need to ignore fields or have side effects
+// special CSRs that need to ignore fields or do other non-trivial logic for reads
+impl WhiskerCpu {
+	fn read_misa(&self) -> u64 {
+		// 64 bit XLEN
+		2 << 62 | self.supported_extensions.inner()
+	}
+}
+
+// special CSRs that need to ignore fields or do other non-trivial logic for writes
 impl WhiskerCpu {
 	fn write_mstatus(&mut self, val: u64) {
 		// we only implement MIE, MPIE, and MPP
@@ -187,20 +193,20 @@ impl WhiskerCpu {
 		// however MPP is read-only 0b11
 		// FIXME: VS, FS, XS, SD?
 		const MSTATUS_WRITE_MASK: u64 = 1 << 3 | 1 << 7;
-		const MSTATUS_WRITE_FORCED: u64 = 0b11 << 11;
 		error!("not yet implemented: side effects for MSTATUS");
-		self.write_csr_unchecked(MSTATUS, val & MSTATUS_WRITE_MASK | MSTATUS_WRITE_FORCED);
-	}
-
-	fn read_misa(&self) -> u64 {
-		// 64 bit XLEN
-		2 << 62 | self.supported_extensions.inner()
+		let other = self.read_csr_unchecked(MSTATUS) & !MSTATUS_WRITE_MASK;
+		let val = val & MSTATUS_WRITE_MASK;
+		self.write_csr_unchecked(MSTATUS, other | val);
+		// FIXME: should we always do this check or only when MIE is changed?
+		self.check_interrupt_trap();
 	}
 
 	fn write_mie(&mut self, val: u64) {
 		// machine software, machine timer, and machine external interrupts
 		const INTERRUPT_ENABLE_BITS: u64 = 1 << 3 | 1 << 7 | 1 << 11;
-		self.write_csr_unchecked(MIE, val & INTERRUPT_ENABLE_BITS);
+		let other = self.read_csr_unchecked(MIE) & !INTERRUPT_ENABLE_BITS;
+		let val = val & INTERRUPT_ENABLE_BITS;
+		self.write_csr_unchecked(MIE, other | val);
 		self.check_interrupt_trap();
 	}
 
@@ -209,8 +215,11 @@ impl WhiskerCpu {
 		// to become pending.
 		// this function therefore does not write to MIP, but exists so that future implemented
 		// interrupts might be able to use it.
-		const INTERRUPT_PENDING_BITS: u64 = 0;
-		self.write_csr_unchecked(MIP, val & INTERRUPT_PENDING_BITS);
+		// FIXME(csr): implement the above comment correctly; for the moment this allows all writes
+		const INTERRUPT_PENDING_BITS: u64 = u64::MAX;
+		let other = self.read_csr_unchecked(MIP) & !INTERRUPT_PENDING_BITS;
+		let val = val & INTERRUPT_PENDING_BITS;
+		self.write_csr_unchecked(MIP, other | val);
 		self.check_interrupt_trap();
 	}
 }

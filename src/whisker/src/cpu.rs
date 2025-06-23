@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
 
-use num_conv::Extend;
+use num_conv::{Extend, Truncate};
 use tracing::*;
 
 pub mod csr;
@@ -24,7 +24,7 @@ use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
 use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind};
-use crate::util::{extract_bits_64, insert_bits_64};
+use crate::util::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
@@ -94,13 +94,20 @@ impl WhiskerCpu {
 		self.cycles += 1;
 		log!(self, "cycle {}", self.cycles);
 
-		self.check_interrupt_trap();
-
 		// DEBUG: send timer interrupts occasionally
-		//if self.cycles > 1024 && self.cycles % 150 == 0 {
-		//	self.request_trap(TrapIdx::MACHINE_TIMER_INTERRUPT, 0);
-		//	return Ok(());
-		//}
+		// if self.cycles > 1024 && self.cycles % 100 == 0 {
+		// 	// set the machine timer interrupt pending bit
+		// 	let mip = self.read_csr_unchecked(csr::MIP);
+		// 	self.write_csr_unchecked(csr::MIP, mip | 1 << 7);
+		// }
+
+		// if a trap happened, just update pc and return
+		// next cycle will fetch
+		if self.check_interrupt_trap() {
+			self.pc = self.next_pc;
+			self.dump();
+			return Ok(());
+		}
 
 		if self.breakpoints.contains(&self.pc) {
 			log!(self, "  reached breakpoint at {:#018X}", self.pc);
@@ -162,41 +169,47 @@ impl WhiskerCpu {
 				return;
 			}
 
+			// set the bit to signal that the interrupt is pending being handled
 			let mip = self.read_csr_unchecked(csr::MIP);
-			if mip & (1 << trap.cause()) == 0 {
-				log!(
-					self,
-					"  skipped interrupt cause {:#018X}: cause not pending in MIP CSR",
-					trap.inner()
-				);
-				return;
-			}
+			self.write_csr_unchecked(csr::MIP, mip | (1 << trap.cause()));
 		}
 
 		self.write_csr_unchecked(csr::MCAUSE, trap.inner());
 		self.write_csr_unchecked(csr::MTVAL, mtval);
+
+		// set MPIE to the value of MIE before the trap was taken
+		// and then disable MIE
+		let mstatus = self.read_csr_unchecked(csr::MSTATUS);
+		let mie = extract_bit_64(mstatus, csr::mstatus::MIE_BIT).truncate::<u8>();
+		let mstatus = insert_bit_64(mstatus, mie, csr::mstatus::MPIE_BIT);
+		let mstatus = insert_bit_64(mstatus, 0, csr::mstatus::MIE_BIT);
+		self.write_csr_unchecked(csr::MSTATUS, mstatus);
+
+		// save interrupted PC for return
 		self.write_csr_unchecked(csr::MEPC, self.pc);
+
 		let mtvec = self.read_csr_unchecked(csr::MTVEC);
 		log!(self, "  trap handler at {mtvec:#018X}");
 		self.next_pc = mtvec;
 	}
 
 	/// checks whether the CPU should trap due to an interrupt
-	pub fn check_interrupt_trap(&mut self) {
+	pub fn check_interrupt_trap(&mut self) -> bool {
 		log!(self, "checking interrupts");
 		let mstatus = self.read_csr_unchecked(csr::MSTATUS);
 		if mstatus & csr::mstatus::MIE == 0 {
 			log!(self, "  interrupts globally disabled");
-			return;
+			return false;
 		}
 		// NOTE: mideleg CSR does not exist, so we do not need to check it
 
 		let mip = self.read_csr_unchecked(csr::MIP);
+		log!(self, "  mip currently pending: {:#018X}", mip);
 		let mie = self.read_csr_unchecked(csr::MIE);
 		let to_trap = mip & mie;
-		log!(self, " enabled and pending: {:#018X}", to_trap);
+		log!(self, "  pending and enabled: {:#018X}", to_trap);
 		if to_trap == 0 {
-			return;
+			return false;
 		}
 
 		// this subtraction cannot overflow because we know at least one bit is set
@@ -204,7 +217,7 @@ impl WhiskerCpu {
 		// implementation specific interrupts have priority from most significant bit to least
 		if highest_bit >= 16 {
 			self.request_trap(TrapIdx::interrupt(highest_bit as u64), 0);
-			return;
+			return true;
 		}
 
 		// standard interrupts have priority:
@@ -216,12 +229,16 @@ impl WhiskerCpu {
 		const TIMER_INTERRUPT_MASK: u64 = 1 << 7;
 		if to_trap & EXTERNAL_INTERRUPT_MASK != 0 {
 			self.request_trap(TrapIdx::MACHINE_EXTERNAL_INTERRUPT, 0);
+			true
 		} else if to_trap & SOFTWARE_INTERRUPT_MASK != 0 {
 			self.request_trap(TrapIdx::MACHINE_SOFTWARE_INTERRUPT, 0);
+			true
 		} else if to_trap & TIMER_INTERRUPT_MASK != 0 {
-			self.request_trap(TrapIdx::MACHINE_EXTERNAL_INTERRUPT, 0);
+			self.request_trap(TrapIdx::MACHINE_TIMER_INTERRUPT, 0);
+			true
 		} else {
 			error!("unsupported trap bits {:#018X}", to_trap);
+			false
 		}
 	}
 
@@ -1744,14 +1761,14 @@ impl WhiskerCpu {
 		match insn {
 			PrivilegedInstruction::Mret => {
 				let status = self.read_csr_unchecked(csr::MSTATUS);
-				let mpie = extract_bits_64(status, csr::mstatus::MPIE_BIT, csr::mstatus::MPIE_BIT);
+				let mpie = extract_bit_64(status, csr::mstatus::MPIE_BIT).truncate::<u8>();
 				let new_priv = extract_bits_64(status, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
 				debug_assert_eq!(new_priv, 0b11, "only M mode is supported");
 
-				// set MIE to MPIE, MPIE to 1, and MPP to 0b11
-				let status = insert_bits_64(status, mpie, csr::mstatus::MIE_BIT, csr::mstatus::MIE_BIT);
-				let status = insert_bits_64(status, 1, csr::mstatus::MPIE_BIT, csr::mstatus::MPIE_BIT);
-				let status = insert_bits_64(status, 0b11, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
+				// set MIE to MPIE and MPIE to 1
+				let status = insert_bit_64(status, mpie, csr::mstatus::MIE_BIT);
+				let status = insert_bit_64(status, 1, csr::mstatus::MPIE_BIT);
+				// do not need to set MPP, that is read only 0b11 and cannot be modified
 
 				self.write_csr_unchecked(csr::MSTATUS, status);
 				self.next_pc = self.read_csr_unchecked(csr::MEPC);

@@ -520,8 +520,7 @@ impl WhiskerCpu {
 				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
-				// FIXME: this is not a static +4, it should be "the next instruction"
-				self.registers.set(link_reg, self.pc + 4);
+				self.registers.set(link_reg, self.next_pc);
 				// FIXME: if C extension is not enabled, check alignment
 				// note: jmp_off is aligned to 2 by nature of its construction during parsing
 				self.next_pc = self.pc.wrapping_add_signed(jmp_off);
@@ -531,10 +530,10 @@ impl WhiskerCpu {
 				jmp_reg,
 				jmp_off,
 			} => {
-				// FIXME: this is not a static +4, it should be "the next instruction"
-				self.registers.set(link_reg, self.pc + 4);
+				let jmp_val = self.registers.get(jmp_reg);
+				self.registers.set(link_reg, self.next_pc);
 				// FIXME: if C extension is not enabled, check alignment
-				self.next_pc = self.registers.get(jmp_reg).wrapping_add_signed(jmp_off) & !1;
+				self.next_pc = jmp_val.wrapping_add_signed(jmp_off) & !1;
 			}
 			IntInstruction::Add { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);

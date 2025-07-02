@@ -242,12 +242,22 @@ impl CompressedInstruction {
 						let sub_func2 = extract_bits_16(parcel, 5, 6) as u8;
 						if is_word {
 							match sub_func2 {
-								SUBW => {
-									todo!("SUBW (OP-32)")
-								}
-								ADDW => {
-									todo!("ADDW (OP-32)")
-								}
+								ADDW => Some(
+									IntInstruction::AddWord {
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+										dst: ca.src1(),
+									}
+									.into(),
+								),
+								SUBW => Some(
+									IntInstruction::SubWord {
+										lhs: ca.src1(),
+										rhs: ca.src2(),
+										dst: ca.src1(),
+									}
+									.into(),
+								),
 								// reserved
 								_ => None,
 							}

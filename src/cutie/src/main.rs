@@ -69,6 +69,16 @@ enum Commands {
 
 		files: Vec<PathBuf>,
 	},
+	CompileStaticLib {
+		#[arg(short, long, default_value_t = String::from("libmylib.a"))]
+		out: String,
+		#[arg(short = 'f', long, value_delimiter = ',', value_parser = ISAExtension::parse)]
+		extensions: Vec<ISAExtension>,
+		#[arg(long, short = 'C')]
+		compile_args: Vec<String>,
+
+		files: Vec<PathBuf>,
+	},
 
 	Objcopy {
 		elf: PathBuf,
@@ -97,7 +107,22 @@ fn main() {
 			let elf = link_to_elf(objs.as_slice(), linker_script.as_path());
 			copy_to_flat_bin(&elf, out.as_str());
 		}
+		Commands::CompileStaticLib {
+			files,
+			extensions,
+			out,
+			compile_args,
+		} => {
+			let objs = compile(files.as_slice(), flatten_to_set(extensions), compile_args.as_slice());
+			create_staticlib(objs.as_slice(), out.as_str());
+		}
+		Commands::Objcopy { elf } => {
+			let mut out_bin_name = elf.file_stem().unwrap().to_string_lossy().into_owned();
+			out_bin_name.push_str(".bin");
+			copy_to_flat_bin(elf.as_path(), &out_bin_name);
+		}
 
+		// shortcuts/special cases
 		Commands::CompileBootLoader => {
 			let bootloader_name = "boot.bin";
 			let bootloader_path = PathBuf::from("src/boot/boot.s");
@@ -110,11 +135,6 @@ fn main() {
 			let whisker_path = PathBuf::from("examples/whisker.c");
 			let objs = compile(&[whisker_path], ISAExtension::all(), &[]);
 			create_staticlib(objs.as_slice(), "libwhisker.a");
-		}
-		Commands::Objcopy { elf } => {
-			let mut out_bin_name = elf.file_stem().unwrap().to_string_lossy().into_owned();
-			out_bin_name.push_str(".bin");
-			copy_to_flat_bin(elf.as_path(), &out_bin_name);
 		}
 	}
 }

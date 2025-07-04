@@ -36,7 +36,7 @@ impl Instruction {
 		let pc = cpu.pc;
 		let support_compressed = cpu.supported_extensions.has(SupportedExtensions::COMPRESSED);
 
-		let parcel1 = match cpu.mem.read_u16(pc) {
+		let parcel1 = match cpu.read_mem_u16(pc) {
 			Ok(parcel1) => parcel1,
 			Err(addr) => {
 				log!(cpu, "  could not read start of instruction from {:#018X}", pc);
@@ -79,7 +79,7 @@ impl Instruction {
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
 			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
 			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
-			let high_parcel = match cpu.mem.read_u16(pc + 2) {
+			let high_parcel = match cpu.read_mem_u16(pc + 2) {
 				Ok(p) => p,
 				Err(addr) => {
 					log!(cpu, "  could not read u32 instruction from {:#018X}", pc);

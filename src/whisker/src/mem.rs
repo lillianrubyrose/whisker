@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::*;
 
+use crate::cpu::WhiskerCpu;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
 use crate::ty::HartId;
@@ -146,7 +147,7 @@ impl Memory {
 /// addr MUST be aligned to the size of $ty, such that it does not cross a page boundary
 macro_rules! read_simple_inner {
 	($self:expr, $ty:ty, $addr:expr) => {{
-		let Some((page, page_offset)) = $self.lookup_addr($addr) else {
+		let Some((page, page_offset)) = $self.mem.lookup_addr($addr) else {
 			return Err($addr);
 		};
 
@@ -155,14 +156,14 @@ macro_rules! read_simple_inner {
 				let offset = phys_base + page_offset;
 				trace!("Reading from physmem @ {:#018X}", offset);
 				let mut ret = <$ty>::default().to_le_bytes();
-				ret.copy_from_slice(&$self.phys[offset as usize..][..core::mem::size_of::<$ty>()]);
+				ret.copy_from_slice(&$self.mem.phys[offset as usize..][..core::mem::size_of::<$ty>()]);
 				Ok(<$ty>::from_le_bytes(ret))
 			}
 			PageEntry::Bootrom { page_base } => {
 				let offset = page_base + page_offset;
 				trace!("Reading from bootrom @ {:#018X}", offset);
 				let mut ret = <$ty>::default().to_le_bytes();
-				ret.copy_from_slice(&$self.bootrom[offset as usize..][..core::mem::size_of::<$ty>()]);
+				ret.copy_from_slice(&$self.mem.bootrom[offset as usize..][..core::mem::size_of::<$ty>()]);
 				Ok(<$ty>::from_le_bytes(ret))
 			}
 			PageEntry::MMIO { read, .. } => {
@@ -178,7 +179,7 @@ macro_rules! read_simple_inner {
 /// addr MUST be aligned to the size of $ty, such that it does not cross a page boundary
 macro_rules! write_simple_inner {
 	($self:expr, $ty:ty, $addr:expr, $val:expr) => {{
-		let Some((page, page_offset)) = $self.lookup_addr($addr) else {
+		let Some((page, page_offset)) = $self.mem.lookup_addr($addr) else {
 			return Err($addr);
 		};
 
@@ -187,7 +188,7 @@ macro_rules! write_simple_inner {
 				let offset = phys_base + page_offset;
 				trace!("writing to physmem @ {:#018X}", offset);
 				let val = $val.to_le_bytes();
-				$self.phys[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&val);
+				$self.mem.phys[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&val);
 				Ok(())
 			}
 			PageEntry::Bootrom { page_base } => {
@@ -195,7 +196,7 @@ macro_rules! write_simple_inner {
 				// FIXME: this is temporarily permitted but probably shouldn't be
 				warn!("writing to bootrom @ {:#018X}", offset);
 				let val = $val.to_le_bytes();
-				$self.bootrom[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&val);
+				$self.mem.bootrom[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&val);
 				Ok(())
 			}
 			PageEntry::MMIO { write, .. } => {
@@ -208,13 +209,14 @@ macro_rules! write_simple_inner {
 	}};
 }
 
-impl Memory {
-	pub fn read_u8(&self, addr: u64) -> Result<u8, u64> {
+/// this is on the CPU struct because MMIO or other writes may have side effects on the CPU state
+impl WhiskerCpu {
+	pub fn read_mem_u8(&self, addr: u64) -> Result<u8, u64> {
 		// NOTE: all u8 addresses are aligned, no need for other cases
 		read_simple_inner!(self, u8, addr)
 	}
 
-	pub fn read_u16(&self, addr: u64) -> Result<u16, u64> {
+	pub fn read_mem_u16(&self, addr: u64) -> Result<u16, u64> {
 		if addr % 2 != 0 {
 			todo!("unaligned u16 read");
 		}
@@ -222,7 +224,7 @@ impl Memory {
 		read_simple_inner!(self, u16, addr)
 	}
 
-	pub fn read_u32(&self, addr: u64) -> Result<u32, u64> {
+	pub fn read_mem_u32(&self, addr: u64) -> Result<u32, u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned u32 read {:#018X}", addr);
 		}
@@ -230,7 +232,7 @@ impl Memory {
 		read_simple_inner!(self, u32, addr)
 	}
 
-	pub fn read_u64(&self, addr: u64) -> Result<u64, u64> {
+	pub fn read_mem_u64(&self, addr: u64) -> Result<u64, u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned u64 read");
 		}
@@ -238,12 +240,12 @@ impl Memory {
 		read_simple_inner!(self, u64, addr)
 	}
 
-	pub fn write_u8(&mut self, addr: u64, val: u8) -> Result<(), u64> {
+	pub fn write_mem_u8(&mut self, addr: u64, val: u8) -> Result<(), u64> {
 		// NOTE: all u8 addresses are aligned, no need for other cases
 		write_simple_inner!(self, u8, addr, val)
 	}
 
-	pub fn write_u16(&mut self, addr: u64, val: u16) -> Result<(), u64> {
+	pub fn write_mem_u16(&mut self, addr: u64, val: u16) -> Result<(), u64> {
 		if addr % 2 != 0 {
 			todo!("unaligned u16 write");
 		}
@@ -251,7 +253,7 @@ impl Memory {
 		write_simple_inner!(self, u16, addr, val)
 	}
 
-	pub fn write_u32(&mut self, addr: u64, val: u32) -> Result<(), u64> {
+	pub fn write_mem_u32(&mut self, addr: u64, val: u32) -> Result<(), u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned u32 write");
 		}
@@ -259,7 +261,7 @@ impl Memory {
 		write_simple_inner!(self, u32, addr, val)
 	}
 
-	pub fn write_u64(&mut self, addr: u64, val: u64) -> Result<(), u64> {
+	pub fn write_mem_u64(&mut self, addr: u64, val: u64) -> Result<(), u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned u64 write");
 		}
@@ -267,7 +269,7 @@ impl Memory {
 		write_simple_inner!(self, u64, addr, val)
 	}
 
-	pub fn read_soft_float(&self, addr: u64) -> Result<SoftFloat, u64> {
+	pub fn read_mem_soft_float(&self, addr: u64) -> Result<SoftFloat, u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned SoftFloat read");
 		}
@@ -276,7 +278,7 @@ impl Memory {
 	}
 
 	#[expect(unused, reason = "doubles NYI")]
-	pub fn read_soft_double(&self, addr: u64) -> Result<SoftDouble, u64> {
+	pub fn read_mem_soft_double(&self, addr: u64) -> Result<SoftDouble, u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned SoftDouble read");
 		}
@@ -284,7 +286,7 @@ impl Memory {
 		read_simple_inner!(self, SoftDouble, addr)
 	}
 
-	pub fn write_soft_float(&mut self, addr: u64, val: SoftFloat) -> Result<(), u64> {
+	pub fn write_mem_soft_float(&mut self, addr: u64, val: SoftFloat) -> Result<(), u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned SoftFloat write");
 		}
@@ -293,14 +295,16 @@ impl Memory {
 	}
 
 	#[expect(unused, reason = "doubles NYI")]
-	pub fn write_soft_double(&mut self, addr: u64, val: SoftDouble) -> Result<(), u64> {
+	pub fn write_mem_soft_double(&mut self, addr: u64, val: SoftDouble) -> Result<(), u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned SoftDouble write");
 		}
 
 		write_simple_inner!(self, SoftDouble, addr, val)
 	}
+}
 
+impl Memory {
 	/// given a virtual address, look up its page entry and the offset into the page
 	fn lookup_addr(&self, virt_addr: u64) -> Option<(&PageEntry, u64)> {
 		let base = PageBase::from_addr(virt_addr);
@@ -345,70 +349,77 @@ impl Memory {
 			PageEntry::Bootrom { .. } | PageEntry::MMIO { .. } => return Ok(false),
 		}
 	}
+}
 
+// FIXME: MMIO memory regions cannot be used with atomics, so maybe have some way to handle this better
+impl WhiskerCpu {
 	#[inline(always)]
-	fn with_atomic_lock<R, F: FnOnce(&mut Memory) -> R>(&mut self, f: F) -> R {
-		while self.atomic_lock.swap(true, Ordering::Acquire) {
+	fn with_atomic_lock<R, F: FnOnce(&mut WhiskerCpu) -> R>(&mut self, f: F) -> R {
+		while self.mem.atomic_lock.swap(true, Ordering::Acquire) {
 			std::hint::spin_loop();
 		}
 
 		let result = f(self);
 
-		self.atomic_lock.store(false, Ordering::Release);
+		self.mem.atomic_lock.store(false, Ordering::Release);
 
 		result
 	}
 
 	/// Returns Err(virt_addr) on failure
 	pub fn load_reserved_word(&mut self, virt_addr: u64, hart_id: HartId) -> Result<u32, u64> {
-		self.reserve_virt(virt_addr, hart_id)?;
-		Ok(self.read_u32(virt_addr)?)
+		self.mem.reserve_virt(virt_addr, hart_id)?;
+		Ok(self.read_mem_u32(virt_addr)?)
 	}
 
 	/// Returns Err(virt_addr) on failure
 	pub fn load_reserved_dword(&mut self, virt_addr: u64, hart_id: HartId) -> Result<u64, u64> {
-		self.reserve_virt(virt_addr, hart_id)?;
-		Ok(self.read_u64(virt_addr)?)
+		self.mem.reserve_virt(virt_addr, hart_id)?;
+		Ok(self.read_mem_u64(virt_addr)?)
 	}
 
 	/// Returns Ok(successful) or Err(virt_addr)
 	pub fn store_conditional_word(&mut self, virt_addr: u64, hart_id: HartId, word: u32) -> Result<bool, u64> {
-		let is_reserved = self.is_reserved_virt(virt_addr, hart_id)?;
+		let is_reserved = self.mem.is_reserved_virt(virt_addr, hart_id)?;
 
 		// unreservation happens whenever a SC is executed, whether or not it succeeds to store
-		self.reservations.unreserve_hart(hart_id);
+		self.mem.reservations.unreserve_hart(hart_id);
 
 		if !is_reserved {
 			return Ok(false);
 		}
 
-		self.with_atomic_lock(|this| this.write_u32(virt_addr, word))?;
+		self.with_atomic_lock(|this| this.write_mem_u32(virt_addr, word))?;
 		Ok(true)
 	}
 
 	/// Returns Ok(successful) or Err(virt_addr)
 	pub fn store_conditional_dword(&mut self, virt_addr: u64, hart_id: HartId, dword: u64) -> Result<bool, u64> {
-		let is_reserved = self.is_reserved_virt(virt_addr, hart_id)?;
+		let is_reserved = self.mem.is_reserved_virt(virt_addr, hart_id)?;
 
 		// unreservation happens whenever a SC is executed, whether or not it succeeds to store
-		self.reservations.unreserve_hart(hart_id);
+		self.mem.reservations.unreserve_hart(hart_id);
 
 		if !is_reserved {
 			return Ok(false);
 		}
 
-		self.with_atomic_lock(|this| this.write_u64(virt_addr, dword))?;
+		self.with_atomic_lock(|this| this.write_mem_u64(virt_addr, dword))?;
 		Ok(true)
 	}
 
 	/// Returns Ok(original_value) or Err(virt_addr)
-	pub fn atomic_op_word<F: FnOnce(u32) -> Option<u32>>(&mut self, virt_addr: u64, op: F) -> Result<u32, u64> {
+	pub fn atomic_op_word<F: FnOnce(&mut WhiskerCpu, u32) -> Option<u32>>(
+		&mut self,
+		virt_addr: u64,
+		op: F,
+	) -> Result<u32, u64> {
 		// FIXME(memory protection): this may need to ensure that the address is writable before calling op?
 		self.with_atomic_lock(|this| {
-			let word = this.read_u32(virt_addr)?;
+			let word = this.read_mem_u32(virt_addr)?;
 
-			if let Some(replacement) = op(word) {
-				if let Err(failure_addr) = this.write_u32(virt_addr, replacement) {
+			if let Some(replacement) = op(this, word) {
+				if let Err(failure_addr) = this.write_mem_u32(virt_addr, replacement) {
 					return Err(failure_addr);
 				}
 			}
@@ -418,13 +429,17 @@ impl Memory {
 	}
 
 	/// Returns Ok(original_value) or Err(virt_addr)
-	pub fn atomic_op_dword<F: FnOnce(u64) -> Option<u64>>(&mut self, virt_addr: u64, op: F) -> Result<u64, u64> {
+	pub fn atomic_op_dword<F: FnOnce(&mut WhiskerCpu, u64) -> Option<u64>>(
+		&mut self,
+		virt_addr: u64,
+		op: F,
+	) -> Result<u64, u64> {
 		// FIXME(memory protection): this may need to ensure that the address is writable before calling op?
 		self.with_atomic_lock(|this| {
-			let dword = this.read_u64(virt_addr)?;
+			let dword = this.read_mem_u64(virt_addr)?;
 
-			if let Some(replacement) = op(dword) {
-				if let Err(failure_addr) = this.write_u64(virt_addr, replacement) {
+			if let Some(replacement) = op(this, dword) {
+				if let Err(failure_addr) = this.write_mem_u64(virt_addr, replacement) {
 					return Err(failure_addr);
 				}
 			}

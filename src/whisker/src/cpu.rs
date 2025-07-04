@@ -267,7 +267,7 @@ impl WhiskerCpu {
 
 macro_rules! read_mem_u8 {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_u8($offset) {
+		match $self.read_mem_u8($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -279,7 +279,7 @@ macro_rules! read_mem_u8 {
 
 macro_rules! read_mem_u16 {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_u16($offset) {
+		match $self.read_mem_u16($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -291,7 +291,7 @@ macro_rules! read_mem_u16 {
 
 macro_rules! read_mem_u32 {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_u32($offset) {
+		match $self.read_mem_u32($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -303,7 +303,7 @@ macro_rules! read_mem_u32 {
 
 macro_rules! read_mem_u64 {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_u64($offset) {
+		match $self.read_mem_u64($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -315,7 +315,7 @@ macro_rules! read_mem_u64 {
 
 macro_rules! read_mem_float {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_soft_float($offset) {
+		match $self.read_mem_soft_float($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -328,7 +328,7 @@ macro_rules! read_mem_float {
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
 	($self:ident, $offset:ident) => {
-		match $self.mem.read_soft_double($offset) {
+		match $self.read_soft_double($offset) {
 			Ok(val) => val,
 			Err(addr) => {
 				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
@@ -340,7 +340,7 @@ macro_rules! read_mem_double {
 
 macro_rules! write_mem_u8 {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_u8($offset, $val) {
+		match $self.write_mem_u8($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -352,7 +352,7 @@ macro_rules! write_mem_u8 {
 
 macro_rules! write_mem_u16 {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_u16($offset, $val) {
+		match $self.write_mem_u16($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -364,7 +364,7 @@ macro_rules! write_mem_u16 {
 
 macro_rules! write_mem_u32 {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_u32($offset, $val) {
+		match $self.write_mem_u32($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -376,7 +376,7 @@ macro_rules! write_mem_u32 {
 
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_u64($offset, $val) {
+		match $self.write_mem_u64($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -388,7 +388,7 @@ macro_rules! write_mem_u64 {
 
 macro_rules! write_mem_float {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_soft_float($offset, $val) {
+		match $self.write_mem_soft_float($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -401,7 +401,7 @@ macro_rules! write_mem_float {
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
 	($self:ident, $offset:ident, $val:ident) => {
-		match $self.mem.write_soft_double($offset, $val) {
+		match $self.write_soft_double($offset, $val) {
 			Ok(()) => (),
 			Err(addr) => {
 				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
@@ -1036,7 +1036,7 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.load_reserved_word(addr, HartId::HART0) {
+				match self.load_reserved_word(addr, HartId::HART0) {
 					Ok(val) => {
 						self.registers.set(dst, val.extend());
 					}
@@ -1060,7 +1060,7 @@ impl WhiskerCpu {
 
 				let val = self.registers.get(src2) as u32;
 
-				match self.mem.store_conditional_word(addr, HartId::HART0, val) {
+				match self.store_conditional_word(addr, HartId::HART0, val) {
 					Ok(true) => self.registers.set(dst, 0),
 					Ok(false) => self.registers.set(dst, 1),
 					Err(addr) => {
@@ -1081,12 +1081,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// swap src2 to (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					Some(src2_val as u32)
 				}) {
 					Ok(_) => {}
@@ -1108,12 +1108,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// add src2 value to (src1)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word.wrapping_add(src2_val);
 					Some(new_val)
 				}) {
@@ -1136,12 +1136,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// xor src2 value with (src1)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word ^ src2_val;
 					Some(new_val)
 				}) {
@@ -1164,12 +1164,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// and src2 value with (src1)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word & src2_val;
 					Some(new_val)
 				}) {
@@ -1192,12 +1192,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// or src2 value with (src1)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word | src2_val;
 					Some(new_val)
 				}) {
@@ -1220,12 +1220,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// min of src2 value and (src1) (signed)
-					let src2_val = self.registers.get(src2) as i32;
+					let src2_val = this.registers.get(src2) as i32;
 					let new_val = std::cmp::min(word as i32, src2_val) as u32;
 					Some(new_val)
 				}) {
@@ -1248,12 +1248,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// max of src2 value and (src1) (signed)
-					let src2_val = self.registers.get(src2) as i32;
+					let src2_val = this.registers.get(src2) as i32;
 					let new_val = std::cmp::max(word as i32, src2_val) as u32;
 					Some(new_val)
 				}) {
@@ -1276,12 +1276,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// min of src2 value and (src1) (unsigned)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = std::cmp::min(word, src2_val);
 					Some(new_val)
 				}) {
@@ -1304,12 +1304,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_word(addr, |word| {
+				match self.atomic_op_word(addr, |this, word| {
 					// put (src1) value into rd
-					self.registers.set(dst, u64::from(word));
+					this.registers.set(dst, u64::from(word));
 
 					// max of src2 value and (src1) (unsigned)
-					let src2_val = self.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2) as u32;
 					let new_val = std::cmp::max(word, src2_val);
 					Some(new_val)
 				}) {
@@ -1327,7 +1327,7 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.load_reserved_dword(addr, HartId::HART0) {
+				match self.load_reserved_dword(addr, HartId::HART0) {
 					Ok(val) => {
 						self.registers.set(dst, val);
 					}
@@ -1350,7 +1350,7 @@ impl WhiskerCpu {
 				}
 
 				let val = self.registers.get(src2);
-				match self.mem.store_conditional_dword(addr, HartId::HART0, val) {
+				match self.store_conditional_dword(addr, HartId::HART0, val) {
 					Ok(true) => self.registers.set(dst, 0),
 					Ok(false) => self.registers.set(dst, 1),
 					Err(addr) => {
@@ -1371,12 +1371,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// swap src2 to (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					Some(src2_val)
 				}) {
 					Ok(_) => {}
@@ -1398,12 +1398,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// add src2 value to (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = dword.wrapping_add(src2_val);
 					Some(new_val)
 				}) {
@@ -1426,12 +1426,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// xor src2 value with (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = dword ^ src2_val;
 					Some(new_val)
 				}) {
@@ -1454,12 +1454,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// and src2 value with (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = dword & src2_val;
 					Some(new_val)
 				}) {
@@ -1482,12 +1482,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// or src2 value with (src1)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = dword | src2_val;
 					Some(new_val)
 				}) {
@@ -1510,12 +1510,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// min of src2 value and (src1) (signed)
-					let src2_val = self.registers.get(src2) as i64;
+					let src2_val = this.registers.get(src2) as i64;
 					let new_val = std::cmp::min(dword as i64, src2_val) as u64;
 					Some(new_val)
 				}) {
@@ -1538,12 +1538,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// max of src2 value and (src1) (signed)
-					let src2_val = self.registers.get(src2) as i64;
+					let src2_val = this.registers.get(src2) as i64;
 					let new_val = std::cmp::max(dword as i64, src2_val) as u64;
 					Some(new_val)
 				}) {
@@ -1566,12 +1566,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// min of src2 value and (src1) (unsigned)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = std::cmp::min(dword, src2_val);
 					Some(new_val)
 				}) {
@@ -1594,12 +1594,12 @@ impl WhiskerCpu {
 					return;
 				}
 
-				match self.mem.atomic_op_dword(addr, |dword| {
+				match self.atomic_op_dword(addr, |this, dword| {
 					// put (src1) value into rd
-					self.registers.set(dst, dword);
+					this.registers.set(dst, dword);
 
 					// max of src2 value and (src1) (unsigned)
-					let src2_val = self.registers.get(src2);
+					let src2_val = this.registers.get(src2);
 					let new_val = std::cmp::max(dword, src2_val);
 					Some(new_val)
 				}) {

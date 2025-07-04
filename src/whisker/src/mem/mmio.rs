@@ -61,7 +61,8 @@ fn write_uart(virt_addr: u64, buf: &[u8]) {
 		UART_DATA => {
 			let b = buf[0];
 			let mut stdout = io::stdout();
-			let _ = write!(&stdout, "{}", b as char);
+			let _ = write!(&mut stdout, "{}", b as char);
+			// FIXME: it would be nice to flush stdout all the time but its VERY slow, reconsider this
 			let _ = stdout.flush();
 		}
 		_ => {

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use rustc_hash::FxHashMap;
+
 use tracing::*;
 
 mod mmio;
@@ -17,7 +19,7 @@ use crate::ty::HartId;
 struct MemoryReservations {
 	/// map of hart ID to reservation base address
 	/// reservation base addresses are aligned to [`MemoryReservations::RESERVATION_SET_SIZE`]
-	reservations: HashMap<HartId, u64>,
+	reservations: FxHashMap<HartId, u64>,
 }
 
 impl MemoryReservations {
@@ -26,7 +28,7 @@ impl MemoryReservations {
 
 	fn new() -> Self {
 		Self {
-			reservations: HashMap::with_capacity(usize::from(HartId::NUM_HARTS)),
+			reservations: FxHashMap::default(),
 		}
 	}
 
@@ -59,7 +61,7 @@ impl MemoryReservations {
 pub struct Memory {
 	phys: Box<[u8]>,
 	bootrom: Box<[u8]>,
-	mappings: HashMap<PageBase, PageEntry>,
+	mappings: FxHashMap<PageBase, PageEntry>,
 
 	// If we were to do multithreading, this would probably need to be a Send Cell type
 	reservations: MemoryReservations,
@@ -542,7 +544,7 @@ impl MemoryBuilder {
 	#[track_caller] // provides better panic location for caller
 	pub fn build(self) -> Memory {
 		let phys = vec![0_u8; self.physical.unwrap_or(0) as usize].into_boxed_slice();
-		let mut mappings = HashMap::new();
+		let mut mappings = FxHashMap::default();
 
 		let (bootrom, virt_addr) = self.bootrom.unwrap_or_default();
 		for offset in (0..bootrom.len() as u64).step_by(PAGE_SIZE as usize) {

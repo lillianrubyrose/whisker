@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use rustc_hash::FxHashMap;
 use tracing::error;
 
 use crate::cpu::WhiskerCpu;
@@ -19,7 +19,7 @@ macro_rules! define_csrs {
     			pub fn new() -> Self {
           		    Self {
                             regs: {
-                                let mut map = HashMap::new();
+                                let mut map = FxHashMap::default();
                                 $(map.insert(
                                     CSRIndex($addr),
                                     CSRInfo {
@@ -101,7 +101,7 @@ impl Debug for CSRIndex {
 
 #[derive(Debug)]
 pub struct ControlStatusRegisters {
-	regs: HashMap<CSRIndex, CSRInfo>,
+	regs: FxHashMap<CSRIndex, CSRInfo>,
 }
 
 // NOTE: this is on the CPU not CSRs because operations on CSRs may affect cpu state

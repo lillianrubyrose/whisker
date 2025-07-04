@@ -23,7 +23,7 @@ use crate::log;
 use crate::mem::Memory;
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
-use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind};
+use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
 use crate::util::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -128,8 +128,8 @@ impl WhiskerCpu {
 					Instruction::PrivilegedInstruction(insn) => self.exec_privileged_insn(insn),
 				}
 			}
-			// error during instruction decoding, trap was requested
-			Err(()) => {}
+			// trap was requested during decoding
+			Err(TrapRequestGuaranteed { .. }) => {}
 		}
 
 		self.pc = self.next_pc;
@@ -139,7 +139,7 @@ impl WhiskerCpu {
 
 	/// requests the specified trap to happen
 	/// sets `next_pc` to the appropriate handler for the trap
-	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) {
+	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) -> TrapRequestGuaranteed {
 		log!(
 			self,
 			"  requesting trap kind cause={:#018X} mtval={:#018X}",
@@ -156,7 +156,7 @@ impl WhiskerCpu {
 					"  skipped trap cause {:#018X}: machine interrupts were disabled",
 					trap.inner()
 				);
-				return;
+				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
 			let mie = self.read_csr_unchecked(csr::MIE);
@@ -166,7 +166,7 @@ impl WhiskerCpu {
 					"  skipped interrupt cause {:#018X}: cause disabled in MIE CSR",
 					trap.inner()
 				);
-				return;
+				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
 			// set the bit to signal that the interrupt is pending being handled
@@ -191,6 +191,8 @@ impl WhiskerCpu {
 		let mtvec = self.read_csr_unchecked(csr::MTVEC);
 		log!(self, "  trap handler at {mtvec:#018X}");
 		self.next_pc = mtvec;
+
+		TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler()
 	}
 
 	/// checks whether the CPU should trap due to an interrupt

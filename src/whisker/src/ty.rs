@@ -2,9 +2,12 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
-// Do we want to make specific structs for this?
-// I think it's fine to use the <X>Registers struct since it's only-
-// used for compiler help.
+/// an error type used for results to communicate that an error occured, but a trap for that error
+/// has already been requested, so callers shouldn't handle it themselves.
+/// note that a trap *may not happen* if the trap was disabled, but this type communicates that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrapRequestGuaranteed(/*private*/ ());
+
 pub type GPRegisterIndex = RegisterIndex<GPRegsIdx>;
 pub type FPRegisterIndex = RegisterIndex<FPRegsIdx>;
 pub type UnknownRegisterIndex = RegisterIndex<()>;
@@ -341,3 +344,11 @@ impl HartId {
 pub enum GPRegsIdx {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FPRegsIdx {}
+
+impl TrapRequestGuaranteed {
+	/// the "private" constructor for `TrapGuaranteed`, DO NOT USE THIS
+	#[doc(hidden)]
+	pub fn __trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler() -> TrapRequestGuaranteed {
+		TrapRequestGuaranteed(())
+	}
+}

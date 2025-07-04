@@ -12,9 +12,8 @@ mod util;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
-use std::io::Write as _;
+use std::fs;
 use std::path::PathBuf;
-use std::{fs, io};
 
 use clap::{command, Parser, Subcommand};
 use gdbstub::conn::ConnectionExt;
@@ -25,7 +24,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
-use crate::mem::{MemoryBuilder, PageBase, PageEntry};
+use crate::mem::{MMIOKind, MemoryBuilder, PageBase};
 use crate::ty::{HartId, SupportedExtensions};
 
 #[derive(Debug, Parser)]
@@ -98,7 +97,6 @@ fn main() {
 const BOOTROM_OFFSET: u64 = 0x00001000;
 const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
-const UART_ADDR: u64 = 0x1000_0000;
 
 fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
 	let bootrom = fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
@@ -110,29 +108,18 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 		| SupportedExtensions::ATOMIC
 		| SupportedExtensions::MULTIPLY;
 
-	let mut mem = MemoryBuilder::default()
+	let mem = MemoryBuilder::default()
 		.bootrom(bootrom, PageBase::from_addr(BOOTROM_OFFSET))
-		.physical_size(DRAM_BASE)
+		.physical_size(DRAM_SIZE)
 		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
-		// MMIO UART mapping
-		.add_mapping(
-			PageBase::from_addr(UART_ADDR),
-			PageEntry::MMIO {
-				read: Box::new(|_, _| unimplemented!("read from UART")),
-				write: Box::new(move |addr, val| {
-					if addr == UART_ADDR {
-						print!("{}", val[0] as char);
-						io::stdout().flush().unwrap();
-					}
-				}),
-			},
-		)
+		.add_mmio(MMIOKind::UART)
 		.build();
 
-	mem.write_slice(HartId::HART0, DRAM_BASE, kernel.as_slice())
-		.expect("unable to copy kernel to memory");
-
 	let mut cpu = WhiskerCpu::new(supported, mem, logfile);
+
+	// FIXME: put flash in the memory builder somehow
+	cpu.write_slice(HartId::HART0, DRAM_BASE, kernel.as_slice())
+		.expect("unable to copy kernel to memory");
 
 	cpu.pc = BOOTROM_OFFSET;
 	cpu

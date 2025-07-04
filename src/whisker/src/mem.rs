@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::*;
 
+mod mmio;
+
+pub use mmio::MMIOKind;
+
 use crate::cpu::WhiskerCpu;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
@@ -68,82 +72,6 @@ impl Debug for Memory {
 	}
 }
 
-impl Memory {
-	/// the reading primitive that does page lookups and such
-	/// returns Ok if the read succeeded, or Err(virt) if the read failed
-	/// where virt is the failing virtual address
-	#[track_caller]
-	pub fn read_slice(&self, offset: u64, buf: &mut [u8]) -> Result<(), u64> {
-		for (idx, val) in buf.iter_mut().enumerate() {
-			let offset = offset + idx as u64;
-			let base = PageBase::from_addr(offset);
-			let Some(page_entry) = self.mappings.get(&base) else {
-				trace!("no page entry for {:#018X}", offset);
-				return Err(offset);
-			};
-			let page_offset = offset - base.0;
-
-			match page_entry {
-				PageEntry::PhysBacked { phys_base } => {
-					let offset = phys_base + page_offset;
-					trace!("Reading from physmem @ {:#018X}", offset);
-					*val = self.phys[offset as usize];
-				}
-				PageEntry::Bootrom { page_base } => {
-					let offset = page_base + page_offset;
-					trace!("Reading from bootrom @ {:#018X}", offset);
-					*val = self.bootrom[offset as usize];
-				}
-				PageEntry::MMIO { read: on_read, .. } => {
-					trace!("Reading from MMIO @ {:#018X}", offset);
-					let mut read_val = 0_u8;
-					on_read(offset, slice::from_mut(&mut read_val));
-					*val = read_val;
-				}
-			}
-		}
-		Ok(())
-	}
-
-	/// the writing primitive that does page lookups and such
-	/// returns Ok if the write succeeded, or Err(virt) if the write
-	/// where virt is the failing virtual address
-	#[track_caller]
-	pub fn write_slice(&mut self, hart_id: HartId, virt_addr: u64, val: &[u8]) -> Result<(), u64> {
-		for (idx, val) in val.into_iter().enumerate() {
-			let offset = virt_addr + idx as u64;
-			let base = PageBase::from_addr(offset);
-			let Some(page_entry) = self.mappings.get(&base) else {
-				trace!("no page entry for {:#018X}", offset);
-				return Err(offset);
-			};
-			let page_offset = offset - base.0;
-
-			match page_entry {
-				PageEntry::PhysBacked { phys_base } => {
-					let phys_addr = phys_base + page_offset;
-
-					self.reservations.unreserve_addr_other_harts(hart_id, phys_addr);
-
-					trace!("Writing to physmem @ {:#018X}", phys_base);
-					self.phys[phys_addr as usize] = *val;
-				}
-				// writing to bootrom is allowed, this makes it easier to write bootrom code
-				// without having to do loader shenanigans
-				PageEntry::Bootrom { page_base } => {
-					trace!("Writing to bootrom @ 0x{:#018X}", page_base);
-					self.bootrom[(page_base + page_offset) as usize] = *val;
-				}
-				PageEntry::MMIO { write, .. } => {
-					trace!("Writing to MMIO @ {:#018X}", offset);
-					write(offset, slice::from_ref(val));
-				}
-			}
-		}
-		Ok(())
-	}
-}
-
 /// addr MUST be aligned to the size of $ty, such that it does not cross a page boundary
 macro_rules! read_simple_inner {
 	($self:expr, $ty:ty, $addr:expr) => {{
@@ -166,10 +94,10 @@ macro_rules! read_simple_inner {
 				ret.copy_from_slice(&$self.mem.bootrom[offset as usize..][..core::mem::size_of::<$ty>()]);
 				Ok(<$ty>::from_le_bytes(ret))
 			}
-			PageEntry::MMIO { read, .. } => {
+			PageEntry::MMIO(kind) => {
 				trace!("Reading from MMIO @ {:#018X}", $addr);
 				let mut ret = <$ty>::default().to_le_bytes();
-				read($addr, &mut ret);
+				kind.read($self, $addr, &mut ret);
 				Ok(<$ty>::from_le_bytes(ret))
 			}
 		}
@@ -199,10 +127,10 @@ macro_rules! write_simple_inner {
 				$self.mem.bootrom[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&val);
 				Ok(())
 			}
-			PageEntry::MMIO { write, .. } => {
+			PageEntry::MMIO(kind) => {
 				trace!("writing to MMIO @ {:#018X}", $addr);
 				let val = $val.to_le_bytes();
-				write($addr, &val);
+				kind.write($self, $addr, &val);
 				Ok(())
 			}
 		}
@@ -211,12 +139,86 @@ macro_rules! write_simple_inner {
 
 /// this is on the CPU struct because MMIO or other writes may have side effects on the CPU state
 impl WhiskerCpu {
-	pub fn read_mem_u8(&self, addr: u64) -> Result<u8, u64> {
+	/// the reading primitive that does page lookups and such
+	/// returns Ok if the read succeeded, or Err(virt) if the read failed
+	/// where virt is the failing virtual address
+	#[track_caller]
+	pub fn read_slice(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), u64> {
+		for (idx, val) in buf.iter_mut().enumerate() {
+			let virt_addr = offset + idx as u64;
+			let base = PageBase::from_addr(virt_addr);
+			let Some(page_entry) = self.mem.mappings.get(&base) else {
+				trace!("no page entry for {:#018X}", virt_addr);
+				return Err(virt_addr);
+			};
+			let page_offset = virt_addr - base.0;
+
+			match page_entry {
+				PageEntry::PhysBacked { phys_base } => {
+					let offset = phys_base + page_offset;
+					trace!("Reading from physmem @ {:#018X}", offset);
+					*val = self.mem.phys[offset as usize];
+				}
+				PageEntry::Bootrom { page_base } => {
+					let offset = page_base + page_offset;
+					trace!("Reading from bootrom @ {:#018X}", offset);
+					*val = self.mem.bootrom[offset as usize];
+				}
+				PageEntry::MMIO(kind) => {
+					trace!("Reading from MMIO @ {:#018X}", virt_addr);
+					let mut read_val = 0_u8;
+					kind.read(self, virt_addr, slice::from_mut(&mut read_val));
+					*val = read_val;
+				}
+			}
+		}
+		Ok(())
+	}
+
+	/// the writing primitive that does page lookups and such
+	/// returns Ok if the write succeeded, or Err(virt) if the write
+	/// where virt is the failing virtual address
+	#[track_caller]
+	pub fn write_slice(&mut self, hart_id: HartId, virt_addr: u64, val: &[u8]) -> Result<(), u64> {
+		for (idx, val) in val.into_iter().enumerate() {
+			let virt_addr = virt_addr + idx as u64;
+			let base = PageBase::from_addr(virt_addr);
+			let Some(page_entry) = self.mem.mappings.get(&base) else {
+				trace!("no page entry for {:#018X}", virt_addr);
+				return Err(virt_addr);
+			};
+			let page_offset = virt_addr - base.0;
+
+			match page_entry {
+				PageEntry::PhysBacked { phys_base } => {
+					let phys_addr = phys_base + page_offset;
+
+					self.mem.reservations.unreserve_addr_other_harts(hart_id, phys_addr);
+
+					trace!("Writing to physmem @ {:#018X}", phys_base);
+					self.mem.phys[phys_addr as usize] = *val;
+				}
+				// writing to bootrom is allowed, this makes it easier to write bootrom code
+				// without having to do loader shenanigans
+				PageEntry::Bootrom { page_base } => {
+					trace!("Writing to bootrom @ 0x{:#018X}", page_base);
+					self.mem.bootrom[(page_base + page_offset) as usize] = *val;
+				}
+				PageEntry::MMIO(kind) => {
+					trace!("Writing to MMIO @ {:#018X}", virt_addr);
+					kind.write(self, virt_addr, slice::from_ref(val));
+				}
+			}
+		}
+		Ok(())
+	}
+
+	pub fn read_mem_u8(&mut self, addr: u64) -> Result<u8, u64> {
 		// NOTE: all u8 addresses are aligned, no need for other cases
 		read_simple_inner!(self, u8, addr)
 	}
 
-	pub fn read_mem_u16(&self, addr: u64) -> Result<u16, u64> {
+	pub fn read_mem_u16(&mut self, addr: u64) -> Result<u16, u64> {
 		if addr % 2 != 0 {
 			todo!("unaligned u16 read");
 		}
@@ -224,7 +226,7 @@ impl WhiskerCpu {
 		read_simple_inner!(self, u16, addr)
 	}
 
-	pub fn read_mem_u32(&self, addr: u64) -> Result<u32, u64> {
+	pub fn read_mem_u32(&mut self, addr: u64) -> Result<u32, u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned u32 read {:#018X}", addr);
 		}
@@ -232,7 +234,7 @@ impl WhiskerCpu {
 		read_simple_inner!(self, u32, addr)
 	}
 
-	pub fn read_mem_u64(&self, addr: u64) -> Result<u64, u64> {
+	pub fn read_mem_u64(&mut self, addr: u64) -> Result<u64, u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned u64 read");
 		}
@@ -269,7 +271,7 @@ impl WhiskerCpu {
 		write_simple_inner!(self, u64, addr, val)
 	}
 
-	pub fn read_mem_soft_float(&self, addr: u64) -> Result<SoftFloat, u64> {
+	pub fn read_mem_soft_float(&mut self, addr: u64) -> Result<SoftFloat, u64> {
 		if addr % 4 != 0 {
 			todo!("unaligned SoftFloat read");
 		}
@@ -278,7 +280,7 @@ impl WhiskerCpu {
 	}
 
 	#[expect(unused, reason = "doubles NYI")]
-	pub fn read_mem_soft_double(&self, addr: u64) -> Result<SoftDouble, u64> {
+	pub fn read_mem_soft_double(&mut self, addr: u64) -> Result<SoftDouble, u64> {
 		if addr % 8 != 0 {
 			todo!("unaligned SoftDouble read");
 		}
@@ -450,16 +452,9 @@ impl WhiskerCpu {
 }
 
 pub enum PageEntry {
-	PhysBacked {
-		phys_base: u64,
-	},
-	Bootrom {
-		page_base: u64,
-	},
-	MMIO {
-		read: Box<dyn Fn(u64, &mut [u8])>,
-		write: Box<dyn Fn(u64, &[u8])>,
-	},
+	PhysBacked { phys_base: u64 },
+	Bootrom { page_base: u64 },
+	MMIO(MMIOKind),
 }
 
 fn align_to_page(addr: u64) -> u64 {
@@ -472,7 +467,7 @@ const PAGE_SIZE: u64 = 4096;
 pub struct PageBase(u64);
 
 impl PageBase {
-	pub fn from_addr(addr: u64) -> Self {
+	pub const fn from_addr(addr: u64) -> Self {
 		Self(addr & !(PAGE_SIZE - 1))
 	}
 }
@@ -498,6 +493,7 @@ pub struct MemoryBuilder {
 }
 
 impl MemoryBuilder {
+	#[must_use]
 	pub fn bootrom(mut self, mut bootrom: Vec<u8>, addr: PageBase) -> Self {
 		assert!(self.bootrom.is_none(), "cannot set bootrom more than once");
 		let padded_len = align_to_page(bootrom.len() as u64);
@@ -506,6 +502,7 @@ impl MemoryBuilder {
 		self
 	}
 
+	#[must_use]
 	pub fn physical_size(mut self, size: u64) -> Self {
 		assert!(
 			self.physical.is_none(),
@@ -517,6 +514,7 @@ impl MemoryBuilder {
 		self
 	}
 
+	#[must_use]
 	pub fn phys_mapping(mut self, virt_base: PageBase, phys_base: PageBase, size: u64) -> Self {
 		assert_eq!(size % PAGE_SIZE, 0);
 		let prev = self.physical_mappings.insert(virt_base, (phys_base, size));
@@ -524,6 +522,7 @@ impl MemoryBuilder {
 		self
 	}
 
+	#[must_use]
 	pub fn add_mapping(mut self, virt_addr: PageBase, entry: PageEntry) -> Self {
 		let prev = self.misc_maps.insert(virt_addr, entry);
 		assert!(
@@ -532,6 +531,12 @@ impl MemoryBuilder {
 			virt_addr.0
 		);
 		self
+	}
+
+	#[must_use]
+	pub fn add_mmio(self, entry: MMIOKind) -> Self {
+		let page = entry.page_base();
+		self.add_mapping(page, PageEntry::MMIO(entry))
 	}
 
 	#[track_caller] // provides better panic location for caller

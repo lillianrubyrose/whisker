@@ -166,7 +166,7 @@ impl SingleThreadBase for WhiskerCpu {
 		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
 		data: &mut [u8],
 	) -> gdbstub::target::TargetResult<usize, Self> {
-		match self.mem.read_slice(start_addr, data) {
+		match self.read_slice(start_addr, data) {
 			Ok(()) => Ok(data.len()),
 			// FIXME: does this do what we want
 			Err(addr) => Ok((addr - start_addr) as usize),
@@ -178,7 +178,7 @@ impl SingleThreadBase for WhiskerCpu {
 		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
 		data: &[u8],
 	) -> gdbstub::target::TargetResult<(), Self> {
-		match self.mem.write_slice(HartId::HART0, start_addr, data) {
+		match self.write_slice(HartId::HART0, start_addr, data) {
 			Ok(()) => Ok(()),
 			// EREMOTEIO - causes gdb to report "cannot access memory at <start_addr>"
 			Err(_addr) => Err(TargetError::Errno(121)),

@@ -85,6 +85,8 @@
               pkgs.rust-analyzer
               rust-toolchain.defaultToolchain
               pkgs.clang-tools
+              pkgs.libclang.lib
+              pkgs.llvmPackages.libcxxClang
               pkgs.cmake
 
               # riscv-tests
@@ -99,7 +101,7 @@
             ];
 
             hardeningDisable = [ "relro" "bindnow" ];
-
+            LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
             shellHook = ''
               ${config.pre-commit.installationScript}
             '';

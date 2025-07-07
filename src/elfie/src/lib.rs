@@ -1,7 +1,4 @@
-use std::{
-	io::{Cursor, Read, Seek},
-	string,
-};
+use std::io::{Cursor, Read, Seek};
 
 use crate::ext::ReadExt;
 
@@ -37,7 +34,8 @@ impl ISA {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct ProgramHeaderType(u32);
 
 impl ProgramHeaderType {
@@ -49,6 +47,57 @@ impl ProgramHeaderType {
 	pub const PT_SHLIB: Self = Self(0x00000005);
 	pub const PT_PHDR: Self = Self(0x00000006);
 	pub const PT_TLS: Self = Self(0x00000007);
+
+	pub const PT_LOOS: u32 = 0x60000000;
+	pub const PT_HIOS: u32 = 0x6fffffff;
+	pub const PT_LOPROC: u32 = 0x70000000;
+	pub const PT_HIPROC: u32 = 0x7fffffff;
+}
+
+impl ProgramHeaderType {
+	pub const fn to_value(self) -> u32 {
+		self.0
+	}
+
+	pub fn from_value(value: u32) -> Option<Self> {
+		match value {
+			v if v == Self::PT_NULL.to_value() => Some(Self::PT_NULL),
+			v if v == Self::PT_LOAD.to_value() => Some(Self::PT_LOAD),
+			v if v == Self::PT_DYNAMIC.to_value() => Some(Self::PT_DYNAMIC),
+			v if v == Self::PT_INTERP.to_value() => Some(Self::PT_INTERP),
+			v if v == Self::PT_NOTE.to_value() => Some(Self::PT_NOTE),
+			v if v == Self::PT_SHLIB.to_value() => Some(Self::PT_SHLIB),
+			v if v == Self::PT_PHDR.to_value() => Some(Self::PT_PHDR),
+			v if v == Self::PT_TLS.to_value() => Some(Self::PT_TLS),
+
+			v if (Self::PT_LOOS..Self::PT_HIOS).contains(&v) => Some(Self(v)),
+			v if (Self::PT_LOPROC..Self::PT_HIPROC).contains(&v) => Some(Self(v)),
+			_ => None,
+		}
+	}
+}
+
+impl std::fmt::Debug for ProgramHeaderType {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let (name, print_value) = match *self {
+			Self::PT_NULL => ("PT_NULL", false),
+			Self::PT_LOAD => ("PT_LOAD", false),
+			Self::PT_DYNAMIC => ("PT_DYNAMIC", false),
+			Self::PT_INTERP => ("PT_INTERP", false),
+			Self::PT_NOTE => ("PT_NOTE", false),
+			Self::PT_SHLIB => ("PT_SHLIB", false),
+			Self::PT_PHDR => ("PT_PHDR", false),
+			Self::PT_TLS => ("PT_TLS", false),
+			v if (Self::PT_LOOS..=Self::PT_HIOS).contains(&v.to_value()) => ("OS-Specific", true),
+			v if (Self::PT_LOPROC..=Self::PT_HIPROC).contains(&v.to_value()) => ("Processor-Specific", true),
+			_ => unreachable!(),
+		};
+		if print_value {
+			write!(f, "ProgramHeaderType({}(0x{:08x}))", name, self.0)
+		} else {
+			write!(f, "ProgramHeaderType({})", name)
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -63,7 +112,8 @@ pub struct ProgramHeader {
 	pub alignment: u64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct SectionHeaderFlags(u64);
 
 impl SectionHeaderFlags {
@@ -161,7 +211,65 @@ impl std::ops::Not for SectionHeaderFlags {
 	}
 }
 
-#[derive(Debug)]
+impl std::fmt::Debug for SectionHeaderFlags {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut flags = Vec::new();
+
+		if self.contains(Self::SHF_WRITE) {
+			flags.push("SHF_WRITE");
+		}
+		if self.contains(Self::SHF_ALLOC) {
+			flags.push("SHF_ALLOC");
+		}
+		if self.contains(Self::SHF_EXECINSTR) {
+			flags.push("SHF_EXECINSTR");
+		}
+		if self.contains(Self::SHF_MERGE) {
+			flags.push("SHF_MERGE");
+		}
+		if self.contains(Self::SHF_STRINGS) {
+			flags.push("SHF_STRINGS");
+		}
+		if self.contains(Self::SHF_INFO_LINK) {
+			flags.push("SHF_INFO_LINK");
+		}
+		if self.contains(Self::SHF_LINK_ORDER) {
+			flags.push("SHF_LINK_ORDER");
+		}
+		if self.contains(Self::SHF_OS_NONCONFORMING) {
+			flags.push("SHF_OS_NONCONFORMING");
+		}
+		if self.contains(Self::SHF_GROUP) {
+			flags.push("SHF_GROUP");
+		}
+		if self.contains(Self::SHF_TLS) {
+			flags.push("SHF_TLS");
+		}
+		if self.contains(Self::SHF_ORDERED) {
+			flags.push("SHF_ORDERED");
+		}
+		if self.contains(Self::SHF_EXCLUDE) {
+			flags.push("SHF_EXCLUDE");
+		}
+
+		// all bits in these masks are reserved
+		if self.0 & Self::SHF_MASKOS.0 != 0 {
+			flags.push("SHF_MASKOS");
+		}
+		if self.0 & Self::SHF_MASKPROC.0 != 0 {
+			flags.push("SHF_MASKPROC");
+		}
+
+		if flags.is_empty() {
+			write!(f, "SectionHeaderFlags(0x{:1x})", self.0)
+		} else {
+			write!(f, "SectionHeaderFlags({})", flags.join(" | "))
+		}
+	}
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct SectionHeaderType(u32);
 
 impl SectionHeaderType {
@@ -183,6 +291,85 @@ impl SectionHeaderType {
 	pub const SHT_GROUP: Self = Self(0x11);
 	pub const SHT_SYMTAB_SHNDX: Self = Self(0x12);
 	pub const SHT_NUM: Self = Self(0x13);
+
+	pub const SHT_LOOS: u32 = 0x60000000;
+	pub const SHT_HIOS: u32 = 0x6fffffff;
+	pub const SHT_LOPROC: u32 = 0x70000000;
+	pub const SHT_HIPROC: u32 = 0x7fffffff;
+	pub const SHT_LOUSER: u32 = 0x80000000;
+	pub const SHT_HIUSER: u32 = 0xffffffff;
+}
+
+impl SectionHeaderType {
+	pub const fn to_value(self) -> u32 {
+		self.0
+	}
+
+	pub fn from_value(value: u32) -> Option<Self> {
+		match value {
+			v if v == Self::SHT_NULL.to_value() => Some(Self::SHT_NULL),
+			v if v == Self::SHT_PROGBITS.to_value() => Some(Self::SHT_PROGBITS),
+			v if v == Self::SHT_SYMTAB.to_value() => Some(Self::SHT_SYMTAB),
+			v if v == Self::SHT_STRTAB.to_value() => Some(Self::SHT_STRTAB),
+			v if v == Self::SHT_RELA.to_value() => Some(Self::SHT_RELA),
+			v if v == Self::SHT_HASH.to_value() => Some(Self::SHT_HASH),
+			v if v == Self::SHT_DYNAMIC.to_value() => Some(Self::SHT_DYNAMIC),
+			v if v == Self::SHT_NOTE.to_value() => Some(Self::SHT_NOTE),
+			v if v == Self::SHT_NOBITS.to_value() => Some(Self::SHT_NOBITS),
+			v if v == Self::SHT_REL.to_value() => Some(Self::SHT_REL),
+			v if v == Self::SHT_SHLIB.to_value() => Some(Self::SHT_SHLIB),
+			v if v == Self::SHT_DYNSYM.to_value() => Some(Self::SHT_DYNSYM),
+			v if v == Self::SHT_INIT_ARRAY.to_value() => Some(Self::SHT_INIT_ARRAY),
+			v if v == Self::SHT_FINI_ARRAY.to_value() => Some(Self::SHT_FINI_ARRAY),
+			v if v == Self::SHT_PREINIT_ARRAY.to_value() => Some(Self::SHT_PREINIT_ARRAY),
+			v if v == Self::SHT_GROUP.to_value() => Some(Self::SHT_GROUP),
+			v if v == Self::SHT_SYMTAB_SHNDX.to_value() => Some(Self::SHT_SYMTAB_SHNDX),
+			v if v == Self::SHT_NUM.to_value() => Some(Self::SHT_NUM),
+
+			v if (Self::SHT_LOOS..Self::SHT_HIOS).contains(&v) => Some(Self(v)),
+			_ => None,
+		}
+	}
+}
+
+impl std::fmt::Debug for SectionHeaderType {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let (name, print_value) = match *self {
+			Self::SHT_NULL => ("SHT_NULL", false),
+			Self::SHT_PROGBITS => ("SHT_PROGBITS", false),
+			Self::SHT_SYMTAB => ("SHT_SYMTAB", false),
+			Self::SHT_STRTAB => ("SHT_STRTAB", false),
+			Self::SHT_RELA => ("SHT_RELA", false),
+			Self::SHT_HASH => ("SHT_HASH", false),
+			Self::SHT_DYNAMIC => ("SHT_DYNAMIC", false),
+			Self::SHT_NOTE => ("SHT_NOTE", false),
+			Self::SHT_NOBITS => ("SHT_NOBITS", false),
+			Self::SHT_REL => ("SHT_REL", false),
+			Self::SHT_SHLIB => ("SHT_SHLIB", false),
+			Self::SHT_DYNSYM => ("SHT_DYNSYM", false),
+			Self::SHT_INIT_ARRAY => ("SHT_INIT_ARRAY", false),
+			Self::SHT_FINI_ARRAY => ("SHT_FINI_ARRAY", false),
+			Self::SHT_PREINIT_ARRAY => ("SHT_PREINIT_ARRAY", false),
+			Self::SHT_GROUP => ("SHT_GROUP", false),
+			Self::SHT_SYMTAB_SHNDX => ("SHT_SYMTAB_SHNDX", false),
+			Self::SHT_NUM => ("SHT_NUM", false),
+			v if (SectionHeaderType::SHT_LOOS..=SectionHeaderType::SHT_HIOS).contains(&v.to_value()) => {
+				("OS-Specific", true)
+			}
+			v if (SectionHeaderType::SHT_LOPROC..=SectionHeaderType::SHT_HIPROC).contains(&v.to_value()) => {
+				("Processor-Specific", true)
+			}
+			v if (SectionHeaderType::SHT_LOUSER..=SectionHeaderType::SHT_HIUSER).contains(&v.to_value()) => {
+				("User-Specific", true)
+			}
+			_ => unreachable!(),
+		};
+		if print_value {
+			write!(f, "SectionHeaderType({}(0x{:08x}))", name, self.0)
+		} else {
+			write!(f, "SectionHeaderType({})", name)
+		}
+	}
 }
 
 pub struct PartialSectionHeader {
@@ -212,15 +399,37 @@ pub struct SectionHeader {
 	pub entry_size: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct ElfType(u16);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u16)]
+pub enum ElfType {
+	None,
+	Relative,
+	Executable,
+	Dynamic,
+	Core,
+}
 
 impl ElfType {
-	pub const ET_NONE: Self = Self(0x00);
-	pub const ET_REL: Self = Self(0x01);
-	pub const ET_EXEC: Self = Self(0x02);
-	pub const ET_DYN: Self = Self(0x03);
-	pub const ET_CORE: Self = Self(0x04);
+	pub fn to_value(self) -> u16 {
+		match self {
+			Self::None => 0x00,
+			Self::Relative => 0x01,
+			Self::Executable => 0x02,
+			Self::Dynamic => 0x03,
+			Self::Core => 0x04,
+		}
+	}
+
+	pub fn from_value(value: u16) -> Option<Self> {
+		match value {
+			0x00 => Some(Self::None),
+			0x01 => Some(Self::Relative),
+			0x02 => Some(Self::Executable),
+			0x03 => Some(Self::Dynamic),
+			0x04 => Some(Self::Core),
+			_ => None,
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -296,8 +505,13 @@ impl ElfFile {
 
 		cursor.seek_relative(7)?; // skip padding
 
-		let ty = ElfType(cursor.read_16(endianness)?);
-		assert_eq!(ty, ElfType::ET_EXEC);
+		let Some(ty) = ElfType::from_value(cursor.read_16(endianness)?) else {
+			return Err(std::io::Error::new(
+				std::io::ErrorKind::InvalidData,
+				"Invalid ELF file type",
+			));
+		};
+		assert_eq!(ty, ElfType::Executable);
 
 		let isa = ISA::parse(&mut cursor, endianness)?;
 		let version = cursor.read_32(endianness)?;
@@ -433,8 +647,6 @@ mod tests {
 		let data = include_bytes!("../../../target/out.elf");
 		let elf = ElfFile::parse(Cursor::new(data)).unwrap();
 
-		let text_section = elf.section(".text").unwrap();
-
-		dbg!(text_section);
+		dbg!(elf);
 	}
 }

@@ -249,9 +249,7 @@ pub struct ElfFile {
 }
 
 impl ElfFile {
-	pub fn parse(data: &[u8]) -> Result<Self, std::io::Error> {
-		let mut cursor = Cursor::new(data);
-
+	pub fn parse(mut cursor: Cursor<&[u8]>) -> Result<Self, std::io::Error> {
 		let mut magic = [0; 4];
 		cursor.read_exact(&mut magic)?;
 
@@ -415,6 +413,15 @@ impl ElfFile {
 				.collect::<Result<Vec<SectionHeader>, std::io::Error>>()?,
 		})
 	}
+
+	pub fn section(&self, name: &str) -> Option<&SectionHeader> {
+		for header in &self.section_headers {
+			if header.name == name {
+				return Some(header);
+			}
+		}
+		None
+	}
 }
 
 #[cfg(test)]
@@ -424,7 +431,10 @@ mod tests {
 	#[test]
 	fn test_elf_file() {
 		let data = include_bytes!("../../../target/out.elf");
-		let elf = ElfFile::parse(data).unwrap();
-		dbg!(elf);
+		let elf = ElfFile::parse(Cursor::new(data)).unwrap();
+
+		let text_section = elf.section(".text").unwrap();
+
+		dbg!(text_section);
 	}
 }

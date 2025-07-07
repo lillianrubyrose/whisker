@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use rustc_hash::FxHashMap;
 use tracing::error;
 
 use crate::cpu::WhiskerCpu;
@@ -17,27 +16,24 @@ macro_rules! define_csrs {
 
 			impl ControlStatusRegisters {
     			pub fn new() -> Self {
-          		    Self {
-                            regs: {
-                                let mut map = FxHashMap::default();
-                                $(map.insert(
-                                    CSRIndex($addr),
-                                    CSRInfo {
-                                        val: {
-                                            // some cases dont expand to have the = init case, so ignore those warnings
-                                            #[allow(unused)]
-                                            let mut val = 0;
-                                            $( val = $init; )?
-                                            val
-                                        },
-                                        addr: $addr,
-                                        rw: $rw,
-                                        privilege: CSRPrivilege::$priv,
-                                    },
-                                );)*
-                                map
-                            }
-         			}
+                    let mut regs = core::array::from_fn::<_, {NUM_CSRS as usize}, _>(|_| CSRInfo::default());
+
+                    $(
+                        regs[$addr] = CSRInfo {
+                            valid: true,
+                            rw: $rw,
+                            privilege: CSRPrivilege::$priv,
+                            val: {
+                                // some cases dont expand to have the = init case, so ignore those warnings
+                                #[allow(unused)]
+                                let mut val = 0;
+                                $( val = $init; )?
+                                val
+                            },
+                        };
+                    )*
+
+                    Self(regs)
         		}
 			}
 		}
@@ -91,6 +87,10 @@ impl CSRIndex {
 	pub fn new(addr: u16) -> Option<Self> {
 		(addr < NUM_CSRS).then_some(Self(addr))
 	}
+
+	const fn as_idx(self) -> usize {
+		self.0 as usize
+	}
 }
 
 impl Debug for CSRIndex {
@@ -100,16 +100,14 @@ impl Debug for CSRIndex {
 }
 
 #[derive(Debug)]
-pub struct ControlStatusRegisters {
-	regs: FxHashMap<CSRIndex, CSRInfo>,
-}
+pub struct ControlStatusRegisters([CSRInfo; NUM_CSRS as usize]);
 
 // NOTE: this is on the CPU not CSRs because operations on CSRs may affect cpu state
 impl WhiskerCpu {
 	#[must_use]
 	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Option<CSRReadToken> {
 		// all csrs that exist are considered readable
-		if self.csrs.regs.get(&idx).is_some() {
+		if self.csrs.0[idx.as_idx()].valid {
 			Some(CSRReadToken { idx })
 		} else {
 			self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
@@ -119,7 +117,8 @@ impl WhiskerCpu {
 
 	#[must_use]
 	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Option<CSRReadWriteToken> {
-		if self.csrs.regs.get(&idx).is_some_and(|info| info.is_rw()) {
+		let reg = &self.csrs.0[idx.as_idx()];
+		if reg.valid && reg.is_rw() {
 			Some(CSRReadWriteToken {
 				inner: CSRReadToken { idx },
 			})
@@ -135,11 +134,7 @@ impl WhiskerCpu {
 			// MISA must always match the current cpu extension state
 			MISA => self.read_misa(),
 			// registers that need no special handling
-			_ => match self.csrs.regs.get(&idx) {
-				Some(info) => info.val,
-				// the token ensures the CSR exists
-				None => unreachable!(),
-			},
+			_ => self.csrs.0[idx.as_idx()].val,
 		}
 	}
 
@@ -152,28 +147,22 @@ impl WhiskerCpu {
 			MIE => self.write_mie(val),
 			MIP => self.write_mip(val),
 			// registers that need no special handling, or missing registers
-			_ => match self.csrs.regs.get_mut(&idx) {
-				Some(info) => info.val = val,
-				// the token ensures that the CSR exists
-				None => unreachable!(),
-			},
+			_ => self.csrs.0[idx.as_idx()].val = val,
 		}
 	}
 
 	/// reads a csr without checks for existence or permissions
 	/// this MUST only be used for implementing system control or status operations
 	/// such as reading FCSR for float operations
-	#[cfg_attr(debug_assertions, track_caller)] // provides better panic location info on misuse
 	pub fn read_csr_unchecked(&mut self, csr: CSRIndex) -> u64 {
-		self.csrs.regs.get(&csr).unwrap().val
+		self.csrs.0[csr.as_idx()].val
 	}
 
 	/// writes a csr without checks for existence or permissions
 	/// this MUST only be used for implementing system control or status operations
 	/// such as updating MCAUSE on traps
-	#[cfg_attr(debug_assertions, track_caller)] // provides better panic location info on misuse
 	pub fn write_csr_unchecked(&mut self, csr: CSRIndex, val: u64) {
-		self.csrs.regs.get_mut(&csr).unwrap().val = val;
+		self.csrs.0[csr.as_idx()].val = val;
 	}
 }
 
@@ -225,18 +214,21 @@ impl WhiskerCpu {
 }
 
 pub struct CSRInfo {
-	pub val: u64,
-	addr: u16,
+	/// whether this csr is valid/implemented
+	valid: bool,
+	/// true if the csr is writeable, false if it's only readable
 	rw: bool,
 	privilege: CSRPrivilege,
+	pub val: u64,
 }
 
 #[allow(unused)]
 impl CSRInfo {
 	#[inline]
-	pub fn addr(&self) -> u16 {
-		self.addr
+	pub fn valid(&self) -> bool {
+		self.valid
 	}
+
 	#[inline]
 	pub fn is_rw(&self) -> bool {
 		self.rw
@@ -247,11 +239,21 @@ impl CSRInfo {
 	}
 }
 
+impl Default for CSRInfo {
+	fn default() -> Self {
+		Self {
+			valid: false,
+			rw: false,
+			privilege: CSRPrivilege::Machine,
+			val: 0,
+		}
+	}
+}
+
 impl Debug for CSRInfo {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("CSRInfo")
 			.field("val", &format_args!("{:#018X}", self.val))
-			.field("addr", &format_args!("{:#06X}", self.addr))
 			.field("rw", if self.rw { &"RW" } else { &"RO" })
 			.field(
 				"privilege",

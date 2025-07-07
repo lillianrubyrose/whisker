@@ -4,7 +4,7 @@ use crate::ext::ReadExt;
 
 mod ext;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Endianness {
 	Little,
 	Big,
@@ -330,6 +330,8 @@ impl SectionHeaderType {
 			v if v == Self::SHT_NUM.to_value() => Some(Self::SHT_NUM),
 
 			v if (Self::SHT_LOOS..Self::SHT_HIOS).contains(&v) => Some(Self(v)),
+			v if (Self::SHT_LOPROC..Self::SHT_HIPROC).contains(&v) => Some(Self(v)),
+			v if (Self::SHT_LOUSER..Self::SHT_HIUSER).contains(&v) => Some(Self(v)),
 			_ => None,
 		}
 	}
@@ -461,7 +463,7 @@ pub struct ElfFile {
 }
 
 impl ElfFile {
-	pub fn parse(mut cursor: Cursor<&[u8]>) -> Result<Self, std::io::Error> {
+	pub fn parse(cursor: &mut Cursor<&[u8]>) -> Result<Self, std::io::Error> {
 		let mut magic = [0; 4];
 		cursor.read_exact(&mut magic)?;
 
@@ -653,7 +655,7 @@ mod tests {
 	#[test]
 	fn test_elf_file() {
 		let data = include_bytes!("../../../target/out.elf");
-		let elf = ElfFile::parse(Cursor::new(data)).unwrap();
+		let elf = ElfFile::parse(&mut Cursor::new(data)).unwrap();
 
 		dbg!(elf);
 	}

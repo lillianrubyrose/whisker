@@ -99,12 +99,13 @@ const BOOTROM_OFFSET: u64 = 0x00001000;
 const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 
-fn init_cpu(bootrom: PathBuf, _kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
+fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
 	let bootrom_data =
 		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+	let kernel_data = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
-	let elf = ElfFile::parse(&mut std::io::Cursor::new(bootrom_data.as_slice()))
-		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", bootrom.display()));
+	let elf = ElfFile::parse(&mut std::io::Cursor::new(kernel_data.as_slice()))
+		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", kernel.display()));
 
 	if elf.isa != ISA::RiscV {
 		panic!("ELF file is not for RISC-V architecture");
@@ -123,6 +124,7 @@ fn init_cpu(bootrom: PathBuf, _kernel: PathBuf, logfile: Option<PathBuf>) -> Whi
 		| SupportedExtensions::MULTIPLY;
 
 	let mem = MemoryBuilder::default()
+		.bootrom(bootrom_data, PageBase::from_addr(BOOTROM_OFFSET))
 		.physical_size(DRAM_SIZE)
 		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
 		.add_mmio(MMIOKind::UART)
@@ -133,20 +135,10 @@ fn init_cpu(bootrom: PathBuf, _kernel: PathBuf, logfile: Option<PathBuf>) -> Whi
 	for program_header in &elf.program_headers {
 		if program_header.ty == ProgramHeaderType::PT_LOAD {
 			let offset = program_header.offset as usize;
-			let file_data = &bootrom_data[offset..(offset + program_header.size_in_file as usize)];
+			let file_data = &kernel_data[offset..(offset + program_header.size_in_file as usize)];
 
 			cpu.write_slice(HartId::HART0, program_header.virtual_address, file_data)
 				.unwrap_or_else(|addr| panic!("unable to copy ELF segment to memory at address {:#x}", addr));
-
-			if program_header.size_in_memory > program_header.size_in_file {
-				// zero out remaining memory
-				let zero_start = program_header.virtual_address + program_header.size_in_file;
-				let zero_size = program_header.size_in_memory - program_header.size_in_file;
-				let zeros = vec![0u8; zero_size as usize];
-
-				cpu.write_slice(HartId::HART0, zero_start, &zeros)
-					.unwrap_or_else(|addr| panic!("unable to zero BSS section at address {:#x}", addr));
-			}
 
 			println!(
 				"Loaded ELF segment: vaddr={:#x}, size={:#x}, file_size={:#x}",

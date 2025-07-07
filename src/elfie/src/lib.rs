@@ -16,20 +16,23 @@ pub enum Class {
 	X64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u16)]
 pub enum ISA {
 	RiscV,
 }
 
 impl ISA {
-	pub fn parse(cursor: &mut Cursor<&[u8]>, endianness: Endianness) -> Result<Self, std::io::Error> {
-		let value = cursor.read_16(endianness)?;
+	pub const fn to_value(self) -> u16 {
+		match self {
+			ISA::RiscV => 0xF3,
+		}
+	}
+
+	pub fn from_value(value: u16) -> Option<Self> {
 		match value {
-			0xF3 => Ok(ISA::RiscV),
-			_ => Err(std::io::Error::new(
-				std::io::ErrorKind::InvalidData,
-				"Invalid ISA value",
-			)),
+			0xF3 => Some(Self::RiscV),
+			_ => None,
 		}
 	}
 }
@@ -505,15 +508,14 @@ impl ElfFile {
 
 		cursor.seek_relative(7)?; // skip padding
 
-		let Some(ty) = ElfType::from_value(cursor.read_16(endianness)?) else {
-			return Err(std::io::Error::new(
-				std::io::ErrorKind::InvalidData,
-				"Invalid ELF file type",
-			));
-		};
+		let ty = ElfType::from_value(cursor.read_16(endianness)?).ok_or(std::io::Error::new(
+			std::io::ErrorKind::InvalidData,
+			"Invalid ELF file type",
+		))?;
 		assert_eq!(ty, ElfType::Executable);
 
-		let isa = ISA::parse(&mut cursor, endianness)?;
+		let isa = ISA::from_value(cursor.read_16(endianness)?)
+			.ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid ISA type"))?;
 		let version = cursor.read_32(endianness)?;
 		if version != 1 {
 			return Err(std::io::Error::new(
@@ -539,7 +541,10 @@ impl ElfFile {
 
 		for _ in 0..program_header_table_entry_count {
 			program_headers.push(ProgramHeader {
-				ty: ProgramHeaderType(cursor.read_32(endianness)?),
+				ty: ProgramHeaderType::from_value(cursor.read_32(endianness)?).ok_or(std::io::Error::new(
+					std::io::ErrorKind::InvalidData,
+					"Invalid program header type",
+				))?,
 				flags: cursor.read_32(endianness)?,
 				offset: cursor.read_64(endianness)?,
 				virtual_address: cursor.read_64(endianness)?,
@@ -559,7 +564,10 @@ impl ElfFile {
 		for _ in 0..section_header_table_entry_count {
 			section_headers.push(PartialSectionHeader {
 				name_offset: cursor.read_32(endianness)?,
-				ty: SectionHeaderType(cursor.read_32(endianness)?),
+				ty: SectionHeaderType::from_value(cursor.read_32(endianness)?).ok_or(std::io::Error::new(
+					std::io::ErrorKind::InvalidData,
+					"Invalid section header type",
+				))?,
 				flags: SectionHeaderFlags(cursor.read_64(endianness)?),
 				virtual_address: cursor.read_64(endianness)?,
 				offset: cursor.read_64(endianness)?,

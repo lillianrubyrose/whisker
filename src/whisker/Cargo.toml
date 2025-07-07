@@ -19,3 +19,4 @@ softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag 
 tracing.workspace = true
 tracing-subscriber.workspace = true
 num-conv = "0.1.0"
+elfie.path = "../elfie"

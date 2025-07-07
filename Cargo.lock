@@ -685,6 +685,7 @@ name = "whisker"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "elfie",
  "gdbstub",
  "gdbstub_arch",
  "num-conv",

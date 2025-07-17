@@ -58,7 +58,7 @@ enum Commands {
 	/// a shortcut for compiling whisker.c to a static library
 	CompileWhiskerLib,
 	Compile {
-		#[arg(short, long, default_value_t = String::from("kernel.bin"))]
+		#[arg(short, long, default_value_t = String::from("kernel.elf"))]
 		out: String,
 		#[arg(long, short = 'T', default_value = String::from("examples/kernel.ld"))]
 		linker_script: PathBuf,
@@ -104,8 +104,7 @@ fn main() {
 			compile_args,
 		} => {
 			let objs = compile(files.as_slice(), flatten_to_set(extensions), compile_args.as_slice());
-			let elf = link_to_elf(objs.as_slice(), linker_script.as_path());
-			copy_to_flat_bin(&elf, out.as_str());
+			link_to_elf(objs.as_slice(), linker_script.as_path(), out.as_str());
 		}
 		Commands::CompileStaticLib {
 			files,
@@ -128,7 +127,7 @@ fn main() {
 			let bootloader_path = PathBuf::from("src/boot/boot.s");
 			let linker_script = PathBuf::from("src/boot/boot.ld");
 			let objs = compile(&[bootloader_path], HashSet::new(), &[]);
-			let elf = link_to_elf(objs.as_slice(), linker_script.as_path());
+			let elf = link_to_elf(objs.as_slice(), linker_script.as_path(), "boot.elf");
 			copy_to_flat_bin(&elf, bootloader_name);
 		}
 		Commands::CompileWhiskerLib => {
@@ -213,7 +212,6 @@ fn compile(files: &[PathBuf], extensions: HashSet<ISAExtension>, compile_args: &
 		for ele in &extensions {
 			march.push(ele.to_char());
 		}
-		info!("compiling with march: {march}");
 
 		let mut cmd = Command::new(cc);
 		cmd.args([
@@ -241,7 +239,7 @@ fn compile(files: &[PathBuf], extensions: HashSet<ISAExtension>, compile_args: &
 	out_files
 }
 
-fn link_to_elf(files: &[PathBuf], linker_script: &Path) -> PathBuf {
+fn link_to_elf(files: &[PathBuf], linker_script: &Path, out_elf_name: &str) -> PathBuf {
 	let base_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
 	let target_dir = base_dir.join("target");
 
@@ -258,7 +256,7 @@ fn link_to_elf(files: &[PathBuf], linker_script: &Path) -> PathBuf {
 		info!("linking `{}`", file.strip_prefix(&target_dir).unwrap().display());
 	}
 
-	let linked_path = target_dir.join("out.elf");
+	let linked_path = target_dir.join(out_elf_name);
 	let mut cmd = Command::new(cc);
 	cmd.args([
 		"-mcmodel=medany",
@@ -283,6 +281,8 @@ fn link_to_elf(files: &[PathBuf], linker_script: &Path) -> PathBuf {
 	if !output.stderr.is_empty() {
 		warn!("linker stderr:\n{}", String::from_utf8_lossy(output.stderr.as_slice()));
 	}
+
+	info!("linked all files to `{}`", out_elf_name);
 
 	linked_path
 }
@@ -352,8 +352,5 @@ fn create_staticlib(files: &[PathBuf], out_lib_name: &str) {
 		warn!("ar stderr:\n{}", String::from_utf8_lossy(output.stderr.as_slice()));
 	}
 
-	info!(
-		"DONE! output library at `{}`",
-		out_lib_path.strip_prefix(target_dir).unwrap().display()
-	);
+	info!("DONE! output library at `{}`", out_lib_name);
 }

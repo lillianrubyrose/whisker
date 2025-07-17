@@ -13,6 +13,7 @@ mod util;
 compile_error!("whisker only supports 64bit architectures");
 
 use std::fs;
+use std::io::Cursor;
 use std::path::PathBuf;
 
 use clap::{command, Parser, Subcommand};
@@ -104,7 +105,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 	let kernel_data = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
-	let elf = ElfFile::parse(&mut std::io::Cursor::new(kernel_data.as_slice()))
+	let elf = ElfFile::parse(Cursor::new(&kernel_data))
 		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", kernel.display()));
 
 	if elf.isa != ISA::RiscV {

@@ -1,15 +1,15 @@
-use std::io::{Cursor, Read};
+use std::io::Read;
 
 use crate::Endianness;
 
-pub trait ReadExt {
+pub trait ReadExt: Read {
 	fn read_u8(&mut self) -> Result<u8, std::io::Error>;
 	fn read_16(&mut self, endianness: Endianness) -> Result<u16, std::io::Error>;
 	fn read_32(&mut self, endianness: Endianness) -> Result<u32, std::io::Error>;
 	fn read_64(&mut self, endianness: Endianness) -> Result<u64, std::io::Error>;
 }
 
-impl ReadExt for Cursor<&[u8]> {
+impl<T: Read> ReadExt for T {
 	fn read_u8(&mut self) -> Result<u8, std::io::Error> {
 		let mut buf = [0; 1];
 		self.read_exact(&mut buf)?;

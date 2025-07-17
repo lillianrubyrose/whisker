@@ -1,4 +1,6 @@
-use std::io::{Cursor, Read, Seek};
+use std::fs::File;
+use std::io::{Seek, SeekFrom};
+use std::path::Path;
 
 use crate::ext::ReadExt;
 
@@ -463,9 +465,14 @@ pub struct ElfFile {
 }
 
 impl ElfFile {
-	pub fn parse(cursor: &mut Cursor<&[u8]>) -> Result<Self, std::io::Error> {
+	pub fn parse_file(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+		let f = File::open(path)?;
+		Self::parse(f)
+	}
+
+	pub fn parse(mut reader: impl ReadExt + Seek) -> Result<Self, std::io::Error> {
 		let mut magic = [0; 4];
-		cursor.read_exact(&mut magic)?;
+		reader.read_exact(&mut magic)?;
 
 		if magic != *b"\x7FELF" {
 			return Err(std::io::Error::new(
@@ -474,7 +481,7 @@ impl ElfFile {
 			));
 		}
 
-		let class = match cursor.read_u8()? {
+		let class = match reader.read_u8()? {
 			1 => Class::X32,
 			2 => Class::X64,
 			_ => {
@@ -486,7 +493,7 @@ impl ElfFile {
 		};
 		assert_eq!(class, Class::X64, "We dont support 32-bit ELF files");
 
-		let endianness = match cursor.read_u8()? {
+		let endianness = match reader.read_u8()? {
 			1 => Endianness::Little,
 			2 => Endianness::Big,
 			_ => {
@@ -497,7 +504,7 @@ impl ElfFile {
 			}
 		};
 
-		let version = cursor.read_u8()?;
+		let version = reader.read_u8()?;
 		if version != 1 {
 			return Err(std::io::Error::new(
 				std::io::ErrorKind::InvalidData,
@@ -505,20 +512,20 @@ impl ElfFile {
 			));
 		}
 
-		let abi = cursor.read_u8()?;
-		let abi_version = cursor.read_u8()?;
+		let abi = reader.read_u8()?;
+		let abi_version = reader.read_u8()?;
 
-		cursor.seek_relative(7)?; // skip padding
+		reader.seek_relative(7)?; // skip padding
 
-		let ty = ElfType::from_value(cursor.read_16(endianness)?).ok_or(std::io::Error::new(
+		let ty = ElfType::from_value(reader.read_16(endianness)?).ok_or(std::io::Error::new(
 			std::io::ErrorKind::InvalidData,
 			"Invalid ELF file type",
 		))?;
 		assert_eq!(ty, ElfType::Executable);
 
-		let isa = ISA::from_value(cursor.read_16(endianness)?)
+		let isa = ISA::from_value(reader.read_16(endianness)?)
 			.ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid ISA type"))?;
-		let version = cursor.read_32(endianness)?;
+		let version = reader.read_32(endianness)?;
 		if version != 1 {
 			return Err(std::io::Error::new(
 				std::io::ErrorKind::InvalidData,
@@ -526,65 +533,96 @@ impl ElfFile {
 			));
 		}
 
-		let entrypoint = cursor.read_64(endianness)?;
-		let program_header_table_offset = cursor.read_64(endianness)?;
-		let section_header_table_offset = cursor.read_64(endianness)?;
-		let flags = cursor.read_32(endianness)?;
-		let header_size = cursor.read_16(endianness)?;
+		let entrypoint = reader.read_64(endianness)?;
+		let program_header_table_offset = reader.read_64(endianness)?;
+		let section_header_table_offset = reader.read_64(endianness)?;
+		let flags = reader.read_32(endianness)?;
+		let header_size = reader.read_16(endianness)?;
 
-		let program_header_table_entry_size = cursor.read_16(endianness)?;
-		let program_header_table_entry_count = cursor.read_16(endianness)?;
-		let section_header_table_entry_size = cursor.read_16(endianness)?;
-		let section_header_table_entry_count = cursor.read_16(endianness)?;
-		let section_name_string_table_index = cursor.read_16(endianness)?;
+		let program_header_table_entry_size = reader.read_16(endianness)?;
+		let program_header_table_entry_count = reader.read_16(endianness)?;
+		let section_header_table_entry_size = reader.read_16(endianness)?;
+		let section_header_table_entry_count = reader.read_16(endianness)?;
+		let section_name_string_table_index = reader.read_16(endianness)?;
 
 		let mut program_headers: Vec<ProgramHeader> = Vec::new();
-		cursor.set_position(program_header_table_offset);
+		reader.seek(SeekFrom::Start(program_header_table_offset))?;
 
 		for _ in 0..program_header_table_entry_count {
 			program_headers.push(ProgramHeader {
-				ty: ProgramHeaderType::from_value(cursor.read_32(endianness)?).ok_or(std::io::Error::new(
+				ty: ProgramHeaderType::from_value(reader.read_32(endianness)?).ok_or(std::io::Error::new(
 					std::io::ErrorKind::InvalidData,
 					"Invalid program header type",
 				))?,
-				flags: cursor.read_32(endianness)?,
-				offset: cursor.read_64(endianness)?,
-				virtual_address: cursor.read_64(endianness)?,
-				physical_address: cursor.read_64(endianness)?,
-				size_in_file: cursor.read_64(endianness)?,
-				size_in_memory: cursor.read_64(endianness)?,
-				alignment: cursor.read_64(endianness)?,
+				flags: reader.read_32(endianness)?,
+				offset: reader.read_64(endianness)?,
+				virtual_address: reader.read_64(endianness)?,
+				physical_address: reader.read_64(endianness)?,
+				size_in_file: reader.read_64(endianness)?,
+				size_in_memory: reader.read_64(endianness)?,
+				alignment: reader.read_64(endianness)?,
 			});
 
 			// minimum entry size for elf64
-			cursor.seek_relative((program_header_table_entry_size.cast_signed() as i64).saturating_sub(0x38))?;
+			reader.seek_relative((program_header_table_entry_size.cast_signed() as i64).saturating_sub(0x38))?;
 		}
 
 		let mut section_headers: Vec<PartialSectionHeader> = Vec::new();
-		cursor.set_position(section_header_table_offset);
+		reader.seek(SeekFrom::Start(section_header_table_offset))?;
 
 		for _ in 0..section_header_table_entry_count {
 			section_headers.push(PartialSectionHeader {
-				name_offset: cursor.read_32(endianness)?,
-				ty: SectionHeaderType::from_value(cursor.read_32(endianness)?).ok_or(std::io::Error::new(
+				name_offset: reader.read_32(endianness)?,
+				ty: SectionHeaderType::from_value(reader.read_32(endianness)?).ok_or(std::io::Error::new(
 					std::io::ErrorKind::InvalidData,
 					"Invalid section header type",
 				))?,
-				flags: SectionHeaderFlags(cursor.read_64(endianness)?),
-				virtual_address: cursor.read_64(endianness)?,
-				offset: cursor.read_64(endianness)?,
-				size: cursor.read_64(endianness)?,
-				link: cursor.read_32(endianness)?,
-				info: cursor.read_32(endianness)?,
-				alignment: cursor.read_64(endianness)?,
-				entry_size: cursor.read_64(endianness)?,
+				flags: SectionHeaderFlags(reader.read_64(endianness)?),
+				virtual_address: reader.read_64(endianness)?,
+				offset: reader.read_64(endianness)?,
+				size: reader.read_64(endianness)?,
+				link: reader.read_32(endianness)?,
+				info: reader.read_32(endianness)?,
+				alignment: reader.read_64(endianness)?,
+				entry_size: reader.read_64(endianness)?,
 			});
 
 			// minimum entry size for elf64
-			cursor.seek_relative((section_header_table_entry_size.cast_signed() as i64).saturating_sub(0x40))?;
+			reader.seek_relative((section_header_table_entry_size.cast_signed() as i64).saturating_sub(0x40))?;
 		}
 
 		let string_table_section_offset = section_headers[section_name_string_table_index as usize].offset;
+
+		let section_headers = section_headers
+			.into_iter()
+			.map(|header| {
+				let name_index = string_table_section_offset + header.name_offset as u64;
+				reader.seek(SeekFrom::Start(name_index))?;
+
+				let mut name = String::new();
+				loop {
+					let byte = reader.read_u8()?;
+					if byte == b'\0' {
+						break;
+					}
+
+					name.push(byte as char); // something something this isnt correct probably
+				}
+
+				Ok(SectionHeader {
+					name,
+					ty: header.ty,
+					flags: header.flags,
+					virtual_address: header.virtual_address,
+					offset: header.offset,
+					size: header.size,
+					link: header.link,
+					info: header.info,
+					alignment: header.alignment,
+					entry_size: header.entry_size,
+				})
+			})
+			.collect::<Result<Vec<SectionHeader>, std::io::Error>>()?;
 
 		Ok(ElfFile {
 			version,
@@ -605,36 +643,7 @@ impl ElfFile {
 			section_header_table_offset,
 			section_header_table_entry_count,
 			section_header_table_entry_size,
-			section_headers: section_headers
-				.into_iter()
-				.map(|header| {
-					let name_index = string_table_section_offset + header.name_offset as u64;
-					cursor.set_position(name_index);
-
-					let mut name = String::new();
-					loop {
-						let byte = cursor.read_u8()?;
-						if byte == b'\0' {
-							break;
-						}
-
-						name.push(byte as char); // something something this isnt correct probably
-					}
-
-					Ok(SectionHeader {
-						name,
-						ty: header.ty,
-						flags: header.flags,
-						virtual_address: header.virtual_address,
-						offset: header.offset,
-						size: header.size,
-						link: header.link,
-						info: header.info,
-						alignment: header.alignment,
-						entry_size: header.entry_size,
-					})
-				})
-				.collect::<Result<Vec<SectionHeader>, std::io::Error>>()?,
+			section_headers,
 		})
 	}
 
@@ -651,6 +660,7 @@ impl ElfFile {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::io::Cursor;
 
 	#[test]
 	fn test_elf_file() {

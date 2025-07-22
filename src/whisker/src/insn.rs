@@ -15,9 +15,10 @@ use num_conv::prelude::*;
 use privileged::PrivilegedInstruction;
 
 use crate::insn::csr::CSRInstruction;
+use crate::mem::ReadKind;
 use crate::ty::{SupportedExtensions, TrapIdx, TrapRequestGuaranteed};
 use crate::util::extract_bits_16;
-use crate::{insn16, insn32, log, WhiskerCpu};
+use crate::{cpu, insn16, insn32, log, WhiskerCpu};
 
 #[derive(Debug)]
 pub enum Instruction {
@@ -36,14 +37,9 @@ impl Instruction {
 		let pc = cpu.pc;
 		let support_compressed = cpu.supported_extensions.has(SupportedExtensions::COMPRESSED);
 
-		let parcel1 = match cpu.read_mem_u16(pc) {
-			Ok(parcel1) => parcel1,
-			Err(addr) => {
-				log!(cpu, "  could not read start of instruction from {:#018X}", pc);
-				// FIXME: this addr is probably not right?
-				return Err(cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr));
-			}
-		};
+		let mut mem = cpu::MEMORY.wait().lock().unwrap();
+
+		let parcel1 = mem.read_phys_u16(cpu, pc, ReadKind::Instruction)?;
 
 		// all encodings with the low 16 bits all 0s are invalid.
 		// NOTE: the length of an all-zeros instruction is considered
@@ -75,14 +71,7 @@ impl Instruction {
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
 			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
 			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
-			let high_parcel = match cpu.read_mem_u16(pc + 2) {
-				Ok(p) => p,
-				Err(addr) => {
-					log!(cpu, "  could not read u32 instruction from {:#018X}", pc);
-					// FIXME: this addr is probably not right?
-					return Err(cpu.request_trap(TrapIdx::INSTRUCTION_PAGE_FAULT, addr));
-				}
-			};
+			let high_parcel = mem.read_phys_u16(cpu, pc + 2, ReadKind::Instruction)?;
 			let full_parcel = high_parcel.extend::<u32>() << 16 | parcel1.extend::<u32>();
 			match insn32::parse(cpu, full_parcel) {
 				Some(insn) => Ok((insn, 4)),

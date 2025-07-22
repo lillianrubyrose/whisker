@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use num_conv::Extend;
 use tracing::error;
 
 use crate::cpu::WhiskerCpu;
@@ -48,7 +49,7 @@ define_csrs!(
     mvendorid, 0xF11, RO, Machine = 0,
     marchid,   0xF12, RO, Machine = 0,
     mimpid,    0xF13, RO, Machine = 0,
-    mhartid,   0xF14, RO, Machine = 0, // we only support hart0
+    mhartid,   0xF14, RO, Machine,
 
     // machine trap setup
     // MIE set to 0, MPP set to M mode
@@ -133,6 +134,7 @@ impl WhiskerCpu {
 		match idx {
 			// MISA must always match the current cpu extension state
 			MISA => self.read_misa(),
+			MHARTID => self.hart_id().inner().extend(),
 			// registers that need no special handling
 			_ => self.csrs.0[idx.as_idx()].val,
 		}

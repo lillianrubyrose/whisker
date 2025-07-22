@@ -20,7 +20,6 @@ use gdbstub::{
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
-use crate::ty::HartId;
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
@@ -163,26 +162,31 @@ impl SingleThreadBase for WhiskerCpu {
 
 	fn read_addrs(
 		&mut self,
-		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		data: &mut [u8],
+		_start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		_data: &mut [u8],
 	) -> gdbstub::target::TargetResult<usize, Self> {
-		match self.read_slice(start_addr, data) {
+		// FIXME: poking mem directly with GDB is not yet implemented for new mem - there should be a function for this
+		return Err(TargetError::Errno(121));
+		/*match self.read_slice(start_addr, data) {
 			Ok(()) => Ok(data.len()),
 			// FIXME: does this do what we want
 			Err(addr) => Ok((addr - start_addr) as usize),
-		}
+		}*/
 	}
 
 	fn write_addrs(
 		&mut self,
-		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		data: &[u8],
+		_start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		_data: &[u8],
 	) -> gdbstub::target::TargetResult<(), Self> {
+		// FIXME: poking mem directly with GDB is not yet implemented for new mem - there should be a function for this
+		return Err(TargetError::Errno(121));
+		/*
 		match self.write_slice(HartId::HART0, start_addr, data) {
 			Ok(()) => Ok(()),
 			// EREMOTEIO - causes gdb to report "cannot access memory at <start_addr>"
 			Err(_addr) => Err(TargetError::Errno(121)),
-		}
+		}*/
 	}
 
 	fn support_resume(&mut self) -> Option<gdbstub::target::ext::base::singlethread::SingleThreadResumeOps<'_, Self>> {

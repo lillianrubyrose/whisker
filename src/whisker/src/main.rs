@@ -12,9 +12,10 @@ mod util;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
-use std::fs;
-use std::io::Cursor;
+use std::io::{self, Cursor};
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::{fs, thread};
 
 use clap::{command, Parser, Subcommand};
 use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
@@ -26,8 +27,9 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
-use crate::mem::{MMIOKind, MemoryBuilder, PageBase};
-use crate::ty::{HartId, SupportedExtensions};
+use crate::mem::mmio::{MMIOKind, UART_DATA};
+use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
+use crate::ty::SupportedExtensions;
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -101,8 +103,10 @@ const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 
 fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
-	let bootrom_data =
+	let mut bootrom_data =
 		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+	bootrom_data.resize(0x1000, 0);
+
 	let kernel_data = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
 	let elf = ElfFile::parse(Cursor::new(&kernel_data))
@@ -124,32 +128,66 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 		| SupportedExtensions::ATOMIC
 		| SupportedExtensions::MULTIPLY;
 
-	let mem = MemoryBuilder::default()
-		.bootrom(bootrom_data, PageBase::from_addr(BOOTROM_OFFSET))
-		.physical_size(DRAM_SIZE)
-		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
-		.add_mmio(MMIOKind::UART)
-		.build();
+	//	let mem = MemoryBuilder::default()
+	//		.bootrom(bootrom_data, PageBase::from_addr(BOOTROM_OFFSET))
+	//		.physical_size(DRAM_SIZE)
+	//		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
+	//		.add_mmio(MMIOKind::UART)
+	//		.build();
 
-	let mut cpu = WhiskerCpu::new(supported, mem, logfile);
+	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
 
+	let mut mem_builder = MemoryBuilder::default()
+		// FIXME: maybe model the bootrom as an IO region so it can be RX instead of RWX
+		.add_region(MemoryRegion::new_main_mem(
+			BOOTROM_OFFSET,
+			0x1000,
+			bootrom_data.into_boxed_slice(),
+			AccessAttrs::new(ACCESS_MAX_U64, AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC),
+		))
+		.add_region(MemoryRegion::new_mmio(
+			UART_DATA,
+			0x1000,
+			MMIOKind::UART,
+			AccessAttrs::new(1, AccessKind::READ | AccessKind::WRITE),
+		));
+
+	// load the ELF into main memory
+	let mut main_mem_backing = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
 	for program_header in &elf.program_headers {
 		if program_header.ty == ProgramHeaderType::PT_LOAD {
-			let offset = program_header.offset as usize;
-			let file_data = &kernel_data[offset..(offset + program_header.size_in_file as usize)];
+			let file_offset = program_header.offset as usize;
+			let mem_offset = (program_header.physical_address - DRAM_BASE) as usize;
+			let len = program_header.size_in_file as usize;
 
-			cpu.write_slice(HartId::HART0, program_header.virtual_address, file_data)
-				.unwrap_or_else(|addr| panic!("unable to copy ELF segment to memory at address {:#x}", addr));
+			let file_data = &kernel_data[file_offset..(file_offset + program_header.size_in_file as usize)];
+
+			main_mem_backing[mem_offset..][..len].copy_from_slice(file_data);
 
 			println!(
-				"Loaded ELF segment: vaddr={:#x}, size={:#x}, file_size={:#x}",
-				program_header.virtual_address, program_header.size_in_memory, program_header.size_in_file
+				"Loaded ELF segment: paddr={:#x}, size={:#x}, file_size={:#x}",
+				program_header.physical_address, program_header.size_in_memory, program_header.size_in_file
 			);
 		}
 	}
 
-	cpu.pc = elf.entrypoint;
-	println!("ELF entry point: {:#x}", elf.entrypoint);
+	mem_builder = mem_builder.add_region(MemoryRegion::new_main_mem(
+		DRAM_BASE,
+		DRAM_SIZE,
+		main_mem_backing,
+		AccessAttrs::new(
+			ACCESS_MAX_U64,
+			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
+		),
+	));
+
+	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
+
+	mem::mmio::register_mmio(MMIOKind::UART, Box::new(mem::mmio::UART::new())).unwrap();
+
+	let mut cpu = WhiskerCpu::new(supported, interrupt_controller, logfile);
+
+	cpu.pc = BOOTROM_OFFSET;
 	cpu
 }
 

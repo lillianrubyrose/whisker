@@ -4,23 +4,22 @@ use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
-use num_conv::{Extend, Truncate};
+use num_conv::Truncate;
 use tracing::*;
 
 pub mod csr;
+pub mod interrupts;
 
 use crate::cpu::csr::ControlStatusRegisters;
-use crate::insn::atomic::AtomicInstruction;
-use crate::insn::compressed::CompressedInstruction;
-use crate::insn::csr::CSRInstruction;
-use crate::insn::float::FloatInstruction;
-use crate::insn::int::IntInstruction;
-use crate::insn::multiply::MultiplyInstruction;
-use crate::insn::privileged::PrivilegedInstruction;
-use crate::insn::Instruction;
+use crate::cpu::interrupts::InterruptController;
+use crate::insn::{
+	atomic::AtomicInstruction, compressed::CompressedInstruction, csr::CSRInstruction, float::FloatInstruction,
+	int::IntInstruction, multiply::MultiplyInstruction, privileged::PrivilegedInstruction, Instruction,
+};
 use crate::log;
-use crate::mem::Memory;
+use crate::mem::{Memory, ReadKind, WriteKind};
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
 use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
@@ -40,14 +39,17 @@ pub enum WhiskerExecStatus {
 	Paused,
 }
 
+pub static MEMORY: OnceLock<Mutex<Memory>> = OnceLock::new();
+
 #[derive(Debug)]
 pub struct WhiskerCpu {
 	pub logfile: Option<File>,
 
 	pub supported_extensions: SupportedExtensions,
-	pub mem: Memory,
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
+
+	pub interrupt_controller: InterruptController,
 
 	pub csrs: ControlStatusRegisters,
 
@@ -63,7 +65,11 @@ pub struct WhiskerCpu {
 }
 
 impl WhiskerCpu {
-	pub fn new(supported_extensions: SupportedExtensions, mem: Memory, logfile: Option<PathBuf>) -> Self {
+	pub fn new(
+		supported_extensions: SupportedExtensions,
+		interrupt_controller: InterruptController,
+		logfile: Option<PathBuf>,
+	) -> Self {
 		let logfile = logfile.map(|path| {
 			OpenOptions::new()
 				.write(true)
@@ -76,9 +82,10 @@ impl WhiskerCpu {
 			logfile,
 
 			supported_extensions,
-			mem,
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),
+
+			interrupt_controller,
 
 			csrs: ControlStatusRegisters::new(),
 
@@ -91,6 +98,8 @@ impl WhiskerCpu {
 	}
 
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
+		self.poll_interrupt_controller();
+
 		self.cycles += 1;
 		log!(self, "cycle {}", self.cycles);
 
@@ -119,8 +128,12 @@ impl WhiskerCpu {
 				log!(self, "  {:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
 				match inst {
-					Instruction::IntExtension(insn) => self.execute_i_insn(insn),
-					Instruction::FloatExtension(insn) => self.execute_f_insn(insn),
+					Instruction::IntExtension(insn) => {
+						let _ = self.execute_i_insn(insn);
+					}
+					Instruction::FloatExtension(insn) => {
+						let _ = self.execute_f_insn(insn);
+					}
 					Instruction::Csr(insn) => self.exec_csr(insn),
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn),
 					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn),
@@ -135,6 +148,11 @@ impl WhiskerCpu {
 		self.pc = self.next_pc;
 		self.dump();
 		Ok(())
+	}
+
+	/// gets the ID of the hart
+	pub fn hart_id(&self) -> HartId {
+		HartId::HART0
 	}
 
 	/// requests the specified trap to happen
@@ -268,149 +286,89 @@ impl WhiskerCpu {
 }
 
 macro_rules! read_mem_u8 {
-	($self:ident, $offset:ident) => {
-		match $self.read_mem_u8($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_u8($self, $offset, $kind)
+	}};
 }
 
 macro_rules! read_mem_u16 {
-	($self:ident, $offset:ident) => {
-		match $self.read_mem_u16($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_u16($self, $offset, $kind)
+	}};
 }
 
 macro_rules! read_mem_u32 {
-	($self:ident, $offset:ident) => {
-		match $self.read_mem_u32($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_u32($self, $offset, $kind)
+	}};
 }
 
 macro_rules! read_mem_u64 {
-	($self:ident, $offset:ident) => {
-		match $self.read_mem_u64($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_u64($self, $offset, $kind)
+	}};
 }
 
 macro_rules! read_mem_float {
-	($self:ident, $offset:ident) => {
-		match $self.read_mem_soft_float($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_soft_float($self, $offset, $kind)
+	}};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
-	($self:ident, $offset:ident) => {
-		match $self.read_soft_double($offset) {
-			Ok(val) => val,
-			Err(addr) => {
-				$self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.read_phys_soft_double($self, $offset, $kind)
+	}};
 }
 
 macro_rules! write_mem_u8 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_mem_u8($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_u8($self, $offset, $kind, $val)
+	}};
 }
 
 macro_rules! write_mem_u16 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_mem_u16($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_u16($self, $offset, $kind, $val)
+	}};
 }
 
 macro_rules! write_mem_u32 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_mem_u32($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_u32($self, $offset, $kind, $val)
+	}};
 }
 
 macro_rules! write_mem_u64 {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_mem_u64($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_u64($self, $offset, $kind, $val)
+	}};
 }
 
 macro_rules! write_mem_float {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_mem_soft_float($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_soft_float($self, $offset, $kind, $val)
+	}};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
-	($self:ident, $offset:ident, $val:ident) => {
-		match $self.write_soft_double($offset, $val) {
-			Ok(()) => (),
-			Err(addr) => {
-				$self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-				return;
-			}
-		}
-	};
+	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
+		let mut mem = MEMORY.wait().lock().unwrap();
+		mem.write_phys_soft_double($self, $offset, $kind, $val)
+	}};
 }
 
 impl WhiskerCpu {
@@ -449,7 +407,7 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn execute_i_insn(&mut self, insn: IntInstruction) {
+	fn execute_i_insn(&mut self, insn: IntInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val as u64);
@@ -460,26 +418,26 @@ impl WhiskerCpu {
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u8;
-				write_mem_u8!(self, offset, val);
+				write_mem_u8!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreHalf { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u16;
-				write_mem_u16!(self, offset, val);
+				write_mem_u16!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src) as u32;
-				write_mem_u32!(self, offset, val);
+				write_mem_u32!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreDoubleWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src);
-				write_mem_u64!(self, offset, val);
+				write_mem_u64!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::LoadByte { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset) as u64;
+				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_FFFFFF00) | val;
@@ -487,7 +445,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset) as u64;
+				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_FFFF0000) | val;
@@ -495,7 +453,7 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset) as u64;
+				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as u64;
 
 				let reg_val = self.registers.get(dst);
 				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
@@ -503,22 +461,22 @@ impl WhiskerCpu {
 			}
 			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u64!(self, offset);
+				let val = read_mem_u64!(self, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadByteZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset) as u64;
+				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadHalfZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset) as u64;
+				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadWordZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset) as u64;
+				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
@@ -732,19 +690,20 @@ impl WhiskerCpu {
 				self.request_trap(TrapIdx::BREAKPOINT, 0);
 			}
 		}
+		Ok(())
 	}
 
-	fn execute_f_insn(&mut self, insn: FloatInstruction) {
+	fn execute_f_insn(&mut self, insn: FloatInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_float!(self, offset);
+				let val = read_mem_float!(self, offset, ReadKind::Normal)?;
 				self.fp_registers.set_float(dst, val);
 			}
 			FloatInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.fp_registers.get_float(src);
-				write_mem_float!(self, offset, val);
+				write_mem_float!(self, offset, WriteKind::Normal, val)?;
 			}
 			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
@@ -874,18 +833,18 @@ impl WhiskerCpu {
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is NaN
-				let Some(cmp) = lhs.partial_cmp(&rhs) else {
-					// if any input was NaN, the output is 0
-					self.registers.set(dst, 0);
-					// if either input was sNaN, write invalid operation
-					if lhs.is_snan() || rhs.is_snan() {
-						let val = self.read_csr_unchecked(csr::FCSR);
-						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+				match lhs.partial_cmp(&rhs) {
+					Some(cmp) => self.registers.set(dst, u64::from(cmp == Ordering::Equal)),
+					None => {
+						// if any input was NaN, the output is 0
+						self.registers.set(dst, 0);
+						// if either input was sNaN, write invalid operation
+						if lhs.is_snan() || rhs.is_snan() {
+							let val = self.read_csr_unchecked(csr::FCSR);
+							self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+						}
 					}
-					return;
-				};
-
-				self.registers.set(dst, u64::from(cmp == Ordering::Equal));
+				}
 			}
 			//FLT.S and FLE.S perform what the IEEE 754-2008 standard refers to as signaling comparisons: that is,
 			//they set the invalid operation exception flag if either input is NaN.
@@ -894,31 +853,33 @@ impl WhiskerCpu {
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is nan
-				let Some(cmp) = lhs.partial_cmp(&rhs) else {
-					self.registers.set(dst, 0);
-					let val = self.read_csr_unchecked(csr::FCSR);
-					self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
-					return;
-				};
-
-				self.registers.set(dst, u64::from(cmp == Ordering::Less));
+				match lhs.partial_cmp(&rhs) {
+					Some(cmp) => self.registers.set(dst, u64::from(cmp == Ordering::Less)),
+					None => {
+						self.registers.set(dst, 0);
+						let val = self.read_csr_unchecked(csr::FCSR);
+						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+					}
+				}
 			}
 			FloatInstruction::LessOrEqualSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is nan
-				let Some(cmp) = lhs.partial_cmp(&rhs) else {
-					self.registers.set(dst, 0);
-					let val = self.read_csr_unchecked(csr::FCSR);
-					self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
-					return;
-				};
-
-				self.registers
-					.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
+				match lhs.partial_cmp(&rhs) {
+					Some(cmp) => self
+						.registers
+						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal))),
+					None => {
+						self.registers.set(dst, 0);
+						let val = self.read_csr_unchecked(csr::FCSR);
+						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+					}
+				}
 			}
 		}
+		Ok(())
 	}
 
 	fn exec_csr(&mut self, insn: CSRInstruction) {
@@ -1027,7 +988,9 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_atomic_insn(&mut self, insn: AtomicInstruction) {
+	fn exec_atomic_insn(&mut self, _insn: AtomicInstruction) {
+		panic!("ATOMICS NYI WITH NEW MEM");
+		/*
 		// TODO(atomic): For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic
 		// and other things we do not currently implement.
 		match insn {
@@ -1611,7 +1574,7 @@ impl WhiskerCpu {
 					}
 				}
 			}
-		}
+		}*/
 	}
 
 	fn exec_multiply_insn(&mut self, insn: MultiplyInstruction) {

@@ -307,9 +307,9 @@ impl TrapIdx {
 	pub const ILLEGAL_INSTRUCTION: Self = Self::exception(2);
 	pub const BREAKPOINT: Self = Self::exception(3);
 	pub const LOAD_ADDR_MISALIGNED: Self = Self::exception(4);
-	pub const LOAD_ADDR_FAULT: Self = Self::exception(5);
+	pub const LOAD_ACCESS_FAULT: Self = Self::exception(5);
 	pub const STORE_ADDR_MISALIGNED: Self = Self::exception(6);
-	pub const STORE_ADDR_FAULT: Self = Self::exception(7);
+	pub const STORE_ACCESS_FAULT: Self = Self::exception(7);
 	pub const ECALL_UMODE: Self = Self::exception(8);
 	pub const ECALL_SMODE: Self = Self::exception(9);
 	pub const ECALL_MMODE: Self = Self::exception(11);
@@ -336,6 +336,10 @@ impl HartId {
 
 	// FIXME: right now only hart 0 is implemented, audit all uses
 	pub const HART0: Self = Self(0);
+
+	pub fn inner(self) -> u8 {
+		self.0
+	}
 }
 
 /// these exist to allow the generic RegisterIndex to derive things without needing the underlying register

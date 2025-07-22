@@ -1,3 +1,4 @@
+/*
 use core::slice;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -7,11 +8,8 @@ use rustc_hash::FxHashMap;
 
 use tracing::*;
 
-mod mmio;
-
-pub use mmio::MMIOKind;
-
 use crate::cpu::WhiskerCpu;
+use crate::mmio::MMIOKind;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
 use crate::ty::HartId;
@@ -307,7 +305,6 @@ impl WhiskerCpu {
 		write_simple_inner!(self, SoftDouble, addr, val)
 	}
 }
-
 impl Memory {
 	/// given a virtual address, look up its page entry and the offset into the page
 	fn lookup_addr(&self, virt_addr: u64) -> Option<(&PageEntry, u64)> {
@@ -452,137 +449,4 @@ impl WhiskerCpu {
 		})
 	}
 }
-
-pub enum PageEntry {
-	PhysBacked { phys_base: u64 },
-	Bootrom { page_base: u64 },
-	MMIO(MMIOKind),
-}
-
-fn align_to_page(addr: u64) -> u64 {
-	(addr + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1)
-}
-
-const PAGE_SIZE: u64 = 4096;
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// INVARIANT: is a multiple of PAGE_SIZE
-pub struct PageBase(u64);
-
-impl PageBase {
-	pub const fn from_addr(addr: u64) -> Self {
-		Self(addr & !(PAGE_SIZE - 1))
-	}
-}
-
-impl Debug for PageBase {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_tuple("PageBase")
-			.field(&format_args!("{:#018X}", self.0))
-			.finish()
-	}
-}
-
-#[derive(Default)]
-pub struct MemoryBuilder {
-	// size of physical memory
-	physical: Option<u64>,
-	// physical addr -> (virt addr, map_size bytes)
-	physical_mappings: HashMap<PageBase, (PageBase, u64)>,
-
-	misc_maps: HashMap<PageBase, PageEntry>,
-	// bootrom data, virtual offset
-	bootrom: Option<(Box<[u8]>, PageBase)>,
-}
-
-impl MemoryBuilder {
-	#[must_use]
-	pub fn bootrom(mut self, mut bootrom: Vec<u8>, addr: PageBase) -> Self {
-		assert!(self.bootrom.is_none(), "cannot set bootrom more than once");
-		let padded_len = align_to_page(bootrom.len() as u64);
-		bootrom.resize(padded_len as usize, 0_u8);
-		self.bootrom = Some((bootrom.into_boxed_slice(), addr));
-		self
-	}
-
-	#[must_use]
-	pub fn physical_size(mut self, size: u64) -> Self {
-		assert!(
-			self.physical.is_none(),
-			"cannot set physical memory size more than once"
-		);
-		assert_eq!(size % PAGE_SIZE, 0);
-
-		self.physical = Some(size);
-		self
-	}
-
-	#[must_use]
-	pub fn phys_mapping(mut self, virt_base: PageBase, phys_base: PageBase, size: u64) -> Self {
-		assert_eq!(size % PAGE_SIZE, 0);
-		let prev = self.physical_mappings.insert(virt_base, (phys_base, size));
-		assert!(prev.is_none());
-		self
-	}
-
-	#[must_use]
-	pub fn add_mapping(mut self, virt_addr: PageBase, entry: PageEntry) -> Self {
-		let prev = self.misc_maps.insert(virt_addr, entry);
-		assert!(
-			prev.is_none(),
-			"cannot overwrite mapping for virtual address {:#018X}",
-			virt_addr.0
-		);
-		self
-	}
-
-	#[must_use]
-	pub fn add_mmio(self, entry: MMIOKind) -> Self {
-		let page = entry.page_base();
-		self.add_mapping(page, PageEntry::MMIO(entry))
-	}
-
-	#[track_caller] // provides better panic location for caller
-	pub fn build(self) -> Memory {
-		let phys = vec![0_u8; self.physical.unwrap_or(0) as usize].into_boxed_slice();
-		let mut mappings = FxHashMap::default();
-
-		let (bootrom, virt_addr) = self.bootrom.unwrap_or_default();
-		for offset in (0..bootrom.len() as u64).step_by(PAGE_SIZE as usize) {
-			// INVARIANT: virtual address is verified to be a multiple of page size
-			// and loop ensures that it's only offset by page size
-			mappings.insert(PageBase(virt_addr.0 + offset), PageEntry::Bootrom { page_base: offset });
-		}
-
-		for (virt_base, (phys_base, map_size)) in self.physical_mappings.into_iter() {
-			for offset in (0..map_size).step_by(PAGE_SIZE as usize) {
-				let virt = PageBase(virt_base.0 + offset);
-				let prev = mappings.insert(
-					virt,
-					PageEntry::PhysBacked {
-						phys_base: phys_base.0 + offset,
-					},
-				);
-				assert!(
-					prev.is_none(),
-					"overlapped virtual address {:?} in physical mapping {:?} size {:#018X})",
-					virt,
-					virt_base,
-					map_size
-				);
-			}
-		}
-
-		for (virt, entry) in self.misc_maps.into_iter() {
-			let prev = mappings.insert(virt, entry);
-			assert!(prev.is_none(), "overlapped virtual address {:?} in misc mapping", virt);
-		}
-
-		Memory {
-			phys,
-			mappings,
-			bootrom,
-			reservations: MemoryReservations::new(),
-			atomic_lock: AtomicBool::default(),
-		}
-	}
-}
+*/

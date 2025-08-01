@@ -50,6 +50,7 @@ impl UART {
 		let (mut local, other) = socketpair_stream().expect("unable to create socket pair");
 		let mut cmd = Command::new(env::var_os("TERM").expect("could not find $TERM"));
 		cmd.args([
+			"--hold",
 			"-e",
 			"socat",
 			"stdio,raw,echo=0,icrnl,opost",

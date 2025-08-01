@@ -18,17 +18,18 @@ use gdbstub::{
 	},
 };
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
+use tracing::info;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
 	let sockaddr = format!("127.0.0.1:{}", 2424);
-	eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
+	info!("Waiting for a GDB connection on {:?}...", sockaddr);
 
 	let sock = TcpListener::bind(sockaddr)?;
 	let (stream, addr) = sock.accept()?;
-	eprintln!("Debugger connected from {}", addr);
+	info!("Debugger connected from {}", addr);
 
 	Ok(stream)
 }

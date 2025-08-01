@@ -22,6 +22,7 @@ use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
 use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -164,7 +165,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 
 			main_mem_backing[mem_offset..][..len].copy_from_slice(file_data);
 
-			println!(
+			info!(
 				"Loaded ELF segment: paddr={:#x}, size={:#x}, file_size={:#x}",
 				program_header.physical_address, program_header.size_in_memory, program_header.size_in_file
 			);
@@ -197,10 +198,10 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 	match gdb.run_blocking::<WhiskerEventLoop>(&mut cpu) {
 		Ok(dc_reason) => match dc_reason {
 			gdbstub::stub::DisconnectReason::TargetExited(result) => {
-				println!("Target exited: {result}")
+				error!("Target exited: {result}")
 			}
 			gdbstub::stub::DisconnectReason::TargetTerminated(signal) => {
-				println!("Target terminated: {signal:?}");
+				error!("Target terminated: {signal:?}");
 			}
 			gdbstub::stub::DisconnectReason::Disconnect => {
 				cpu.exec_state = WhiskerExecState::Running;
@@ -210,20 +211,20 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 					cpu.execute_one();
 				}
 			}
-			gdbstub::stub::DisconnectReason::Kill => println!("(GDB) Received kill command"),
+			gdbstub::stub::DisconnectReason::Kill => info!("(GDB) Received kill command"),
 		},
 		Err(err) => {
 			dbg!(&err);
 			if err.is_target_error() {
-				println!(
+				error!(
 					"target encountered a fatal error: {:?}",
 					err.into_target_error().unwrap()
 				)
 			} else if err.is_connection_error() {
 				let (err, kind) = err.into_connection_error().unwrap();
-				println!("connection error: {kind:?} - {err:?}")
+				error!("connection error: {kind:?} - {err:?}")
 			} else {
-				println!("gdbstub encountered a fatal error: {err:?}")
+				error!("gdbstub encountered a fatal error: {err:?}")
 			}
 		}
 	}

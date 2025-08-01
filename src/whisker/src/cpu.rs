@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use num_conv::Truncate;
+use num_conv::{Extend as _, Truncate};
 use tracing::*;
 
 pub mod csr;
@@ -132,7 +132,7 @@ impl WhiskerCpu {
 			Ok((inst, size)) => {
 				log!(self, "  {:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
-				match inst {
+				let _ = match inst {
 					Instruction::IntExtension(insn) => {
 						let _ = self.execute_i_insn(insn);
 					}
@@ -141,10 +141,12 @@ impl WhiskerCpu {
 					}
 					Instruction::Csr(insn) => self.exec_csr(insn),
 					Instruction::CompressedExtension(insn) => self.exec_compressed_insn(insn),
-					Instruction::AtomicExtension(insn) => self.exec_atomic_insn(insn),
+					Instruction::AtomicExtension(insn) => {
+						let _ = self.exec_atomic_insn(insn);
+					}
 					Instruction::MultiplyInstruction(insn) => self.exec_multiply_insn(insn),
 					Instruction::PrivilegedInstruction(insn) => self.exec_privileged_insn(insn),
-				}
+				};
 			}
 			// trap was requested during decoding
 			Err(TrapRequestGuaranteed { .. }) => {}
@@ -993,27 +995,19 @@ impl WhiskerCpu {
 		}
 	}
 
-	fn exec_atomic_insn(&mut self, _insn: AtomicInstruction) {
-		panic!("ATOMICS NYI WITH NEW MEM");
-		/*
+	fn exec_atomic_insn(&mut self, insn: AtomicInstruction) -> Result<(), TrapRequestGuaranteed> {
 		// TODO(atomic): For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic
 		// and other things we do not currently implement.
 		match insn {
 			AtomicInstruction::LoadReservedWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
 				if addr % 4 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
+					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				match self.load_reserved_word(addr, HartId::HART0) {
-					Ok(val) => {
-						self.registers.set(dst, val.extend());
-					}
-					Err(addr) => {
-						self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-					}
-				}
+				let mut memory = MEMORY.wait().lock().unwrap();
+				let val = memory.load_reserved_word(self, addr)?;
+				self.registers.set(dst, val.extend());
 			}
 			AtomicInstruction::StoreConditionalWord {
 				src1,
@@ -1024,20 +1018,16 @@ impl WhiskerCpu {
 			} => {
 				let addr = self.registers.get(src1);
 				if addr % 4 != 0 {
-					self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr);
-					return;
+					return Err(self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr));
 				}
 
 				let val = self.registers.get(src2) as u32;
 
-				match self.store_conditional_word(addr, HartId::HART0, val) {
-					Ok(true) => self.registers.set(dst, 0),
-					Ok(false) => self.registers.set(dst, 1),
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+				let mut memory = MEMORY.wait().lock().unwrap();
+				let success = memory.store_conditional_word(self, addr, val)?;
+				self.registers.set(dst, u64::from(!success));
 			}
+			/*
 			AtomicInstruction::SwapWord {
 				src1,
 				src2,
@@ -1288,23 +1278,16 @@ impl WhiskerCpu {
 						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
 					}
 				}
-			}
-
+			}*/
 			AtomicInstruction::LoadReservedDoubleWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
 				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
+					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				match self.load_reserved_dword(addr, HartId::HART0) {
-					Ok(val) => {
-						self.registers.set(dst, val);
-					}
-					Err(addr) => {
-						self.request_trap(TrapIdx::LOAD_PAGE_FAULT, addr);
-					}
-				}
+				let mut memory = MEMORY.wait().lock().unwrap();
+				let val = memory.load_reserved_dword(self, addr)?;
+				self.registers.set(dst, val);
 			}
 			AtomicInstruction::StoreConditionalDoubleWord {
 				src1,
@@ -1315,271 +1298,269 @@ impl WhiskerCpu {
 			} => {
 				let addr = self.registers.get(src1);
 				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr);
-					return;
+					return Err(self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr));
 				}
 
 				let val = self.registers.get(src2);
-				match self.store_conditional_dword(addr, HartId::HART0, val) {
-					Ok(true) => self.registers.set(dst, 0),
-					Ok(false) => self.registers.set(dst, 1),
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
-			}
+
+				let mut memory = MEMORY.wait().lock().unwrap();
+				let success = memory.store_conditional_dword(self, addr, val)?;
+				self.registers.set(dst, u64::from(!success));
+			} /*
 			AtomicInstruction::SwapDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// swap src2 to (src1)
-					let src2_val = this.registers.get(src2);
-					Some(src2_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// swap src2 to (src1)
+			let src2_val = this.registers.get(src2);
+			Some(src2_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::AddDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// add src2 value to (src1)
-					let src2_val = this.registers.get(src2);
-					let new_val = dword.wrapping_add(src2_val);
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// add src2 value to (src1)
+			let src2_val = this.registers.get(src2);
+			let new_val = dword.wrapping_add(src2_val);
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::XorDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// xor src2 value with (src1)
-					let src2_val = this.registers.get(src2);
-					let new_val = dword ^ src2_val;
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// xor src2 value with (src1)
+			let src2_val = this.registers.get(src2);
+			let new_val = dword ^ src2_val;
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::AndDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// and src2 value with (src1)
-					let src2_val = this.registers.get(src2);
-					let new_val = dword & src2_val;
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// and src2 value with (src1)
+			let src2_val = this.registers.get(src2);
+			let new_val = dword & src2_val;
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::OrDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// or src2 value with (src1)
-					let src2_val = this.registers.get(src2);
-					let new_val = dword | src2_val;
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// or src2 value with (src1)
+			let src2_val = this.registers.get(src2);
+			let new_val = dword | src2_val;
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::MinDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// min of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i64;
-					let new_val = std::cmp::min(dword as i64, src2_val) as u64;
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// min of src2 value and (src1) (signed)
+			let src2_val = this.registers.get(src2) as i64;
+			let new_val = std::cmp::min(dword as i64, src2_val) as u64;
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::MaxDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// max of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i64;
-					let new_val = std::cmp::max(dword as i64, src2_val) as u64;
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// max of src2 value and (src1) (signed)
+			let src2_val = this.registers.get(src2) as i64;
+			let new_val = std::cmp::max(dword as i64, src2_val) as u64;
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::MinUnsignedDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
+			}
 
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
 
-					// min of src2 value and (src1) (unsigned)
-					let src2_val = this.registers.get(src2);
-					let new_val = std::cmp::min(dword, src2_val);
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			// min of src2 value and (src1) (unsigned)
+			let src2_val = this.registers.get(src2);
+			let new_val = std::cmp::min(dword, src2_val);
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
 			}
 			AtomicInstruction::MaxUnsignedDoubleWord {
-				src1,
-				src2,
-				dst,
-				_aq,
-				_rl,
+			src1,
+			src2,
+			dst,
+			_aq,
+			_rl,
 			} => {
-				let addr = self.registers.get(src1);
-				if addr % 8 != 0 {
-					self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
-					return;
-				}
-
-				match self.atomic_op_dword(addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
-					// max of src2 value and (src1) (unsigned)
-					let src2_val = this.registers.get(src2);
-					let new_val = std::cmp::max(dword, src2_val);
-					Some(new_val)
-				}) {
-					Ok(_) => {}
-					Err(addr) => {
-						self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
-					}
-				}
+			let addr = self.registers.get(src1);
+			if addr % 8 != 0 {
+			self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr);
+			return;
 			}
-		}*/
+
+			match self.atomic_op_dword(addr, |this, dword| {
+			// put (src1) value into rd
+			this.registers.set(dst, dword);
+
+			// max of src2 value and (src1) (unsigned)
+			let src2_val = this.registers.get(src2);
+			let new_val = std::cmp::max(dword, src2_val);
+			Some(new_val)
+			}) {
+			Ok(_) => {}
+			Err(addr) => {
+			self.request_trap(TrapIdx::STORE_PAGE_FAULT, addr);
+			}
+			}
+			}*/
+			k => todo!("IMPL {:#?} ATOMIC NEW MEM", k),
+		}
+		Ok(())
 	}
 
 	fn exec_multiply_insn(&mut self, insn: MultiplyInstruction) {

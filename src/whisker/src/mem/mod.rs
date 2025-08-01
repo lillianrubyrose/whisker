@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use bitflags::bitflags;
+use rustc_hash::FxHashMap;
 use tracing::trace;
 
 pub mod mmio;
@@ -9,7 +10,7 @@ use crate::cpu::WhiskerCpu;
 use crate::mem::mmio::MMIOKind;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
-use crate::ty::{TrapIdx, TrapRequestGuaranteed};
+use crate::ty::{HartId, TrapIdx, TrapRequestGuaranteed};
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
 
@@ -18,6 +19,8 @@ pub struct Memory {
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
 	regions: Vec<MemoryRegion>,
+
+	reservations: MemoryReservations,
 }
 
 impl Memory {
@@ -75,7 +78,7 @@ macro_rules! impl_mem_read_write {
 
 				#[allow(dead_code)]
                	pub fn [<write_phys_ $ty:snake>](
-              		&mut self,
+					&mut self,
               		cpu: &mut WhiskerCpu,
               		phys_addr: u64,
               		kind: WriteKind,
@@ -91,7 +94,7 @@ macro_rules! impl_mem_read_write {
 					};
 					check_write_access(cpu, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
 
-					match region.kind {
+					let ret = match region.kind {
 						MemoryKind::MainMemory { ref mut backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
@@ -103,7 +106,10 @@ macro_rules! impl_mem_read_write {
 							kind.write(cpu, phys_addr, bytes.as_slice());
 							Ok(())
 						}
-					}
+					};
+
+					self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+					ret
                	}
 				)*
 			}
@@ -112,6 +118,195 @@ macro_rules! impl_mem_read_write {
 }
 
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
+
+impl Memory {
+	pub fn load_reserved_word(&mut self, cpu: &mut WhiskerCpu, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
+		let Some(region) = self.region_for_addr_mut(phys_addr) else {
+			return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+		};
+		check_read_access(
+			cpu,
+			region,
+			phys_addr,
+			ReadKind::Atomic,
+			core::mem::size_of::<u32>() as u8,
+		)?;
+
+		let ret = match region.kind {
+			MemoryKind::MainMemory { ref mut backing } => {
+				let offset = phys_addr - region.start;
+				let mut ret = u32::default().to_le_bytes();
+				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u32>()]);
+				Ok(u32::from_le_bytes(ret))
+			}
+			MemoryKind::MMIO(kind) => {
+				let mut ret = u32::default().to_le_bytes();
+				kind.read(cpu, phys_addr, ret.as_mut_slice());
+				Ok(u32::from_le_bytes(ret))
+			}
+		};
+
+		self.reservations.reserve(cpu.hart_id(), phys_addr);
+		ret
+	}
+
+	pub fn load_reserved_dword(&mut self, cpu: &mut WhiskerCpu, phys_addr: u64) -> Result<u64, TrapRequestGuaranteed> {
+		let Some(region) = self.region_for_addr_mut(phys_addr) else {
+			return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+		};
+		check_read_access(
+			cpu,
+			region,
+			phys_addr,
+			ReadKind::Atomic,
+			core::mem::size_of::<u64>() as u8,
+		)?;
+
+		let ret = match region.kind {
+			MemoryKind::MainMemory { ref mut backing } => {
+				let offset = phys_addr - region.start;
+				let mut ret = u64::default().to_le_bytes();
+				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
+				Ok(u64::from_le_bytes(ret))
+			}
+			MemoryKind::MMIO(kind) => {
+				let mut ret = u64::default().to_le_bytes();
+				kind.read(cpu, phys_addr, ret.as_mut_slice());
+				Ok(u64::from_le_bytes(ret))
+			}
+		};
+
+		self.reservations.reserve(cpu.hart_id(), phys_addr);
+		ret
+	}
+
+	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
+	/// and Err if a trap occurred while storing
+	pub fn store_conditional_word(
+		&mut self,
+		cpu: &mut WhiskerCpu,
+		phys_addr: u64,
+		val: u32,
+	) -> Result<bool, TrapRequestGuaranteed> {
+		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, cpu.hart_id());
+
+		let Some(region) = self.region_for_addr_mut(phys_addr) else {
+			return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+		};
+		check_write_access(
+			cpu,
+			region,
+			phys_addr,
+			WriteKind::Atomic,
+			core::mem::size_of::<u32>() as u8,
+		)?;
+
+		let ret = if is_reserved {
+			match region.kind {
+				MemoryKind::MainMemory { ref mut backing } => {
+					let offset = phys_addr - region.start;
+					let bytes = val.to_le_bytes();
+					backing[offset as usize..][..core::mem::size_of::<u32>()].copy_from_slice(&bytes);
+				}
+				MemoryKind::MMIO(kind) => {
+					let bytes = val.to_le_bytes();
+					kind.write(cpu, phys_addr, bytes.as_slice());
+				}
+			};
+			// writing unreserves the address written to
+			self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+			Ok(true)
+		} else {
+			Ok(false)
+		};
+
+		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
+		self.reservations.unreserve_hart(cpu.hart_id());
+		ret
+	}
+
+	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
+	/// and Err if a trap occurred while storing
+	pub fn store_conditional_dword(
+		&mut self,
+		cpu: &mut WhiskerCpu,
+		phys_addr: u64,
+		val: u64,
+	) -> Result<bool, TrapRequestGuaranteed> {
+		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, cpu.hart_id());
+
+		let Some(region) = self.region_for_addr_mut(phys_addr) else {
+			return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+		};
+		check_write_access(
+			cpu,
+			region,
+			phys_addr,
+			WriteKind::Atomic,
+			core::mem::size_of::<u64>() as u8,
+		)?;
+
+		let ret = if is_reserved {
+			match region.kind {
+				MemoryKind::MainMemory { ref mut backing } => {
+					let offset = phys_addr - region.start;
+					let bytes = val.to_le_bytes();
+					backing[offset as usize..][..core::mem::size_of::<u64>()].copy_from_slice(&bytes);
+				}
+				MemoryKind::MMIO(kind) => {
+					let bytes = val.to_le_bytes();
+					kind.write(cpu, phys_addr, bytes.as_slice());
+				}
+			};
+			// writing unreserves the address written to
+			self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+			Ok(true)
+		} else {
+			Ok(false)
+		};
+
+		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
+		self.reservations.unreserve_hart(cpu.hart_id());
+		ret
+	}
+}
+
+#[derive(Debug, Default)]
+struct MemoryReservations {
+	/// map of hart ID to reservation base address
+	/// reservation base addresses are aligned to [`MemoryReservations::RESERVATION_SET_SIZE`]
+	reservations: FxHashMap<HartId, u64>,
+}
+
+impl MemoryReservations {
+	// MUST be a power of 2
+	const RESERVATION_SET_SIZE: u64 = 64;
+
+	/// sets the reservation for the the hart specified by `hart_id` to be `phys_addr`
+	fn reserve(&mut self, hart_id: HartId, phys_addr: u64) {
+		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
+		self.reservations.insert(hart_id, aligned_addr);
+	}
+
+	/// unreserves `phys_addr` for all harts *other* than the hart specified by `hart_id`
+	fn unreserve_addr_other_harts(&mut self, hart_id: HartId, phys_addr: u64) {
+		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
+		self.reservations
+			.retain(|hart, addr| *hart == hart_id || *addr != aligned_addr);
+	}
+
+	/// removes the reservation from the hart specified by `hart_id`, if any exist
+	fn unreserve_hart(&mut self, hart_id: HartId) {
+		self.reservations.remove(&hart_id);
+	}
+
+	fn is_reserved_by_hart(&self, phys_addr: u64, hart_id: HartId) -> bool {
+		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
+		self.reservations
+			.get(&hart_id)
+			.is_some_and(|addr| *addr == aligned_addr)
+	}
+}
 
 /// checks that a read of `size` from `phys_addr` is allowed in `region`
 fn check_read_access(
@@ -212,6 +407,7 @@ pub enum ReadKind {
 	/// reads for LR (note: not AMOs, those go through writes)
 	Atomic,
 	/// reading memory for page table lookups
+	#[expect(dead_code, reason = "page tables not yet implemented")]
 	PageTable,
 }
 
@@ -345,6 +541,9 @@ impl MemoryBuilder {
 	}
 
 	pub fn build(self) -> Memory {
-		Memory { regions: self.regions }
+		Memory {
+			regions: self.regions,
+			reservations: MemoryReservations::default(),
+		}
 	}
 }

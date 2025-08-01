@@ -1,4 +1,4 @@
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use rustc_hash::FxHashMap;
 
@@ -17,10 +17,10 @@ pub enum MMIOKind {
 	UART,
 }
 
-static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Box<dyn MMIODevice + Send>>>> =
+static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send + Sync>>>>> =
 	LazyLock::new(|| Mutex::new(FxHashMap::default()));
 
-pub fn register_mmio(kind: MMIOKind, device: Box<dyn MMIODevice + Send>) -> Result<(), ()> {
+pub fn register_mmio(kind: MMIOKind, device: Arc<Mutex<dyn MMIODevice + Send + Sync>>) -> Result<(), ()> {
 	let mut devices = MMIO_DEVICES.lock().unwrap();
 	if devices.contains_key(&kind) {
 		return Err(());
@@ -43,7 +43,7 @@ impl MMIOKind {
 		);
 
 		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.read(cpu, addr, buf),
+			Some(device) => device.lock().unwrap().read(cpu, addr, buf),
 			None => todo!("missing MMIO device?"),
 		}
 	}
@@ -60,7 +60,7 @@ impl MMIOKind {
 		);
 
 		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.write(cpu, addr, val),
+			Some(device) => device.lock().unwrap().write(cpu, addr, val),
 			None => todo!("missing MMIO device?"),
 		}
 	}

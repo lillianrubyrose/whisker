@@ -98,8 +98,6 @@ impl WhiskerCpu {
 	}
 
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
-		self.poll_interrupt_controller();
-
 		self.cycles += 1;
 		log!(self, "cycle {}", self.cycles);
 
@@ -109,6 +107,13 @@ impl WhiskerCpu {
 		// 	let mip = self.read_csr_unchecked(csr::MIP);
 		// 	self.write_csr_unchecked(csr::MIP, mip | 1 << 7);
 		// }
+
+		// check if the interrupt controller needs to send an interrupt
+		if self.poll_interrupt_controller() {
+			self.pc = self.next_pc;
+			self.dump();
+			return Ok(());
+		}
 
 		// if a trap happened, just update pc and return
 		// next cycle will fetch

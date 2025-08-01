@@ -12,10 +12,10 @@ mod util;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::{fs, thread};
+use std::sync::{Arc, Mutex};
+use std::{fs, panic};
 
 use clap::{command, Parser, Subcommand};
 use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
@@ -26,9 +26,10 @@ use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
+use crate::cpu::interrupts::InterruptController;
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
-use crate::mem::mmio::{MMIOKind, UART_DATA};
+use crate::mem::mmio::{MMIOKind, UART_BASE};
 use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
 use crate::ty::SupportedExtensions;
 
@@ -147,7 +148,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 			AccessAttrs::new(ACCESS_MAX_U64, AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC),
 		))
 		.add_region(MemoryRegion::new_mmio(
-			UART_DATA,
+			UART_BASE,
 			0x1000,
 			MMIOKind::UART,
 			AccessAttrs::new(1, AccessKind::READ | AccessKind::WRITE),
@@ -181,10 +182,11 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
 		),
 	));
-
 	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
 
-	mem::mmio::register_mmio(MMIOKind::UART, Box::new(mem::mmio::UART::new())).unwrap();
+	let (int_tx, interrupt_controller) = InterruptController::new();
+
+	mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
 
 	let mut cpu = WhiskerCpu::new(supported, interrupt_controller, logfile);
 

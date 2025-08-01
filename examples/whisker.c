@@ -16,7 +16,9 @@ int32_t whisker_strlen(const char *str) {
 void whisker_write_uart(const char *str) {
   int32_t len = whisker_strlen(str);
   for (int32_t i = 0; i < len; i++) {
-    *UART_DATA = str[i];
+      // wait until the tx reg is empty
+      while(*UART_LINE_CTRL & (1 << 5)){}
+      *UART_DATA = str[i];
   }
 }
 

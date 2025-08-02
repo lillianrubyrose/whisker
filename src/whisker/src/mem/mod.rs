@@ -6,7 +6,7 @@ use tracing::trace;
 
 pub mod mmio;
 
-use crate::cpu::WhiskerCpu;
+use crate::cpu::hart::WhiskerHart;
 use crate::mem::mmio::MMIOKind;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
@@ -47,19 +47,19 @@ macro_rules! impl_mem_read_write {
 			    #[allow(dead_code)]
 				pub fn [<read_phys_ $ty:snake>](
 					&mut self,
-					cpu: &mut WhiskerCpu,
+					hart: &mut WhiskerHart,
 					phys_addr: u64,
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
 					let Some(region) = self.region_for_addr_mut(phys_addr) else {
 						let e = match kind {
-                            ReadKind::Normal | ReadKind::Atomic => cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
-                            ReadKind::Instruction => cpu.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
+                            ReadKind::Normal | ReadKind::Atomic => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
+                            ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
                             ReadKind::PageTable => todo!("page table read fault"),
                         };
                         return Err(e);
 					};
-					check_read_access(cpu, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
+					check_read_access(hart, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
 
 					match region.kind {
 						MemoryKind::MainMemory { ref mut backing } => {
@@ -70,7 +70,7 @@ macro_rules! impl_mem_read_write {
 						}
 						MemoryKind::MMIO(kind) => {
 							let mut ret = <$ty>::default().to_le_bytes();
-							kind.read(cpu, phys_addr, ret.as_mut_slice());
+							kind.read(hart, phys_addr, ret.as_mut_slice());
 							Ok(<$ty>::from_le_bytes(ret))
 						}
 					}
@@ -79,7 +79,7 @@ macro_rules! impl_mem_read_write {
 				#[allow(dead_code)]
                	pub fn [<write_phys_ $ty:snake>](
 					&mut self,
-              		cpu: &mut WhiskerCpu,
+              		hart: &mut WhiskerHart,
               		phys_addr: u64,
               		kind: WriteKind,
                     val: $ty,
@@ -87,12 +87,12 @@ macro_rules! impl_mem_read_write {
                     let Some(region) = self.region_for_addr_mut(phys_addr) else {
                        	// FIXME: these are the same, is this always the case? should this be inline?
                        	let e = match kind {
-                      		WriteKind::Normal => cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
-                      		WriteKind::Atomic => cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+                      		WriteKind::Normal => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+                      		WriteKind::Atomic => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
                        	};
                        	return Err(e);
 					};
-					check_write_access(cpu, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
+					check_write_access(hart, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
 
 					let ret = match region.kind {
 						MemoryKind::MainMemory { ref mut backing } => {
@@ -103,12 +103,12 @@ macro_rules! impl_mem_read_write {
 						}
 						MemoryKind::MMIO(kind) => {
 						    let bytes = val.to_le_bytes();
-							kind.write(cpu, phys_addr, bytes.as_slice());
+							kind.write(hart, phys_addr, bytes.as_slice());
 							Ok(())
 						}
 					};
 
-					self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+					self.reservations.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 					ret
                	}
 				)*
@@ -120,12 +120,12 @@ macro_rules! impl_mem_read_write {
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 impl Memory {
-	pub fn load_reserved_word(&mut self, cpu: &mut WhiskerCpu, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
+	pub fn load_reserved_word(&mut self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
 		let Some(region) = self.region_for_addr_mut(phys_addr) else {
-			return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 		};
 		check_read_access(
-			cpu,
+			hart,
 			region,
 			phys_addr,
 			ReadKind::Atomic,
@@ -141,21 +141,25 @@ impl Memory {
 			}
 			MemoryKind::MMIO(kind) => {
 				let mut ret = u32::default().to_le_bytes();
-				kind.read(cpu, phys_addr, ret.as_mut_slice());
+				kind.read(hart, phys_addr, ret.as_mut_slice());
 				Ok(u32::from_le_bytes(ret))
 			}
 		};
 
-		self.reservations.reserve(cpu.hart_id(), phys_addr);
+		self.reservations.reserve(hart.hart_id(), phys_addr);
 		ret
 	}
 
-	pub fn load_reserved_dword(&mut self, cpu: &mut WhiskerCpu, phys_addr: u64) -> Result<u64, TrapRequestGuaranteed> {
+	pub fn load_reserved_dword(
+		&mut self,
+		hart: &mut WhiskerHart,
+		phys_addr: u64,
+	) -> Result<u64, TrapRequestGuaranteed> {
 		let Some(region) = self.region_for_addr_mut(phys_addr) else {
-			return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 		};
 		check_read_access(
-			cpu,
+			hart,
 			region,
 			phys_addr,
 			ReadKind::Atomic,
@@ -171,12 +175,12 @@ impl Memory {
 			}
 			MemoryKind::MMIO(kind) => {
 				let mut ret = u64::default().to_le_bytes();
-				kind.read(cpu, phys_addr, ret.as_mut_slice());
+				kind.read(hart, phys_addr, ret.as_mut_slice());
 				Ok(u64::from_le_bytes(ret))
 			}
 		};
 
-		self.reservations.reserve(cpu.hart_id(), phys_addr);
+		self.reservations.reserve(hart.hart_id(), phys_addr);
 		ret
 	}
 
@@ -184,17 +188,17 @@ impl Memory {
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_word(
 		&mut self,
-		cpu: &mut WhiskerCpu,
+		hart: &mut WhiskerHart,
 		phys_addr: u64,
 		val: u32,
 	) -> Result<bool, TrapRequestGuaranteed> {
-		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, cpu.hart_id());
+		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, hart.hart_id());
 
 		let Some(region) = self.region_for_addr_mut(phys_addr) else {
-			return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 		};
 		check_write_access(
-			cpu,
+			hart,
 			region,
 			phys_addr,
 			WriteKind::Atomic,
@@ -210,18 +214,18 @@ impl Memory {
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
-					kind.write(cpu, phys_addr, bytes.as_slice());
+					kind.write(hart, phys_addr, bytes.as_slice());
 				}
 			};
 			// writing unreserves the address written to
-			self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+			self.reservations.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 			Ok(true)
 		} else {
 			Ok(false)
 		};
 
 		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
-		self.reservations.unreserve_hart(cpu.hart_id());
+		self.reservations.unreserve_hart(hart.hart_id());
 		ret
 	}
 
@@ -229,17 +233,17 @@ impl Memory {
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_dword(
 		&mut self,
-		cpu: &mut WhiskerCpu,
+		hart: &mut WhiskerHart,
 		phys_addr: u64,
 		val: u64,
 	) -> Result<bool, TrapRequestGuaranteed> {
-		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, cpu.hart_id());
+		let is_reserved = self.reservations.is_reserved_by_hart(phys_addr, hart.hart_id());
 
 		let Some(region) = self.region_for_addr_mut(phys_addr) else {
-			return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 		};
 		check_write_access(
-			cpu,
+			hart,
 			region,
 			phys_addr,
 			WriteKind::Atomic,
@@ -255,18 +259,18 @@ impl Memory {
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
-					kind.write(cpu, phys_addr, bytes.as_slice());
+					kind.write(hart, phys_addr, bytes.as_slice());
 				}
 			};
 			// writing unreserves the address written to
-			self.reservations.unreserve_addr_other_harts(cpu.hart_id(), phys_addr);
+			self.reservations.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 			Ok(true)
 		} else {
 			Ok(false)
 		};
 
 		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
-		self.reservations.unreserve_hart(cpu.hart_id());
+		self.reservations.unreserve_hart(hart.hart_id());
 		ret
 	}
 }
@@ -310,7 +314,7 @@ impl MemoryReservations {
 
 /// checks that a read of `size` from `phys_addr` is allowed in `region`
 fn check_read_access(
-	cpu: &mut WhiskerCpu,
+	hart: &mut WhiskerHart,
 	region: &MemoryRegion,
 	phys_addr: u64,
 	kind: ReadKind,
@@ -328,15 +332,15 @@ fn check_read_access(
 	match kind {
 		ReadKind::Normal => {
 			if !access_kinds.contains(AccessKind::READ) || size > max_size {
-				return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 			}
 			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(cpu.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
 			}
 		}
 		ReadKind::Instruction => {
 			if !access_kinds.contains(AccessKind::EXEC) || size > max_size {
-				return Err(cpu.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr));
 			}
 			// NOTE: instruction misaligned traps are generated on control flow, not when fetching
 			debug_assert!(
@@ -346,10 +350,10 @@ fn check_read_access(
 		}
 		ReadKind::Atomic => {
 			if !access_kinds.contains(AccessKind::READ | AccessKind::ATOMIC) || size > max_size {
-				return Err(cpu.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 			}
 			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(cpu.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
 			}
 		}
 
@@ -361,7 +365,7 @@ fn check_read_access(
 
 /// checks that a write of `size` from `phys_addr` is allowed in `region`
 fn check_write_access(
-	cpu: &mut WhiskerCpu,
+	hart: &mut WhiskerHart,
 	region: &MemoryRegion,
 	phys_addr: u64,
 	kind: WriteKind,
@@ -379,18 +383,18 @@ fn check_write_access(
 	match kind {
 		WriteKind::Normal => {
 			if !access_kinds.contains(AccessKind::WRITE) || size > max_size {
-				return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 			}
 			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(cpu.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
 			}
 		}
 		WriteKind::Atomic => {
 			if !access_kinds.contains(AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
-				return Err(cpu.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 			}
 			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(cpu.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
 			}
 		}
 	}

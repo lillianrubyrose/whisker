@@ -1,17 +1,12 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{float::FloatInstruction, Instruction},
-	insn32::R4Type,
-	soft::RoundingMode,
-	ty::SupportedExtensions,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::R4Type, soft::RoundingMode, ty::SupportedExtensions};
 
-pub fn parse_msub(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_msub(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use crate::insn32::consts::*;
 
 	// MSUB type is reserved for standard F extension only
 	// all opcodes in this type require F (and D requires F)
-	if !cpu.supported_extensions.has(SupportedExtensions::FLOAT) {
+	if !hart.supports_extensions(SupportedExtensions::FLOAT) {
 		return None;
 	}
 

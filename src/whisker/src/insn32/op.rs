@@ -1,11 +1,7 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, multiply::MultiplyInstruction, Instruction},
-	insn32::RType,
-	ty::SupportedExtensions,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::RType, ty::SupportedExtensions};
 
-pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let rtype = RType::parse(parcel);
@@ -94,7 +90,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 		// ==================
 		// MULTIPLY
 		// ==================
-		MUL if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		MUL if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Multiply {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -102,7 +98,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULH if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		MULH if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHigh {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -110,7 +106,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULHSU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		MULHSU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHighSignedUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -118,7 +114,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULHU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		MULHU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHighUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -126,7 +122,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		DIV if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Divide {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -134,7 +130,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIVU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		DIVU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -142,7 +138,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		REM if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Remainder {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -150,7 +146,7 @@ pub fn parse_op(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REMU if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		REMU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),

@@ -1,14 +1,10 @@
 use tracing::warn;
 
 use crate::cpu::csr::CSRIndex;
-use crate::insn::privileged::PrivilegedInstruction;
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{csr::CSRInstruction, int::IntInstruction, Instruction},
-	insn32::IType,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::IType};
 
-pub fn parse_system(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_system(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);

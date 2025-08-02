@@ -2,9 +2,9 @@
 
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use crate::cpu::WhiskerCpu;
-use crate::log;
-use crate::ty::TrapIdx;
+use tracing::*;
+
+use crate::cpu::hart::WhiskerHart;
 
 #[derive(Debug)]
 pub enum InterruptEvent {
@@ -24,10 +24,12 @@ impl InterruptController {
 	}
 }
 
-impl WhiskerCpu {
+impl WhiskerHart {
 	pub fn poll_interrupt_controller(&mut self) -> bool {
-		log!(self, "checking interrupt controller");
-		match self.interrupt_controller.int_channel.try_recv() {
+		warn!("TODO check interrupt controller");
+		false
+
+		/*match self.interrupt_controller.int_channel.try_recv() {
 			// nothing available, wait
 			Err(mpsc::TryRecvError::Empty) => false,
 			Err(mpsc::TryRecvError::Disconnected) => panic!("interrupt controller senders disconnected"),
@@ -37,6 +39,6 @@ impl WhiskerCpu {
 					true
 				}
 			},
-		}
+		}*/
 	}
 }

@@ -13,6 +13,7 @@ mod util;
 compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Cursor;
+use std::num::NonZeroU8;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, panic};
@@ -53,22 +54,6 @@ enum Commands {
 		kernel: PathBuf,
 	},
 }
-
-macro_rules! log {
-    ($cpu:ident, $($arg:tt)*) => {
-        {
-        use tracing::*;
-        use std::io::Write as _;
-        if let Some(logfile) = $cpu.logfile.as_mut() {
-            trace!($($arg)*);
-            logfile.write_fmt(format_args!($($arg)*)).expect("failed to write to log");
-            writeln!(logfile).expect("failed to write to log");
-            logfile.flush().expect("failed to write to log");
-        }
-        }
-    };
-}
-pub(crate) use log;
 
 fn main() {
 	tracing_subscriber::registry()
@@ -184,13 +169,13 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 	));
 	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
 
+	// FIXME: interrupt controller refactor
 	let (int_tx, interrupt_controller) = InterruptController::new();
 
 	mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
 
-	let mut cpu = WhiskerCpu::new(supported, interrupt_controller, logfile);
+	let cpu = WhiskerCpu::new(supported, logfile, NonZeroU8::new(1).unwrap(), BOOTROM_OFFSET);
 
-	cpu.pc = BOOTROM_OFFSET;
 	cpu
 }
 

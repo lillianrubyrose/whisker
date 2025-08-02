@@ -5,11 +5,11 @@ use rustc_hash::FxHashMap;
 pub mod uart;
 pub use uart::*;
 
-use crate::cpu::WhiskerCpu;
+use crate::cpu::hart::WhiskerHart;
 
 pub trait MMIODevice {
-	fn read(&mut self, cpu: &mut WhiskerCpu, addr: u64, buf: &mut [u8]);
-	fn write(&mut self, cpu: &mut WhiskerCpu, addr: u64, val: &[u8]);
+	fn read(&mut self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]);
+	fn write(&mut self, hart: &mut WhiskerHart, addr: u64, val: &[u8]);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -33,7 +33,7 @@ pub fn register_mmio(kind: MMIOKind, device: Arc<Mutex<dyn MMIODevice + Send + S
 impl MMIOKind {
 	/// reads bytes from MMIO into `buf`.
 	/// `buf` must be the size of the read to do, and must be no larger than a u64.
-	pub fn read(self, cpu: &mut WhiskerCpu, addr: u64, buf: &mut [u8]) {
+	pub fn read(self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		debug_assert!(
 			{
 				let len = buf.len();
@@ -43,14 +43,14 @@ impl MMIOKind {
 		);
 
 		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.lock().unwrap().read(cpu, addr, buf),
+			Some(device) => device.lock().unwrap().read(hart, addr, buf),
 			None => todo!("missing MMIO device?"),
 		}
 	}
 
 	/// writes bytes from `val` into MMIO
 	/// `val` must be the size of the write, and must be no larger than a u64
-	pub fn write(self, cpu: &mut WhiskerCpu, addr: u64, val: &[u8]) {
+	pub fn write(self, hart: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		debug_assert!(
 			{
 				let len = val.len();
@@ -60,7 +60,7 @@ impl MMIOKind {
 		);
 
 		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.lock().unwrap().write(cpu, addr, val),
+			Some(device) => device.lock().unwrap().write(hart, addr, val),
 			None => todo!("missing MMIO device?"),
 		}
 	}

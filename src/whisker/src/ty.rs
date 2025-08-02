@@ -262,7 +262,7 @@ pub enum TrapKind {
 	Exception,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TrapIdx(u64);
 
 #[allow(unused)]
@@ -325,6 +325,31 @@ impl TrapIdx {
 	pub const MACHINE_EXTERNAL_INTERRUPT: Self = Self::interrupt(11);
 }
 
+impl Debug for TrapIdx {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match *self {
+			TrapIdx::INSTRUCTION_ADDR_MISALIGNED => write!(f, "TrapIdx::INSTRUCTION_ADDR_MISALIGNED"),
+			TrapIdx::INSTRUCTION_ACCESS_FAULT => write!(f, "TrapIdx::INSTRUCTION_ACCESS_FAULT"),
+			TrapIdx::ILLEGAL_INSTRUCTION => write!(f, "TrapIdx::ILLEGAL_INSTRUCTION"),
+			TrapIdx::BREAKPOINT => write!(f, "TrapIdx::BREAKPOINT"),
+			TrapIdx::LOAD_ADDR_MISALIGNED => write!(f, "TrapIdx::LOAD_ADDR_MISALIGNED"),
+			TrapIdx::LOAD_ACCESS_FAULT => write!(f, "TrapIdx::LOAD_ACCESS_FAULT"),
+			TrapIdx::STORE_ADDR_MISALIGNED => write!(f, "TrapIdx::STORE_ADDR_MISALIGNED"),
+			TrapIdx::STORE_ACCESS_FAULT => write!(f, "TrapIdx::STORE_ACCESS_FAULT"),
+			TrapIdx::ECALL_UMODE => write!(f, "TrapIdx::ECALL_UMODE"),
+			TrapIdx::ECALL_SMODE => write!(f, "TrapIdx::ECALL_SMODE"),
+			TrapIdx::ECALL_MMODE => write!(f, "TrapIdx::ECALL_MMODE"),
+			TrapIdx::INSTRUCTION_PAGE_FAULT => write!(f, "TrapIdx::INSTRUCTION_PAGE_FAULT"),
+			TrapIdx::LOAD_PAGE_FAULT => write!(f, "TrapIdx::LOAD_PAGE_FAULT"),
+			TrapIdx::STORE_PAGE_FAULT => write!(f, "TrapIdx::STORE_PAGE_FAULT"),
+			TrapIdx::SOFTWARE_CHECK => write!(f, "TrapIdx::SOFTWARE_CHECK"),
+			TrapIdx::HARDWARE_CHECK => write!(f, "TrapIdx::HARDWARE_CHECK"),
+			TrapIdx::MEOW_ERR => write!(f, "TrapIdx::MEOW_ERR"),
+			unk => write!(f, "TrapIdx({:#018X})", unk.0),
+		}
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// the ID of a hart
 /// this is a newtype because it really only makes sense as an ID, not a number
@@ -332,10 +357,9 @@ impl TrapIdx {
 pub struct HartId(u8);
 
 impl HartId {
-	pub const NUM_HARTS: u8 = 1;
-
-	// FIXME: right now only hart 0 is implemented, audit all uses
-	pub const HART0: Self = Self(0);
+	pub fn new(id: u8) -> Self {
+		Self(id)
+	}
 
 	pub fn inner(self) -> u8 {
 		self.0

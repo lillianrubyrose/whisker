@@ -1,10 +1,6 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, Instruction},
-	insn32::IType,
-};
+use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType};
 
-pub fn parse_load(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_load(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);

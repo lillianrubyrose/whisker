@@ -4,8 +4,8 @@ use std::ops::Deref;
 use num_conv::Extend;
 use tracing::error;
 
-use crate::cpu::WhiskerCpu;
-use crate::ty::TrapIdx;
+use crate::cpu::hart::WhiskerHart;
+use crate::ty::{TrapIdx, TrapRequestGuaranteed};
 
 macro_rules! define_csrs {
     ($($name:ident, $addr:literal, $rw:ident, $priv:ident $(= $init:expr)? ),*$(,)*) => {
@@ -103,29 +103,26 @@ impl Debug for CSRIndex {
 #[derive(Debug)]
 pub struct ControlStatusRegisters([CSRInfo; NUM_CSRS as usize]);
 
-// NOTE: this is on the CPU not CSRs because operations on CSRs may affect cpu state
-impl WhiskerCpu {
+// NOTE: this is on the hart not on the CSR struct because operations on CSRs may affect state
+impl WhiskerHart {
 	#[must_use]
-	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Option<CSRReadToken> {
+	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Result<CSRReadToken, TrapRequestGuaranteed> {
 		// all csrs that exist are considered readable
 		if self.csrs.0[idx.as_idx()].valid {
-			Some(CSRReadToken { idx })
+			Ok(CSRReadToken { idx })
 		} else {
-			self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-			None
+			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
 		}
 	}
 
-	#[must_use]
-	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Option<CSRReadWriteToken> {
+	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Result<CSRReadWriteToken, TrapRequestGuaranteed> {
 		let reg = &self.csrs.0[idx.as_idx()];
 		if reg.valid && reg.is_rw() {
-			Some(CSRReadWriteToken {
+			Ok(CSRReadWriteToken {
 				inner: CSRReadToken { idx },
 			})
 		} else {
-			self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
-			None
+			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
 		}
 	}
 
@@ -169,15 +166,15 @@ impl WhiskerCpu {
 }
 
 // special CSRs that need to ignore fields or do other non-trivial logic for reads
-impl WhiskerCpu {
+impl WhiskerHart {
 	fn read_misa(&self) -> u64 {
 		// 64 bit XLEN
-		2 << 62 | self.supported_extensions.inner()
+		2 << 62 | self.supported_extensions().inner()
 	}
 }
 
 // special CSRs that need to ignore fields or do other non-trivial logic for writes
-impl WhiskerCpu {
+impl WhiskerHart {
 	fn write_mstatus(&mut self, val: u64) {
 		// we only implement MIE, MPIE, and MPP
 		// all other bits are read-only 0

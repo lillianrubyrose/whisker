@@ -1,10 +1,7 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, Instruction},
-	insn32::IType,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::IType};
 
-pub fn parse_jalr(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_jalr(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);

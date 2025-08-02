@@ -20,21 +20,21 @@ pub mod system;
 pub use ty::*;
 
 use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, Instruction},
+	cpu::hart::WhiskerHart,
+	insn::*,
 	ty::{RegisterIndex, UnknownRegisterIndex},
 	util::extract_bits_32,
 };
 
-pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	let opcode_ty = extract_bits_32(parcel, 2, 6);
 	use consts::opcode::*;
 	match opcode_ty {
-		LOAD => load::parse_load(cpu, parcel),
-		LOAD_FP => load_fp::parse_load_fp(cpu, parcel),
+		LOAD => load::parse_load(hart, parcel),
+		LOAD_FP => load_fp::parse_load_fp(hart, parcel),
 		CUSTOM_0 => todo!("CUSTOM_0"),
-		MISC_MEM => misc_mem::parse_misc_mem(cpu, parcel),
-		OP_IMM => op_imm::parse_op_imm(cpu, parcel),
+		MISC_MEM => misc_mem::parse_misc_mem(hart, parcel),
+		OP_IMM => op_imm::parse_op_imm(hart, parcel),
 		AUIPC => {
 			let utype = UType::parse(parcel);
 			Some(
@@ -45,13 +45,13 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				.into(),
 			)
 		}
-		OP_IMM_32 => op_imm_32::parse_op_imm_32(cpu, parcel),
+		OP_IMM_32 => op_imm_32::parse_op_imm_32(hart, parcel),
 		UNK_48B => todo!("UNK_48B"),
-		STORE => store::parse_store(cpu, parcel),
-		STORE_FP => store_fp::parse_store_fp(cpu, parcel),
+		STORE => store::parse_store(hart, parcel),
+		STORE_FP => store_fp::parse_store_fp(hart, parcel),
 		CUSTOM_1 => todo!("CUSTOM_1"),
-		AMO => amo::parse_amo(cpu, parcel),
-		OP => op::parse_op(cpu, parcel),
+		AMO => amo::parse_amo(hart, parcel),
+		OP => op::parse_op(hart, parcel),
 		LUI => {
 			let utype = UType::parse(parcel);
 			Some(
@@ -62,18 +62,18 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				.into(),
 			)
 		}
-		OP_32 => op_32::parse_op_32(cpu, parcel),
+		OP_32 => op_32::parse_op_32(hart, parcel),
 		UNK_64B => todo!("UNK_64B"),
-		MADD => madd::parse_madd(cpu, parcel),
-		MSUB => msub::parse_msub(cpu, parcel),
-		NMSUB => nmsub::parse_nmsub(cpu, parcel),
-		NMADD => nmadd::parse_nmadd(cpu, parcel),
-		OP_FP => op_fp::parse_op_fp(cpu, parcel),
+		MADD => madd::parse_madd(hart, parcel),
+		MSUB => msub::parse_msub(hart, parcel),
+		NMSUB => nmsub::parse_nmsub(hart, parcel),
+		NMADD => nmadd::parse_nmadd(hart, parcel),
+		OP_FP => op_fp::parse_op_fp(hart, parcel),
 		OP_V => todo!("OP_V"),
 		CUSTOM_2 => todo!("CUSTOM_2"),
 		UNK_48B2 => todo!("UNK_48B2"),
-		BRANCH => branch::parse_branch(cpu, parcel),
-		JALR => jalr::parse_jalr(cpu, parcel),
+		BRANCH => branch::parse_branch(hart, parcel),
+		JALR => jalr::parse_jalr(hart, parcel),
 		RESERVED => todo!("RESERVED"),
 		JAL => {
 			let jtype = JType::parse(parcel);
@@ -85,7 +85,7 @@ pub fn parse(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 				.into(),
 			)
 		}
-		SYSTEM => system::parse_system(cpu, parcel),
+		SYSTEM => system::parse_system(hart, parcel),
 		OP_VE => todo!("OP_VE"),
 		CUSTOM_3 => todo!("CUSTOM_3"),
 		UNK_80B => todo!("UNK_80B"),

@@ -1,11 +1,7 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, multiply::MultiplyInstruction, Instruction},
-	insn32::RType,
-	ty::SupportedExtensions,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::RType, ty::SupportedExtensions};
 
-pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let rtype = RType::parse(parcel);
@@ -51,7 +47,7 @@ pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MUL_WORD if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		MUL_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -59,7 +55,7 @@ pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV_WORD if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		DIV_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -67,7 +63,7 @@ pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV_UNSIGNED_WORD if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		DIV_UNSIGNED_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideUnsignedWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -75,7 +71,7 @@ pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM_WORD if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		REM_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -83,7 +79,7 @@ pub fn parse_op_32(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM_UNSIGNED_WORD if cpu.supported_extensions.has(SupportedExtensions::MULTIPLY) => Some(
+		REM_UNSIGNED_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderUnsignedWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),

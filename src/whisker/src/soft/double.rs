@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use softfloat_sys::float64_t;
 
-use crate::cpu::WhiskerCpu;
+use crate::cpu::hart::WhiskerHart;
 
 use super::{FClass, RoundingMode};
 
@@ -10,7 +10,6 @@ use super::{FClass, RoundingMode};
 #[repr(transparent)]
 pub struct SoftDouble(float64_t);
 
-#[allow(unused)]
 impl SoftDouble {
 	pub const fn from_f64(value: f64) -> Self {
 		Self(float64_t { v: value.to_bits() })
@@ -84,38 +83,38 @@ impl SoftDouble {
 		Self::get_exponent(self.0.v) == Self::EXPONENT_BITS && Self::get_mantissa(self.0.v) != 0u64
 	}
 
-	pub fn add(&self, other: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn add(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_add(self.0, other.0) })
 	}
 
-	pub fn sub(&self, other: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn sub(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_sub(self.0, other.0) })
 	}
 
-	pub fn mul(&self, other: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn mul(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_mul(self.0, other.0) })
 	}
 
-	pub fn div(&self, other: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn div(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_div(self.0, other.0) })
 	}
 
-	pub fn rem(&self, other: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn rem(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_rem(self.0, other.0) })
 	}
 
-	pub fn mul_add(&self, mul: &Self, add: &Self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn mul_add(&self, mul: &Self, add: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_mulAdd(self.0, mul.0, add.0) })
 	}
 
-	pub fn sqrt(&self, rm: RoundingMode, cpu: &mut WhiskerCpu) -> Self {
-		unsafe { rm.write_thread_local(cpu) };
+	pub fn sqrt(&self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_sqrt(self.0) })
 	}
 }

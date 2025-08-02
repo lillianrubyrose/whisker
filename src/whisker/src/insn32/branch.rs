@@ -1,8 +1,5 @@
-use crate::{
-	cpu::WhiskerCpu,
-	insn::{int::IntInstruction, Instruction},
-	insn32::BType,
-};
+use crate::cpu::hart::WhiskerHart;
+use crate::{insn::*, insn32::BType};
 
 macro_rules! parse_branch {
 	($btype:ident, $($const:ident, $inst:ident),*) => {{
@@ -15,7 +12,7 @@ macro_rules! parse_branch {
 }
 
 #[rustfmt::skip]
-pub fn parse_branch(_cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_branch(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	let btype = BType::parse(parcel);
 	parse_branch!(
 		btype,

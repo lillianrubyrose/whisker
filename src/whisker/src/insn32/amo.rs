@@ -1,6 +1,6 @@
+use crate::cpu::hart::WhiskerHart;
 use crate::{
-	cpu::WhiskerCpu,
-	insn::{atomic::AtomicInstruction, Instruction},
+	insn::*,
 	insn32::RType,
 	ty::{RegisterIndex, SupportedExtensions},
 	util::extract_bits_8,
@@ -8,11 +8,11 @@ use crate::{
 
 impl AtomicInstruction {}
 
-pub fn parse_amo(cpu: &mut WhiskerCpu, parcel: u32) -> Option<Instruction> {
+pub fn parse_amo(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	// all AMO type instructions need the atomic extension
-	if !cpu.supported_extensions.has(SupportedExtensions::ATOMIC) {
+	if !hart.supports_extensions(SupportedExtensions::ATOMIC) {
 		return None;
 	}
 

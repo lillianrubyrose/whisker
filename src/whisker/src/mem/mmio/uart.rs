@@ -12,8 +12,8 @@ use socketpair::socketpair_stream;
 
 use tracing::{debug, error, warn};
 
+use crate::cpu::hart::WhiskerHart;
 use crate::cpu::interrupts::InterruptEvent;
-use crate::cpu::WhiskerCpu;
 use crate::mem::mmio::MMIODevice;
 
 pub const UART_BASE: u64 = 0x1000_0000;
@@ -103,7 +103,7 @@ impl UART {
 }
 
 impl MMIODevice for UART {
-	fn read(&mut self, _cpu: &mut WhiskerCpu, addr: u64, buf: &mut [u8]) {
+	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		let is_dlab = self.line_control_reg & 0b1000_0000 == 1;
 		match addr {
 			DATA_REG => {
@@ -132,7 +132,7 @@ impl MMIODevice for UART {
 		}
 	}
 
-	fn write(&mut self, _cpu: &mut WhiskerCpu, addr: u64, val: &[u8]) {
+	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		let is_dlab = self.line_control_reg & 0b1000_0000 == 1;
 		match addr {
 			DATA_REG => {

@@ -1,16 +1,17 @@
 use tracing::trace;
 
+use crate::cpu::hart::WhiskerHart;
 use crate::insn16::ty::CWideImmType;
+use crate::ty::SupportedExtensions;
 use crate::{
-	cpu::WhiskerCpu,
-	insn::{compressed::CompressedInstruction, int::IntInstruction, Instruction},
+	insn::*,
 	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},
 	ty::GPRegisterIndex,
 	util::extract_bits_16,
 };
 
 impl CompressedInstruction {
-	pub fn parse_c0(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c0(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c0::*;
 
 		let ty = extract_bits_16(parcel, 13, 15) as u8;
@@ -86,7 +87,7 @@ impl CompressedInstruction {
 		}
 	}
 
-	pub fn parse_c1(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c1(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 
 		use consts::opcode::c1::*;
@@ -309,7 +310,7 @@ impl CompressedInstruction {
 		}
 	}
 
-	pub fn parse_c2(_cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c2(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c2::*;
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 		match func3 {
@@ -452,15 +453,17 @@ impl CompressedInstruction {
 	}
 }
 
-pub fn parse(cpu: &mut WhiskerCpu, parcel: u16) -> Option<Instruction> {
+pub fn parse(hart: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
 	use consts::opcode::*;
+
+	debug_assert!(hart.supports_extensions(SupportedExtensions::COMPRESSED));
 
 	let opcode_ty = extract_bits_16(parcel, 0, 1) as u8;
 	trace!("(C-ext) parcel={parcel:#018b}");
 	match opcode_ty {
-		C0 => CompressedInstruction::parse_c0(cpu, parcel),
-		C1 => CompressedInstruction::parse_c1(cpu, parcel),
-		C2 => CompressedInstruction::parse_c2(cpu, parcel),
+		C0 => CompressedInstruction::parse_c0(hart, parcel),
+		C1 => CompressedInstruction::parse_c1(hart, parcel),
+		C2 => CompressedInstruction::parse_c2(hart, parcel),
 		// bits 0b11 encode 32 bit instructions, so this cannot be reached
 		_ => unreachable!(),
 	}

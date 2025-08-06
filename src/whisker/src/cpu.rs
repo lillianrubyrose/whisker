@@ -1,17 +1,17 @@
 use std::fs::OpenOptions;
-use std::num::NonZeroU8;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rustc_hash::FxHashSet;
 use tracing::*;
 
 pub mod csr;
 pub mod hart;
-pub mod interrupts;
 
 use crate::cpu::hart::WhiskerHart;
-use crate::mem::Memory;
+use crate::interrupts::PlatformInterruptController;
+use crate::mem::mmio::MMIOKind;
+use crate::mem::{self, Memory};
 use crate::ty::{HartId, SupportedExtensions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,15 +43,19 @@ pub struct WhiskerCpu {
 	pub exec_state: WhiskerExecState,
 
 	pub breakpoints: FxHashSet<u64>,
+
+	pub interrupt_controller: Arc<Mutex<PlatformInterruptController>>,
 }
 
 impl WhiskerCpu {
 	pub fn new(
 		supported_extensions: SupportedExtensions,
 		logfile: Option<PathBuf>,
-		num_harts: NonZeroU8,
+		num_harts: u16,
 		initial_pc: u64,
 	) -> Self {
+		assert!(0 < num_harts && num_harts <= HartId::MAX_NUM_HARTS);
+
 		// FIXME: logfile
 		#[expect(unused)]
 		let logfile = logfile.map(|path| {
@@ -62,20 +66,33 @@ impl WhiskerCpu {
 				.open(&path)
 				.unwrap_or_else(|e| panic!("failed to create logfile {}: {:?}", path.display(), e))
 		});
+
+		let harts = (0..num_harts)
+			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc))
+			.collect();
+
+		// FIXME: interrupt controller refactor
+		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
+
+		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as Arc<Mutex<_>>).unwrap();
+		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
+
 		Self {
 			steps: 0,
 			exec_state: WhiskerExecState::Paused,
 			breakpoints: FxHashSet::default(),
 
 			current_hart_id: 0,
-			harts: (0..num_harts.get())
-				.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc))
-				.collect(),
+			harts,
+
+			interrupt_controller,
 		}
 	}
 
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		self.steps += 1;
+
+		self.interrupt_controller.lock().unwrap().poll(&mut self.harts);
 
 		trace!("executing hart {}", self.current_hart_id);
 		let hart = &mut self.harts[self.current_hart_id];

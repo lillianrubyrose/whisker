@@ -24,3 +24,4 @@ bitflags = "2.9.1"
 crossterm = "0.29.0"
 socketpair = "0.19.8"
 command-fds = "0.3.2"
+bytemuck = { version = "1.23.1", features = ["derive"] }

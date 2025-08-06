@@ -24,6 +24,8 @@
 #define UART_THR_IDLE_BIT (1 << 6)
 #define UART_FIFO_ERR_BIT (1 << 7)
 
+#define PLIC_BASE ((volatile uint8_t*) 0x0C00'0000)
+
 // str must be nul-terminated, and it should be free'd by the caller if
 // necessary if str is not nul-terminated the program will go into an infinite
 // loop, and read out of bounds memory, causing UB.

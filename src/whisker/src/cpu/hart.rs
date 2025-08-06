@@ -1,11 +1,14 @@
+use std::assert_matches::assert_matches;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
 use num_conv::{Extend as _, Truncate as _};
 use tracing::*;
 
-use crate::cpu::csr::{self, ControlStatusRegisters};
+use crate::cpu::csr::{self, CSRIndex, ControlStatusRegisters};
 use crate::insn::*;
+use crate::interrupts::InterruptSource;
 use crate::mem::{ReadKind, WriteKind};
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
@@ -36,7 +39,7 @@ pub struct WhiskerHart {
 
 impl WhiskerHart {
 	pub fn new(hart_id: HartId, extensions: SupportedExtensions, initial_pc: u64) -> Self {
-		Self {
+		let this = Self {
 			hart_id,
 			extensions,
 			registers: GPRegisters::default(),
@@ -44,9 +47,10 @@ impl WhiskerHart {
 			pc: initial_pc,
 			next_pc: 0,
 			csrs: ControlStatusRegisters::new(),
-			//interrupt_controller: todo!(),
+
 			cycles: 0,
-		}
+		};
+		this
 	}
 
 	pub fn hart_id(&self) -> HartId {
@@ -75,13 +79,6 @@ impl WhiskerHart {
 		// 	let mip = self.read_csr_unchecked(csr::MIP);
 		// 	self.write_csr_unchecked(csr::MIP, mip | 1 << 7);
 		// }
-
-		// check if the interrupt controller needs to send an interrupt
-		if self.poll_interrupt_controller() {
-			self.pc = self.next_pc;
-			self.dump();
-			return;
-		}
 
 		// if a trap happened, just update pc and return
 		// next cycle will fetch
@@ -204,6 +201,19 @@ impl WhiskerHart {
 			error!("unsupported trap bits {:#018X}", to_trap);
 			false
 		}
+	}
+
+	pub fn set_interrupt_pending(&mut self, interrupt: TrapIdx, pending: bool) {
+		trace!("set {:?} pending: {}", interrupt, pending);
+
+		assert_matches!(interrupt.kind(), TrapKind::Interrupt);
+
+		let bit_idx = interrupt.inner() & TrapIdx::CAUSE_MASK;
+		let mask = 1 << bit_idx;
+		let value_bit = u64::from(pending) << bit_idx;
+		let mip = self.read_csr_unchecked(csr::MIP);
+		let mip = (mip & !mask) | value_bit;
+		self.write_csr_unchecked(csr::MIP, mip);
 	}
 }
 
@@ -1697,6 +1707,6 @@ impl WhiskerHart {
 		}
 		out.push_str("\n\n");
 
-		eprint!("{}", out);
+		trace!("{}", out);
 	}
 }

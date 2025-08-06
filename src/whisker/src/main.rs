@@ -1,8 +1,11 @@
+#![feature(assert_matches)]
+
 mod cpu;
 mod gdb;
 mod insn;
 mod insn16;
 mod insn32;
+mod interrupts;
 mod mem;
 mod regs;
 mod soft;
@@ -13,7 +16,6 @@ mod util;
 compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Cursor;
-use std::num::NonZeroU8;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, panic};
@@ -27,9 +29,9 @@ use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
-use crate::cpu::interrupts::InterruptController;
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
+use crate::interrupts::{PlatformInterruptController, PLIC_BASE, PLIC_LEN};
 use crate::mem::mmio::{MMIOKind, UART_BASE};
 use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
 use crate::ty::SupportedExtensions;
@@ -74,7 +76,9 @@ fn main() {
 			kernel,
 			logfile,
 		} => {
-			let cpu = init_cpu(bootrom, kernel, logfile);
+			// FIXME: get this from cli or something
+			const NUM_HARTS: u16 = 1;
+			let cpu = init_cpu(bootrom, kernel, logfile, NUM_HARTS);
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -89,7 +93,7 @@ const BOOTROM_OFFSET: u64 = 0x00001000;
 const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 
-fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> WhiskerCpu {
+fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>, num_harts: u16) -> WhiskerCpu {
 	let mut bootrom_data =
 		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 	bootrom_data.resize(0x1000, 0);
@@ -137,6 +141,12 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 			0x1000,
 			MMIOKind::UART,
 			AccessAttrs::new(1, AccessKind::READ | AccessKind::WRITE),
+		))
+		.add_region(MemoryRegion::new_mmio(
+			PLIC_BASE,
+			PLIC_LEN,
+			MMIOKind::PLIC,
+			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		));
 
 	// load the ELF into main memory
@@ -169,14 +179,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>) -> Whis
 	));
 	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
 
-	// FIXME: interrupt controller refactor
-	let (int_tx, interrupt_controller) = InterruptController::new();
-
-	mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
-
-	let cpu = WhiskerCpu::new(supported, logfile, NonZeroU8::new(1).unwrap(), BOOTROM_OFFSET);
-
-	cpu
+	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET)
 }
 
 fn run_gdb(mut cpu: WhiskerCpu) {

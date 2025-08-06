@@ -320,8 +320,11 @@ impl TrapIdx {
 	pub const HARDWARE_CHECK: Self = Self::exception(19);
 	pub const MEOW_ERR: Self = Self::exception(31);
 
+	pub const SUPERVISOR_SOFTWARE_INTERRUPT: Self = Self::interrupt(1);
 	pub const MACHINE_SOFTWARE_INTERRUPT: Self = Self::interrupt(3);
+	pub const SUPERVISOR_TIMER_INTERRUPT: Self = Self::interrupt(5);
 	pub const MACHINE_TIMER_INTERRUPT: Self = Self::interrupt(7);
+	pub const SUPERVISOR_EXTERNAL_INTERRUPT: Self = Self::interrupt(9);
 	pub const MACHINE_EXTERNAL_INTERRUPT: Self = Self::interrupt(11);
 }
 
@@ -354,16 +357,30 @@ impl Debug for TrapIdx {
 /// the ID of a hart
 /// this is a newtype because it really only makes sense as an ID, not a number
 /// math MUST NOT be done on it.
-pub struct HartId(u8);
+pub struct HartId(u16);
 
 impl HartId {
-	pub fn new(id: u8) -> Self {
+	pub const MAX_NUM_HARTS: u16 = 64;
+
+	pub fn new(id: u16) -> Self {
+		assert!(
+			id < Self::MAX_NUM_HARTS,
+			"only {} harts are supported",
+			Self::MAX_NUM_HARTS
+		);
 		Self(id)
 	}
 
-	pub fn inner(self) -> u8 {
+	pub fn inner(self) -> u16 {
 		self.0
 	}
+}
+
+#[derive(Debug)]
+pub enum HartMode {
+	User = 0b00,
+	Supervisor = 0b01,
+	Machine = 0b11,
 }
 
 /// these exist to allow the generic RegisterIndex to derive things without needing the underlying register

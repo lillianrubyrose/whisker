@@ -15,15 +15,19 @@ pub trait MMIODevice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MMIOKind {
 	UART,
+	PLIC,
 }
 
-static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send + Sync>>>>> =
+static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send>>>>> =
 	LazyLock::new(|| Mutex::new(FxHashMap::default()));
 
-pub fn register_mmio(kind: MMIOKind, device: Arc<Mutex<dyn MMIODevice + Send + Sync>>) -> Result<(), ()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeviceAlreadyPresentErr(MMIOKind);
+
+pub fn register_mmio(kind: MMIOKind, device: Arc<Mutex<dyn MMIODevice + Send>>) -> Result<(), DeviceAlreadyPresentErr> {
 	let mut devices = MMIO_DEVICES.lock().unwrap();
 	if devices.contains_key(&kind) {
-		return Err(());
+		return Err(DeviceAlreadyPresentErr(kind));
 	}
 
 	devices.insert(kind, device);

@@ -4,6 +4,7 @@ use std::os::fd::{AsFd, RawFd};
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{env, thread};
 
 use command_fds::{CommandFdExt as _, FdMapping};
@@ -13,7 +14,7 @@ use socketpair::socketpair_stream;
 use tracing::{debug, error, warn};
 
 use crate::cpu::hart::WhiskerHart;
-use crate::cpu::interrupts::InterruptEvent;
+use crate::interrupts::{InterruptMessage, InterruptSource};
 use crate::mem::mmio::MMIODevice;
 
 pub const UART_BASE: u64 = 0x1000_0000;
@@ -32,6 +33,8 @@ pub const SCRATCH_REG: u64 = UART_BASE + 7;
 pub struct UART {
 	data_reg: u8,
 	interrupt_enable: UartInterruptKind,
+	queue_interrupt_level: u8,
+
 	line_control_reg: u8,
 
 	scratch_reg: u8,
@@ -41,11 +44,11 @@ pub struct UART {
 	data_queue: VecDeque<u8>,
 
 	stdout: Box<dyn Write + Send + Sync>,
-	interrupt_tx: Sender<InterruptEvent>,
+	interrupt_tx: Sender<InterruptMessage>,
 }
 
 impl UART {
-	pub fn init(interrupt_tx: Sender<InterruptEvent>) -> Arc<Mutex<Self>> {
+	pub fn init(interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
 		const REMOTE_FD_NUM: RawFd = 4;
 		let (mut local, other) = socketpair_stream().expect("unable to create socket pair");
 		let mut cmd = Command::new(env::var_os("TERM").expect("could not find $TERM"));
@@ -65,8 +68,10 @@ impl UART {
 
 		let this = Arc::new(Mutex::new(Self {
 			data_reg: 0,
-			line_control_reg: 0b00000011, // no parity, 1 stop, 8 data
 			interrupt_enable: UartInterruptKind::empty(),
+			queue_interrupt_level: 1,
+
+			line_control_reg: 0b00000011, // no parity, 1 stop, 8 data
 
 			scratch_reg: 0,
 
@@ -90,9 +95,11 @@ impl UART {
 
 				let mut uart = uart.lock().unwrap();
 				uart.data_queue.push_back(b);
-				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE) {
+				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE)
+					&& uart.data_queue.len() >= usize::from(uart.queue_interrupt_level)
+				{
 					uart.interrupt_tx
-						.send(InterruptEvent::UartInterrupt)
+						.send(InterruptMessage::new_high(InterruptSource::UART))
 						.expect("could not send to interrupt controller");
 				}
 			}
@@ -170,6 +177,11 @@ impl UART {
 	fn do_read(&mut self) -> u8 {
 		if let Some(val) = self.data_queue.pop_front() {
 			self.data_reg = val;
+			if self.data_queue.len() < usize::from(self.queue_interrupt_level) {
+				self.interrupt_tx
+					.send(InterruptMessage::new_low(InterruptSource::UART))
+					.expect("unable to send interrupt controller");
+			}
 		}
 		self.data_reg
 	}
@@ -182,9 +194,16 @@ impl UART {
 
 		// the transmitter register is considered to immedately be empty
 		if self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
-			self.interrupt_tx
-				.send(InterruptEvent::UartInterrupt)
-				.expect("could not send to interrupt controller");
+			thread::spawn({
+				let interrupt_tx = self.interrupt_tx.clone();
+				move || {
+					// TODO: actually get the right timings for this
+					thread::sleep(Duration::from_millis(200));
+					interrupt_tx
+						.send(InterruptMessage::new_high(InterruptSource::UART))
+						.expect("could not send to interrupt controller");
+				}
+			});
 		}
 	}
 

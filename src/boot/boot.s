@@ -10,6 +10,7 @@ __bootrom_start:
     tail _user_start
 .popsection
 
+.align 4
 trap:
     # this is just here to do something visible at the moment
     2: li x1, 0x99

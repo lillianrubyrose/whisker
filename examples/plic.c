@@ -35,7 +35,7 @@ void do_trap() {
     *(uint32_t*)(PLIC_BASE + 0x200000 + 0x1000 * 0 + 4) = 10;
 }
 
-__attribute__((naked, noreturn))
+__attribute__((naked, noreturn, aligned(4)))
 void trap() {
     __asm__("call do_trap; mret");
 }

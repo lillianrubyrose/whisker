@@ -54,6 +54,10 @@ define_csrs!(
     stvec,      0x105,
 
     // supervisor trap handling
+    sscratch,   0x140,
+    sepc,       0x141,
+    scause,     0x142,
+    stval,      0x143,
     sip,        0x144,
 
     // supervisor protection and translation
@@ -107,6 +111,9 @@ pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
 		(SIE, CSRInfo::new_read_write(read_sie, write_sie)),
 		(STVEC, CSRInfo::new_read_write(read_stvec, write_stvec)),
 		// supervisor trap handling
+		(SEPC, read_write_trivial!(sepc)),
+		(SCAUSE, CSRInfo::new_read_write(read_scause, write_scause)),
+		(STVAL, read_write_trivial!(stval)),
 		(SIP, CSRInfo::new_read_write(read_sip, write_sip)),
 		// supervisor protection and translation
 		(SATP, CSRInfo::new_read_write(read_satp, write_satp)),
@@ -308,6 +315,13 @@ fn write_stvec(hart: &mut WhiskerHart, val: u64) {
 		"alternative stvec modes not yet implemented or maybe you forgot __attribute__((aligned(4))) on a trap handler"
 	);
 	hart.stvec.set_inner(val.to_le_bytes());
+}
+
+fn read_scause(hart: &mut WhiskerHart) -> u64 {
+	hart.scause.inner()
+}
+fn write_scause(hart: &mut WhiskerHart, val: u64) {
+	hart.scause = TrapIdx::from_raw(val);
 }
 
 fn read_sip(hart: &mut WhiskerHart) -> u64 {

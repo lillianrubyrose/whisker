@@ -55,6 +55,12 @@ pub struct WhiskerHart {
 	pub mip: InterruptBits,
 
 	pub stvec: TrapVector,
+
+	pub sscratch: u64,
+	pub sepc: u64,
+	pub scause: TrapIdx,
+	pub stval: u64,
+
 	pub translation_config: AddressTranslationConfig,
 }
 
@@ -128,6 +134,13 @@ impl WhiskerHart {
 			mip: InterruptBits::new(),
 
 			stvec: TrapVector::new(),
+
+			sscratch: 0,
+			sepc: 0,
+			// FIXME: better sentinel?
+			scause: TrapIdx::exception(0),
+			stval: 0,
+
 			translation_config: AddressTranslationConfig::new(),
 		};
 		this
@@ -204,20 +217,25 @@ impl WhiskerHart {
 
 	/// requests the specified trap to happen
 	/// sets `next_pc` to the appropriate handler for the trap
-	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) -> TrapRequestGuaranteed {
+	pub fn request_trap(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
 		// FIXME: all the modes?
-		trace!("requesting trap kind cause={:?} mtval={:#018X}", trap, mtval,);
+		warn!(
+			"requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X}",
+			trap, tval, self.pc
+		);
 
-		let current_mode = self.mode();
-		if matches!(current_mode, HartMode::Supervisor | HartMode::User) {
-			if self.medeleg.is_enabled(trap) {
-				panic!("handle medeleg")
+		// handle the trap appropriately depending on whether it's delegated
+		match self.mode() {
+			HartMode::User | HartMode::Supervisor if self.medeleg.is_enabled(trap) || self.mideleg.is_enabled(trap) => {
+				self.do_trap_s_mode(trap, tval)
 			}
-			if self.mideleg.is_enabled(trap) {
-				panic!("handle mideleg")
-			}
+			HartMode::Hypervisor => todo!("H-mode traps not implemented"),
+			// traps that were not delegated to lower modes, or the hart is in M mode
+			_ => self.do_trap_m_mode(trap, tval),
 		}
+	}
 
+	fn do_trap_m_mode(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
 		// interrupts can be disabled or enabled by status bits
 		if let TrapKind::Interrupt = trap.kind() {
 			if !self.mstatus.get_mie() {
@@ -229,13 +247,10 @@ impl WhiskerHart {
 				trace!("skipped interrupt cause {:?}: cause disabled in MIE CSR", trap);
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
-
-			// set the bit to signal that the interrupt is pending being handled
-			self.mip.set_interrupt(trap, true);
 		}
 
 		self.mcause = trap;
-		self.mtval = mtval;
+		self.mtval = tval;
 
 		// set MPIE to the value of MIE before the trap was taken
 		// and then disable MIE
@@ -253,6 +268,49 @@ impl WhiskerHart {
 		let handler = self.mtvec.addr_for_trap(trap);
 		trace!("trap handler at {:#018X}", handler);
 		self.next_pc = handler;
+
+		TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler()
+	}
+
+	fn do_trap_s_mode(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
+		// interrupts can be disabled or enabled by status bits
+		if let TrapKind::Interrupt = trap.kind() {
+			if !self.mstatus.get_sie() {
+				trace!("skipped trap cause {:?}: machine interrupts were disabled", trap);
+				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
+			}
+
+			// it's correct to read MIE here because this path can only be taken
+			// if the interrupt was delegated, so it's an S mode visible interrupt
+			if !self.mie.is_enabled(trap) {
+				trace!("skipped interrupt cause {:?}: cause disabled in SIE CSR", trap);
+				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
+			}
+		}
+
+		self.scause = trap;
+		self.stval = tval;
+
+		// set SPIE to the value of SIE before the trap was taken
+		// and then disable SIE
+		let mut mstatus = self.mstatus;
+		let sie = mstatus.get_sie();
+		mstatus.set_spie(sie);
+		mstatus.set_sie(false);
+		// save previous mode in SPP for restoring in xRET
+		mstatus.set_spp(self.mode() as u8);
+		self.mstatus = mstatus;
+
+		// save interrupted PC for return
+		self.sepc = self.pc;
+
+		let handler = self.stvec.addr_for_trap(trap);
+		trace!("S mode trap handler at {:#018X}", handler);
+		self.next_pc = handler;
+
+		if self.mode() < HartMode::Supervisor {
+			self.set_mode(HartMode::Supervisor);
+		}
 
 		TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler()
 	}

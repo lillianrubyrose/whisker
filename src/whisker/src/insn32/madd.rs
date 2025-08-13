@@ -1,12 +1,12 @@
 use crate::cpu::hart::WhiskerHart;
-use crate::{insn::*, insn32::R4Type, soft::RoundingMode, ty::SupportedExtensions};
+use crate::{insn::*, insn32::R4Type, soft::RoundingMode, ty::RiscvExtensions};
 
 pub fn parse_madd(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use crate::insn32::consts::*;
 
 	// MADD type is reserved for standard F extension only
 	// all opcodes in this type require F (and D requires F)
-	if !hart.supports_extensions(SupportedExtensions::FLOAT) {
+	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
 		return None;
 	}
 

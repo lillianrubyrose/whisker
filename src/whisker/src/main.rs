@@ -34,7 +34,7 @@ use crate::gdb::WhiskerEventLoop;
 use crate::interrupts::{PlatformInterruptController, PLIC_BASE, PLIC_LEN};
 use crate::mem::mmio::{MMIOKind, UART_BASE};
 use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
-use crate::ty::SupportedExtensions;
+use crate::ty::RiscvExtensions;
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -113,11 +113,11 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>, num_har
 		panic!("ELF file is not little-endian");
 	}
 
-	let supported = SupportedExtensions::INTEGER
-		| SupportedExtensions::FLOAT
-		| SupportedExtensions::COMPRESSED
-		| SupportedExtensions::ATOMIC
-		| SupportedExtensions::MULTIPLY;
+	let supported = RiscvExtensions::INTEGER
+		| RiscvExtensions::FLOAT
+		| RiscvExtensions::COMPRESSED
+		| RiscvExtensions::ATOMIC
+		| RiscvExtensions::MULTIPLY;
 
 	//	let mem = MemoryBuilder::default()
 	//		.bootrom(bootrom_data, PageBase::from_addr(BOOTROM_OFFSET))

@@ -12,7 +12,7 @@ use crate::cpu::hart::WhiskerHart;
 use crate::interrupts::PlatformInterruptController;
 use crate::mem::mmio::MMIOKind;
 use crate::mem::{self, Memory};
-use crate::ty::{HartId, SupportedExtensions};
+use crate::ty::{HartId, RiscvExtensions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {
@@ -49,7 +49,7 @@ pub struct WhiskerCpu {
 
 impl WhiskerCpu {
 	pub fn new(
-		supported_extensions: SupportedExtensions,
+		supported_extensions: RiscvExtensions,
 		logfile: Option<PathBuf>,
 		num_harts: u16,
 		initial_pc: u64,

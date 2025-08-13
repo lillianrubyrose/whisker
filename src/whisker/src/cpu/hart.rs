@@ -1,18 +1,22 @@
 use std::assert_matches::assert_matches;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
-use num_conv::{Extend as _, Truncate as _};
+use bitfield::bitfields;
+use num_conv::prelude::*;
+use rustc_hash::FxHashMap;
 use tracing::*;
 
-use crate::cpu::csr::{self, CSRIndex, ControlStatusRegisters};
+use bitfield::prelude::*;
+
+use crate::cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector};
 use crate::insn::*;
-use crate::interrupts::InterruptSource;
 use crate::mem::{ReadKind, WriteKind};
 use crate::regs::{FPRegisters, GPRegisters};
 use crate::soft::ExceptionFlags;
-use crate::ty::{GPRegisterIndex, HartId, SupportedExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
+use crate::ty::{
+	ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed,
+};
 use crate::{cpu, insn16};
 use crate::{insn32, util::*};
 use cpu::MEMORY;
@@ -21,7 +25,9 @@ use cpu::MEMORY;
 pub struct WhiskerHart {
 	hart_id: HartId,
 
-	extensions: SupportedExtensions,
+	extensions: RiscvExtensions,
+
+	mode: HartMode,
 
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
@@ -31,24 +37,98 @@ pub struct WhiskerHart {
 	/// the value to set pc to at the end of processing the current cycle
 	next_pc: u64,
 
-	pub csrs: ControlStatusRegisters,
-
-	//pub interrupt_controller: InterruptController,
 	pub cycles: u64,
+
+	pub csr_info: FxHashMap<CSRIndex, CSRInfo>,
+
+	/// scratch register for trap handlers
+	pub mscratch: u64,
+	pub mstatus: MStatus,
+	pub medeleg: ExceptionBits,
+	pub mideleg: InterruptBits,
+	pub mie: InterruptBits,
+	pub mtvec: TrapVector,
+
+	pub mepc: u64,
+	pub mcause: TrapIdx,
+	pub mtval: u64,
+	pub mip: InterruptBits,
+
+	pub stvec: TrapVector,
+	pub translation_config: AddressTranslationConfig,
 }
 
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct MStatus {
+	_res_0_0: U1,
+	pub sie: bool,
+	_res_2_2: U1,
+	pub mie: bool,
+	_res_4_4: U1,
+	pub spie: bool,
+	_ube: U1,
+	pub mpie: bool,
+	pub spp: U1,
+	_vs: U2,
+	mpp: HartMode,
+	_fs: U2,
+	_xs: U2,
+	_mprv: U1,
+	_sum: U1,
+	_mxr: U1,
+	_tvm: U1,
+	_tw: U1,
+	_tsr: U1,
+	_res_23_31: U9,
+	_uxl: U2,
+	_sxl: U2,
+	_sbe: U1,
+	_mbe: U1,
+	_res_38_62: U25,
+	_sd: U1,
+}
+
+impl MStatus {
+	pub const MASK_S_MODE: u64 = 0b1000_0000_0000_0000_0000_0000_0000_0011_0000_0000_0000_1111_1110_0111_0110_0011;
+}
+
+const _: () = {
+	assert!(core::mem::size_of::<MStatus>() == core::mem::size_of::<u64>());
+};
+
 impl WhiskerHart {
-	pub fn new(hart_id: HartId, extensions: SupportedExtensions, initial_pc: u64) -> Self {
+	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
 		let this = Self {
 			hart_id,
 			extensions,
+
+			mode: HartMode::Machine,
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),
 			pc: initial_pc,
 			next_pc: 0,
-			csrs: ControlStatusRegisters::new(),
 
 			cycles: 0,
+
+			csr_info: csr::create_info(),
+
+			mscratch: 0,
+			mstatus: MStatus::new(),
+			medeleg: ExceptionBits::new(),
+			mideleg: InterruptBits::new(),
+			mie: InterruptBits::new(),
+			mtvec: TrapVector::new(),
+
+			mepc: 0,
+			// FIXME: should we represent it like this?
+			mcause: TrapIdx::exception(0),
+			mtval: 0,
+
+			mip: InterruptBits::new(),
+
+			stvec: TrapVector::new(),
+			translation_config: AddressTranslationConfig::new(),
 		};
 		this
 	}
@@ -57,11 +137,23 @@ impl WhiskerHart {
 		self.hart_id
 	}
 
-	pub fn supports_extensions(&self, extensions: SupportedExtensions) -> bool {
+	pub fn mode(&self) -> HartMode {
+		self.mode
+	}
+
+	pub fn set_mode(&mut self, mode: HartMode) {
+		trace!("hart {:?} setting mode to {:?}", self.hart_id(), mode);
+		match mode {
+			HartMode::Machine | HartMode::Supervisor => self.mode = mode,
+			unimp => panic!("unimplemented mode {:?}", unimp),
+		}
+	}
+
+	pub fn supports_extensions(&self, extensions: RiscvExtensions) -> bool {
 		self.extensions.has(extensions)
 	}
 
-	pub fn supported_extensions(&self) -> SupportedExtensions {
+	pub fn supported_extensions(&self) -> RiscvExtensions {
 		self.extensions
 	}
 
@@ -113,60 +205,72 @@ impl WhiskerHart {
 	/// requests the specified trap to happen
 	/// sets `next_pc` to the appropriate handler for the trap
 	pub fn request_trap(&mut self, trap: TrapIdx, mtval: u64) -> TrapRequestGuaranteed {
+		// FIXME: all the modes?
 		trace!("requesting trap kind cause={:?} mtval={:#018X}", trap, mtval,);
+
+		let current_mode = self.mode();
+		if matches!(current_mode, HartMode::Supervisor | HartMode::User) {
+			if self.medeleg.is_enabled(trap) {
+				panic!("handle medeleg")
+			}
+			if self.mideleg.is_enabled(trap) {
+				panic!("handle mideleg")
+			}
+		}
 
 		// interrupts can be disabled or enabled by status bits
 		if let TrapKind::Interrupt = trap.kind() {
-			let status = self.read_csr_unchecked(csr::MSTATUS);
-			if status & csr::mstatus::MIE == 0 {
+			if !self.mstatus.get_mie() {
 				trace!("skipped trap cause {:?}: machine interrupts were disabled", trap);
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
-			let mie = self.read_csr_unchecked(csr::MIE);
-			if mie & (1 << trap.cause()) == 0 {
+			if !self.mie.is_enabled(trap) {
 				trace!("skipped interrupt cause {:?}: cause disabled in MIE CSR", trap);
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
 			// set the bit to signal that the interrupt is pending being handled
-			let mip = self.read_csr_unchecked(csr::MIP);
-			self.write_csr_unchecked(csr::MIP, mip | (1 << trap.cause()));
+			self.mip.set_interrupt(trap, true);
 		}
 
-		self.write_csr_unchecked(csr::MCAUSE, trap.inner());
-		self.write_csr_unchecked(csr::MTVAL, mtval);
+		self.mcause = trap;
+		self.mtval = mtval;
 
 		// set MPIE to the value of MIE before the trap was taken
 		// and then disable MIE
-		let mstatus = self.read_csr_unchecked(csr::MSTATUS);
-		let mie = extract_bit_64(mstatus, csr::mstatus::MIE_BIT).truncate::<u8>();
-		let mstatus = insert_bit_64(mstatus, mie, csr::mstatus::MPIE_BIT);
-		let mstatus = insert_bit_64(mstatus, 0, csr::mstatus::MIE_BIT);
-		self.write_csr_unchecked(csr::MSTATUS, mstatus);
+		let mut mstatus = self.mstatus;
+		let mie = mstatus.get_mie();
+		mstatus.set_mpie(mie);
+		mstatus.set_mie(false);
+		// save previous mode in MPP for restoring in xRET
+		mstatus.set_mpp(self.mode());
+		self.mstatus = mstatus;
 
 		// save interrupted PC for return
-		self.write_csr_unchecked(csr::MEPC, self.pc);
+		self.mepc = self.pc;
 
-		let mtvec = self.read_csr_unchecked(csr::MTVEC);
-		trace!("trap handler at {:#018X}", mtvec);
-		self.next_pc = mtvec;
+		let handler = self.mtvec.addr_for_trap(trap);
+		trace!("trap handler at {:#018X}", handler);
+		self.next_pc = handler;
 
 		TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler()
 	}
 
 	pub fn check_interrupt_trap(&mut self) -> bool {
+		// FIXME: modes?
+
 		trace!("checking interrupts on {:?}", self.hart_id());
-		let mstatus = self.read_csr_unchecked(csr::MSTATUS);
-		if mstatus & csr::mstatus::MIE == 0 {
+		let global_enable = self.mstatus.get_mie();
+		if !global_enable {
 			trace!("interrupts globally disabled");
 			return false;
 		}
 		// NOTE: mideleg CSR does not exist, so we do not need to check it
 
-		let mip = self.read_csr_unchecked(csr::MIP);
+		let mip = u64::from_le_bytes(self.mip.inner());
 		trace!(" mip currently pending: {:#018X}", mip);
-		let mie = self.read_csr_unchecked(csr::MIE);
+		let mie = u64::from_le_bytes(self.mie.inner());
 		let to_trap = mip & mie;
 		trace!("pending and enabled: {:#018X}", to_trap);
 		if to_trap == 0 {
@@ -208,19 +312,19 @@ impl WhiskerHart {
 
 		assert_matches!(interrupt.kind(), TrapKind::Interrupt);
 
+		let mip = u64::from_le_bytes(self.mip.inner());
 		let bit_idx = interrupt.inner() & TrapIdx::CAUSE_MASK;
 		let mask = 1 << bit_idx;
 		let value_bit = u64::from(pending) << bit_idx;
-		let mip = self.read_csr_unchecked(csr::MIP);
 		let mip = (mip & !mask) | value_bit;
-		self.write_csr_unchecked(csr::MIP, mip);
+		self.mip.set_inner(mip.to_le_bytes());
 	}
 }
 
 impl WhiskerHart {
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
 	fn fetch_instruction(&mut self) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
-		let support_compressed = self.supports_extensions(SupportedExtensions::COMPRESSED);
+		let support_compressed = self.supports_extensions(RiscvExtensions::COMPRESSED);
 
 		let mut mem = cpu::MEMORY.wait().lock().unwrap();
 
@@ -648,8 +752,13 @@ impl WhiskerHart {
 			// SYSTEM
 			// =========
 			IntInstruction::ECall => {
-				// TODO: handle different modes
-				self.request_trap(TrapIdx::ECALL_MMODE, 0);
+				let trap = match self.mode() {
+					HartMode::User => TrapIdx::ECALL_UMODE,
+					HartMode::Supervisor => TrapIdx::ECALL_SMODE,
+					HartMode::Hypervisor => todo!(),
+					HartMode::Machine => TrapIdx::ECALL_MMODE,
+				};
+				self.request_trap(trap, 0);
 			}
 			IntInstruction::EBreak => {
 				// TODO: should this do anything else?
@@ -1654,18 +1763,24 @@ impl WhiskerHart {
 	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			PrivilegedInstruction::Mret => {
-				let status = self.read_csr_unchecked(csr::MSTATUS);
-				let mpie = extract_bit_64(status, csr::mstatus::MPIE_BIT).truncate::<u8>();
-				let new_priv = extract_bits_64(status, csr::mstatus::MPP_START, csr::mstatus::MPP_END);
-				debug_assert_eq!(new_priv, 0b11, "only M mode is supported");
+				let mut mstatus = self.mstatus;
+				let mpie = mstatus.get_mpie();
+				let new_priv = mstatus.get_mpp();
 
-				// set MIE to MPIE and MPIE to 1
-				let status = insert_bit_64(status, mpie, csr::mstatus::MIE_BIT);
-				let status = insert_bit_64(status, 1, csr::mstatus::MPIE_BIT);
-				// do not need to set MPP, that is read only 0b11 and cannot be modified
+				// MIE = MPIE; MPIE = 1
+				mstatus.set_mie(mpie);
+				mstatus.set_mpie(true);
 
-				self.write_csr_unchecked(csr::MSTATUS, status);
-				self.next_pc = self.read_csr_unchecked(csr::MEPC);
+				// set mode to MPP
+				trace!("MRET setting mode to {:?}", self.mode());
+				self.set_mode(new_priv);
+
+				// set MPP to lowest supported mode
+				// FIXME (U mode): use U-mode here
+				mstatus.set_mpp(HartMode::Supervisor);
+				self.mstatus = mstatus;
+
+				self.next_pc = self.mepc;
 			}
 		}
 		Ok(())

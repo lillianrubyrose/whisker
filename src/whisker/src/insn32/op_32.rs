@@ -1,5 +1,5 @@
 use crate::cpu::hart::WhiskerHart;
-use crate::{insn::*, insn32::RType, ty::SupportedExtensions};
+use crate::{insn::*, insn32::RType, ty::RiscvExtensions};
 
 pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
@@ -47,7 +47,7 @@ pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MUL_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		MUL_WORD if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -55,7 +55,7 @@ pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		DIV_WORD if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -63,7 +63,7 @@ pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV_UNSIGNED_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		DIV_UNSIGNED_WORD if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideUnsignedWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -71,7 +71,7 @@ pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		REM_WORD if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -79,7 +79,7 @@ pub fn parse_op_32(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM_UNSIGNED_WORD if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		REM_UNSIGNED_WORD if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderUnsignedWord {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),

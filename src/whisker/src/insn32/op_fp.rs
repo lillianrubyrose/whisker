@@ -1,6 +1,6 @@
 use crate::cpu::hart::WhiskerHart;
 use crate::ty::RegisterIndex;
-use crate::{insn::*, insn32::RType, soft::RoundingMode, ty::SupportedExtensions};
+use crate::{insn::*, insn32::RType, soft::RoundingMode, ty::RiscvExtensions};
 
 /// Returns the parsed instruction if it was valid, or None if the instruction could not be decoded.
 /// Caller is responsible for error handling in the None case, including producing exceptions.
@@ -9,7 +9,7 @@ pub fn parse_op_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 
 	// OP-FP type is reserved for standard F extension only
 	// all opcodes in this type require F (and D requires F)
-	if !hart.supports_extensions(SupportedExtensions::FLOAT) {
+	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
 		return None;
 	}
 

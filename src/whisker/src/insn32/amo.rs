@@ -2,7 +2,7 @@ use crate::cpu::hart::WhiskerHart;
 use crate::{
 	insn::*,
 	insn32::RType,
-	ty::{RegisterIndex, SupportedExtensions},
+	ty::{RegisterIndex, RiscvExtensions},
 	util::extract_bits_8,
 };
 
@@ -12,7 +12,7 @@ pub fn parse_amo(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	// all AMO type instructions need the atomic extension
-	if !hart.supports_extensions(SupportedExtensions::ATOMIC) {
+	if !hart.supports_extensions(RiscvExtensions::ATOMIC) {
 		return None;
 	}
 

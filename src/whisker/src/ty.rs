@@ -2,6 +2,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
+use bitfield::prelude::*;
+
 /// an error type used for results to communicate that an error occured, but a trap for that error
 /// has already been requested, so callers shouldn't handle it themselves.
 /// note that a trap *may not happen* if the trap was disabled, but this type communicates that.
@@ -163,10 +165,10 @@ impl Debug for FPRegisterIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// INVARIANT: holds a bit pattern compatible with the MISA register
 /// (see: Privileged ISA manual section 3.1.1 table 10)
-pub struct SupportedExtensions(u64);
+pub struct RiscvExtensions(u64);
 
 #[expect(unused, reason = "several of these extensions are reserved in the ISA")]
-impl SupportedExtensions {
+impl RiscvExtensions {
 	pub const ATOMIC: Self = Self(1 << 0);
 	pub const B: Self = Self(1 << 1);
 	pub const COMPRESSED: Self = Self(1 << 2);
@@ -195,7 +197,7 @@ impl SupportedExtensions {
 	pub const Z_RESERVED: Self = Self(1 << 25);
 
 	pub const fn empty() -> Self {
-		SupportedExtensions(0)
+		RiscvExtensions(0)
 	}
 
 	pub const fn has(self, other: Self) -> bool {
@@ -217,40 +219,40 @@ impl SupportedExtensions {
 	}
 }
 
-impl BitOr for SupportedExtensions {
+impl BitOr for RiscvExtensions {
 	type Output = Self;
 	fn bitor(self, rhs: Self) -> Self::Output {
-		SupportedExtensions(self.0 | rhs.0)
+		RiscvExtensions(self.0 | rhs.0)
 	}
 }
 
-impl BitOrAssign for SupportedExtensions {
+impl BitOrAssign for RiscvExtensions {
 	fn bitor_assign(&mut self, rhs: Self) {
 		self.0 |= rhs.0;
 	}
 }
 
-impl BitAnd for SupportedExtensions {
+impl BitAnd for RiscvExtensions {
 	type Output = Self;
 	fn bitand(self, rhs: Self) -> Self::Output {
-		SupportedExtensions(self.0 & rhs.0)
+		RiscvExtensions(self.0 & rhs.0)
 	}
 }
 
-impl BitAndAssign for SupportedExtensions {
+impl BitAndAssign for RiscvExtensions {
 	fn bitand_assign(&mut self, rhs: Self) {
 		self.0 &= rhs.0;
 	}
 }
 
-impl Not for SupportedExtensions {
+impl Not for RiscvExtensions {
 	type Output = Self;
 	fn not(self) -> Self::Output {
-		SupportedExtensions(!self.0)
+		RiscvExtensions(!self.0)
 	}
 }
 
-impl Default for SupportedExtensions {
+impl Default for RiscvExtensions {
 	fn default() -> Self {
 		Self::INTEGER & Self::FLOAT
 	}
@@ -294,6 +296,10 @@ impl TrapIdx {
 
 	pub const fn inner(&self) -> u64 {
 		self.0
+	}
+
+	pub const fn from_raw(val: u64) -> Self {
+		Self(val)
 	}
 }
 
@@ -353,6 +359,57 @@ impl Debug for TrapIdx {
 	}
 }
 
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+/// bits corresponding to all implemented exceptions
+pub struct ExceptionBits {
+	pub instruction_addr_misaligned: bool,
+	pub instruction_access_fault: bool,
+	pub illegal_instruction: bool,
+	pub breakpoint: bool,
+	pub load_addr_misaligned: bool,
+	pub load_access_fault: bool,
+	pub store_addr_misaligned: bool,
+	pub store_access_fault: bool,
+	pub ecall_umode: bool,
+	pub ecall_smode: bool,
+	_res_10_10: U1,
+	pub ecall_mmode: bool,
+	pub instruction_page_fault: bool,
+	pub load_page_fault: bool,
+	_res_14_14: U1,
+	pub store_page_fault: bool,
+	_res_16_17: U2,
+	pub software_check: bool,
+	pub hardware_check: bool,
+	_res_20_30: U11,
+	pub meow_err: bool,
+	_res_32_63: U32,
+}
+
+impl ExceptionBits {
+	pub const MASK: u64 = 0b1000_0000_0000_1100_1011_1011_1111_1111;
+
+	pub fn set_exception(&mut self, trap: TrapIdx, enabled: bool) {
+		debug_assert!(trap.kind() == TrapKind::Exception);
+		let mut inner = u64::from_le_bytes(self.inner());
+		let mask = !((1 << trap.cause()) & Self::MASK);
+		let bit = (u64::from(enabled) << trap.cause()) & Self::MASK;
+		inner &= mask;
+		inner |= bit;
+		self.set_inner(inner.to_le_bytes());
+	}
+
+	pub fn is_enabled(self, trap: TrapIdx) -> bool {
+		if trap.kind() != TrapKind::Exception {
+			return false;
+		}
+
+		let inner = u64::from_le_bytes(self.inner());
+		inner & (1 << trap.cause()) != 0
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// the ID of a hart
 /// this is a newtype because it really only makes sense as an ID, not a number
@@ -376,11 +433,28 @@ impl HartId {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BitFieldRepr)]
 pub enum HartMode {
 	User = 0b00,
 	Supervisor = 0b01,
+	Hypervisor = 0b10,
 	Machine = 0b11,
+}
+
+impl HartMode {
+	pub fn bits(self) -> u8 {
+		self as u8
+	}
+
+	pub fn from_bits(bits: u8) -> Self {
+		match bits {
+			0b00 => Self::User,
+			0b01 => Self::Supervisor,
+			0b10 => Self::Hypervisor,
+			0b11 => Self::Machine,
+			_ => panic!("invalid mode bits {:#010b}", bits),
+		}
+	}
 }
 
 /// these exist to allow the generic RegisterIndex to derive things without needing the underlying register

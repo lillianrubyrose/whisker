@@ -1,84 +1,337 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use num_conv::Extend;
-use tracing::error;
+use bitfield::{prelude::*, BitField};
+use num_conv::prelude::*;
+use rustc_hash::FxHashMap;
+use tracing::*;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::ty::{TrapIdx, TrapRequestGuaranteed};
+use crate::cpu::hart::{MStatus, WhiskerHart};
+use crate::ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
+use crate::util::extract_bits_16;
 
 macro_rules! define_csrs {
-    ($($name:ident, $addr:literal, $rw:ident, $priv:ident $(= $init:expr)? ),*$(,)*) => {
-		paste::paste! {
-			$(
+    ($($name:ident, $addr:literal),*$(,)*) => {
+		paste::paste! {$(
             #[allow(dead_code)]
 			pub const [< $name:snake:upper >]: CSRIndex = CSRIndex($addr);
-			)*
-
-			impl ControlStatusRegisters {
-    			pub fn new() -> Self {
-                    let mut regs = core::array::from_fn::<_, {NUM_CSRS as usize}, _>(|_| CSRInfo::default());
-
-                    $(
-                        regs[$addr] = CSRInfo {
-                            valid: true,
-                            rw: $rw,
-                            privilege: CSRPrivilege::$priv,
-                            val: {
-                                // some cases dont expand to have the = init case, so ignore those warnings
-                                #[allow(unused)]
-                                let mut val = 0;
-                                $( val = $init; )?
-                                val
-                            },
-                        };
-                    )*
-
-                    Self(regs)
-        		}
-			}
-		}
+		)*}
 	};
 }
 
-const RW: bool = true;
-const RO: bool = false;
-
 #[rustfmt::skip]
 define_csrs!(
-    mvendorid, 0xF11, RO, Machine = 0,
-    marchid,   0xF12, RO, Machine = 0,
-    mimpid,    0xF13, RO, Machine = 0,
-    mhartid,   0xF14, RO, Machine,
+    // machine information registers
+    mvendorid,  0xF11,
+    marchid,    0xF12,
+    mimpid,     0xF13,
+    mhartid,    0xF14,
+    mconfigptr, 0xF15,
 
     // machine trap setup
     // MIE set to 0, MPP set to M mode
-    mstatus,   0x300, RW, Machine = 0b11 << 11,
-    misa,      0x301, RW, Machine,
-    // 0x302 and 0x303 MEDELEG and MIDELEG should not exist because S-mode is not implemented
-    mie,       0x304, RW, Machine = 0, // by default all interrupt causes are disabled
-    mtvec,     0x305, RW, Machine = 0,
+    mstatus,    0x300,
+    misa,       0x301,
+    medeleg,    0x302,
+    mideleg,    0x303,
+    mie,        0x304,
+    mtvec,      0x305,
+    // 0x310 and 0x312 mstatush and medelegh are RV32 only
 
     // machine trap handling
-    mepc,      0x341, RW, Machine,
-    mcause,    0x342, RW, Machine,
-    mtval,     0x343, RW, Machine,
-    mip,       0x344, RW, Machine,
+    mscratch,   0x300,
+    mepc,       0x341,
+    mcause,     0x342,
+    mtval,      0x343,
+    mip,        0x344,
+    // 0x34A and 0x34B mtinst and mtval2 are added by the hypervisor extension
 
-    fcsr,      0x003, RW, User,
+    // ======================
+    // S-mode CSRs
+	// ======================
+    sstatus,    0x100,
+    sie,        0x104,
+    stvec,      0x105,
+
+    // supervisor trap handling
+    sip,        0x144,
+
+    // supervisor protection and translation
+    satp,       0x180,
+
+    fcsr,       0x003,
 );
 
-pub mod mstatus {
-	pub const MIE_BIT: u8 = 3;
-	pub const MPIE_BIT: u8 = 7;
-	pub const MPP_START: u8 = 11;
-	pub const MPP_END: u8 = 12;
+const NUM_CSRS: u16 = 4096;
 
-	pub const MIE: u64 = 1 << 3;
-	pub const MPIE: u64 = 1 << 7;
+type CSRReadFn = fn(&mut WhiskerHart) -> u64;
+type CSRWriteFn = fn(&mut WhiskerHart, val: u64);
+
+macro_rules! constant {
+	($val:expr) => {
+		CSRInfo::new_read_only(|_| $val)
+	};
 }
 
-const NUM_CSRS: u16 = 4096;
+macro_rules! read_write_trivial {
+	($field:ident) => {
+		CSRInfo::new_read_write(|hart| hart.$field, |hart, val| hart.$field = val)
+	};
+}
+
+pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
+	let mut reg_info = FxHashMap::default();
+	reg_info.extend([
+		// machine information registers
+		// TODO: actually impl these maybe?
+		(MVENDORID, constant!(0)),
+		(MARCHID, constant!(0)),
+		(MIMPID, constant!(0)),
+		(MHARTID, CSRInfo::new_read_only(read_mhartid)),
+		(MCONFIGPTR, constant!(0)),
+		// machine trap setup
+		(MSCRATCH, read_write_trivial!(mscratch)),
+		(MSTATUS, CSRInfo::new_read_write(read_mstatus, write_mstatus)),
+		(MISA, CSRInfo::new_read_write(read_misa, noop_writer)),
+		(MEDELEG, CSRInfo::new_read_write(read_medeleg, write_medeleg)),
+		(MIDELEG, CSRInfo::new_read_write(read_mideleg, write_mideleg)),
+		(MIE, CSRInfo::new_read_write(read_mie, write_mie)),
+		(MTVEC, CSRInfo::new_read_write(read_mtvec, write_mtvec)),
+		// machine trap handling
+		(MEPC, read_write_trivial!(mepc)),
+		(MCAUSE, CSRInfo::new_read_write(read_mcause, write_mcause)),
+		(MTVAL, read_write_trivial!(mtval)),
+		(MIP, CSRInfo::new_read_write(read_mip, write_mip)),
+		// supervisor trap setup
+		(SSTATUS, CSRInfo::new_read_write(read_sstatus, write_sstatus)),
+		(SIE, CSRInfo::new_read_write(read_sie, write_sie)),
+		(STVEC, CSRInfo::new_read_write(read_stvec, write_stvec)),
+		// supervisor trap handling
+		(SIP, CSRInfo::new_read_write(read_sip, write_sip)),
+		// supervisor protection and translation
+		(SATP, CSRInfo::new_read_write(read_satp, write_satp)),
+	]);
+	reg_info
+}
+
+// NOTE: this is on the hart not on the CSR struct because operations on CSRs may affect state
+impl WhiskerHart {
+	#[must_use]
+	/// ensures that a CSR is readable. this means that it must exist and that the current mode of
+	/// the hart is greater than or equal privilege level to the necessary privilege for the CSR.
+	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Result<CSRReadToken, TrapRequestGuaranteed> {
+		let info = self.csr_info.get(&idx);
+
+		// FIXME: extension checks
+		if info.is_some() && idx.required_mode() <= self.mode() {
+			Ok(CSRReadToken { idx })
+		} else {
+			error!("ERROR: accessing {:?} ro", idx);
+
+			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
+		}
+	}
+
+	#[must_use]
+	/// ensures that a CSR is readable and writeable. this means that it must exist, that it must be
+	/// writeable, and that the current mode of the hart is greater than or equal privilege level to
+	/// the necessary privilege for the CSR.
+	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Result<CSRReadWriteToken, TrapRequestGuaranteed> {
+		let info = self.csr_info.get(&idx);
+
+		// FIXME: extension checks
+		if info.is_some_and(|i| i.is_rw()) && idx.required_mode() <= self.mode() {
+			Ok(CSRReadWriteToken {
+				inner: CSRReadToken { idx },
+			})
+		} else {
+			error!("ERROR: accessing {:?} rw", idx);
+
+			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
+		}
+	}
+
+	pub fn read_csr(&mut self, token: &CSRReadToken) -> u64 {
+		let idx = token.idx;
+		let read = match self.csr_info.get(&idx).unwrap().ops {
+			CSROps::Read(read) => read,
+			CSROps::ReadWrite(read, _) => read,
+		};
+		read(self)
+
+		/*
+		match idx {
+			// MISA must always match the current cpu extension state
+			MISA => self.read_misa(),
+			MHARTID => self.hart_id().inner().extend(),
+
+			// =========================================
+			// supervisor level CSRs
+			// most of these need to be restricted views
+			// =========================================
+			SSTATUS => self.read_sstatus(),
+
+			// registers that need no special handling
+			_ => self.csrs.0[idx.as_idx()].val,
+		}
+		*/
+	}
+
+	pub fn write_csr(&mut self, token: &CSRReadWriteToken, val: u64) {
+		let idx = token.idx;
+		let write = match self.csr_info.get(&idx).unwrap().ops {
+			CSROps::Read(_) => unreachable!(),
+			CSROps::ReadWrite(_, write) => write,
+		};
+		write(self, val);
+
+		/*
+		match idx {
+			MSTATUS => self.write_mstatus(val),
+			// we do not support modifying MISA so writes must be ignored
+			MISA => (),
+			MIE => self.write_mie(val),
+			MIP => self.write_mip(val),
+			// registers that need no special handling, or missing registers
+			_ => self.csrs.0[idx.as_idx()].val = val,
+		}
+		*/
+	}
+
+	/// reads a csr without checks for existence or permissions
+	/// this MUST only be used for implementing system control or status operations
+	/// such as reading FCSR for float operations
+	pub fn read_csr_unchecked(&mut self, _csr: CSRIndex) -> u64 {
+		todo!("impl in new CSR system (probably just directly read fields)")
+	}
+
+	/// writes a csr without checks for existence or permissions
+	/// this MUST only be used for implementing system control or status operations
+	/// such as updating MCAUSE on traps
+	pub fn write_csr_unchecked(&mut self, _csr: CSRIndex, _val: u64) {
+		todo!("impl in new CSR system (probably just directly write fields)")
+	}
+}
+
+// some CSRs want to ignore writes entirely
+fn noop_writer(_hart: &mut WhiskerHart, _val: u64) {}
+
+fn read_mhartid(hart: &mut WhiskerHart) -> u64 {
+	hart.hart_id().inner().extend::<u64>()
+}
+
+fn read_mstatus(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mstatus.inner())
+}
+fn write_mstatus(hart: &mut WhiskerHart, val: u64) {
+	debug!("TODO: implement mstatus properly");
+	hart.mstatus.set_inner(val.to_le_bytes());
+}
+
+fn read_misa(hart: &mut WhiskerHart) -> u64 {
+	// read current hart extension state, with 64 bit MXLEN
+	hart.supported_extensions().inner() | 0b10 << 62
+}
+
+fn read_medeleg(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.medeleg.inner())
+}
+fn write_medeleg(hart: &mut WhiskerHart, val: u64) {
+	hart.medeleg.set_inner((val & ExceptionBits::MASK).to_le_bytes());
+}
+
+fn read_mideleg(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mideleg.inner())
+}
+fn write_mideleg(hart: &mut WhiskerHart, val: u64) {
+	hart.mideleg.set_inner((val & InterruptBits::MASK_M_MODE).to_le_bytes());
+}
+
+fn read_mie(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mie.inner())
+}
+fn write_mie(hart: &mut WhiskerHart, val: u64) {
+	hart.mie.set_inner((val & InterruptBits::MASK_M_MODE).to_le_bytes());
+}
+
+fn read_mtvec(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mtvec.inner())
+}
+fn write_mtvec(hart: &mut WhiskerHart, val: u64) {
+	debug_assert!(
+		val & 0b11 == 0,
+		"alternative mtvec modes not yet implemented or maybe you forgot __attribute__((aligned(4))) on a trap handler"
+	);
+	hart.mtvec.set_inner(val.to_le_bytes());
+}
+
+fn read_mcause(hart: &mut WhiskerHart) -> u64 {
+	hart.mcause.inner()
+}
+fn write_mcause(hart: &mut WhiskerHart, val: u64) {
+	hart.mcause = TrapIdx::from_raw(val)
+}
+
+fn read_mip(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mip.inner())
+}
+fn write_mip(hart: &mut WhiskerHart, val: u64) {
+	warn!(
+		"writes to mip are ignored (hart {:?} wrote {:#018X})",
+		hart.hart_id(),
+		val
+	);
+}
+
+fn read_sstatus(hart: &mut WhiskerHart) -> u64 {
+	read_mstatus(hart) & MStatus::MASK_S_MODE
+}
+fn write_sstatus(hart: &mut WhiskerHart, val: u64) {
+	let val = val & MStatus::MASK_S_MODE;
+	write_mstatus(hart, val);
+}
+
+fn read_sie(hart: &mut WhiskerHart) -> u64 {
+	read_mie(hart) & InterruptBits::MASK_S_MODE
+}
+fn write_sie(hart: &mut WhiskerHart, val: u64) {
+	let val = val & InterruptBits::MASK_S_MODE;
+	write_mie(hart, val);
+}
+
+fn read_stvec(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.stvec.inner())
+}
+fn write_stvec(hart: &mut WhiskerHart, val: u64) {
+	debug_assert!(
+		val & 0b11 == 0,
+		"alternative stvec modes not yet implemented or maybe you forgot __attribute__((aligned(4))) on a trap handler"
+	);
+	hart.stvec.set_inner(val.to_le_bytes());
+}
+
+fn read_sip(hart: &mut WhiskerHart) -> u64 {
+	read_mip(hart) & InterruptBits::MASK_S_MODE
+}
+fn write_sip(hart: &mut WhiskerHart, val: u64) {
+	warn!(
+		"writes to sip are ignored (hart {:?} wrote {:#018X})",
+		hart.hart_id(),
+		val
+	);
+}
+
+fn read_satp(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.translation_config.inner())
+}
+fn write_satp(hart: &mut WhiskerHart, val: u64) {
+	let conf = AddressTranslationMode::from_bits((val >> 60).truncate());
+	if conf != AddressTranslationMode::Bare {
+		error!("satp.MODE != Bare is not supported; satp not updated");
+		return;
+	}
+	hart.translation_config.set_inner(val.to_le_bytes());
+}
 
 /// INVARIANT: holds a valid CSR index (0..NUM_CSRS)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -89,8 +342,9 @@ impl CSRIndex {
 		(addr < NUM_CSRS).then_some(Self(addr))
 	}
 
-	const fn as_idx(self) -> usize {
-		self.0 as usize
+	pub fn required_mode(self) -> HartMode {
+		let mode = extract_bits_16(self.0, 8, 9);
+		HartMode::from_bits(mode.truncate())
 	}
 }
 
@@ -101,181 +355,35 @@ impl Debug for CSRIndex {
 }
 
 #[derive(Debug)]
-pub struct ControlStatusRegisters([CSRInfo; NUM_CSRS as usize]);
-
-// NOTE: this is on the hart not on the CSR struct because operations on CSRs may affect state
-impl WhiskerHart {
-	#[must_use]
-	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Result<CSRReadToken, TrapRequestGuaranteed> {
-		// all csrs that exist are considered readable
-		if self.csrs.0[idx.as_idx()].valid {
-			Ok(CSRReadToken { idx })
-		} else {
-			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
-		}
-	}
-
-	pub fn csr_require_rw(&mut self, idx: CSRIndex) -> Result<CSRReadWriteToken, TrapRequestGuaranteed> {
-		let reg = &self.csrs.0[idx.as_idx()];
-		if reg.valid && reg.is_rw() {
-			Ok(CSRReadWriteToken {
-				inner: CSRReadToken { idx },
-			})
-		} else {
-			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
-		}
-	}
-
-	pub fn read_csr(&mut self, token: &CSRReadToken) -> u64 {
-		let idx = token.idx;
-		match idx {
-			// MISA must always match the current cpu extension state
-			MISA => self.read_misa(),
-			MHARTID => self.hart_id().inner().extend(),
-			// registers that need no special handling
-			_ => self.csrs.0[idx.as_idx()].val,
-		}
-	}
-
-	pub fn write_csr(&mut self, token: &CSRReadWriteToken, val: u64) {
-		let idx = token.idx;
-		match idx {
-			MSTATUS => self.write_mstatus(val),
-			// we do not support modifying MISA so writes must be ignored
-			MISA => (),
-			MIE => self.write_mie(val),
-			MIP => self.write_mip(val),
-			// registers that need no special handling, or missing registers
-			_ => self.csrs.0[idx.as_idx()].val = val,
-		}
-	}
-
-	/// reads a csr without checks for existence or permissions
-	/// this MUST only be used for implementing system control or status operations
-	/// such as reading FCSR for float operations
-	pub fn read_csr_unchecked(&mut self, csr: CSRIndex) -> u64 {
-		self.csrs.0[csr.as_idx()].val
-	}
-
-	/// writes a csr without checks for existence or permissions
-	/// this MUST only be used for implementing system control or status operations
-	/// such as updating MCAUSE on traps
-	pub fn write_csr_unchecked(&mut self, csr: CSRIndex, val: u64) {
-		self.csrs.0[csr.as_idx()].val = val;
-	}
-}
-
-// special CSRs that need to ignore fields or do other non-trivial logic for reads
-impl WhiskerHart {
-	fn read_misa(&self) -> u64 {
-		// 64 bit XLEN
-		2 << 62 | self.supported_extensions().inner()
-	}
-}
-
-// special CSRs that need to ignore fields or do other non-trivial logic for writes
-impl WhiskerHart {
-	fn write_mstatus(&mut self, val: u64) {
-		// we only implement MIE, MPIE, and MPP
-		// all other bits are read-only 0
-		// however MPP is read-only 0b11
-		// FIXME: VS, FS, XS, SD?
-		const MSTATUS_WRITE_MASK: u64 = 1 << 3 | 1 << 7;
-		error!("not yet implemented: side effects for MSTATUS");
-		let other = self.read_csr_unchecked(MSTATUS) & !MSTATUS_WRITE_MASK;
-		let val = val & MSTATUS_WRITE_MASK;
-		self.write_csr_unchecked(MSTATUS, other | val);
-		// FIXME: should we always do this check or only when MIE is changed?
-		self.check_interrupt_trap();
-	}
-
-	fn write_mie(&mut self, val: u64) {
-		// machine software, machine timer, and machine external interrupts
-		const INTERRUPT_ENABLE_BITS: u64 = 1 << 3 | 1 << 7 | 1 << 11;
-		let other = self.read_csr_unchecked(MIE) & !INTERRUPT_ENABLE_BITS;
-		let val = val & INTERRUPT_ENABLE_BITS;
-		self.write_csr_unchecked(MIE, other | val);
-		self.check_interrupt_trap();
-	}
-
-	fn write_mip(&mut self, val: u64) {
-		// machine software, machine timer, and machine external interrupts all use other mechanisms
-		// to become pending.
-		// this function therefore does not write to MIP, but exists so that future implemented
-		// interrupts might be able to use it.
-		// FIXME(csr): implement the above comment correctly; for the moment this allows all writes
-		const INTERRUPT_PENDING_BITS: u64 = u64::MAX;
-		let other = self.read_csr_unchecked(MIP) & !INTERRUPT_PENDING_BITS;
-		let val = val & INTERRUPT_PENDING_BITS;
-		self.write_csr_unchecked(MIP, other | val);
-		self.check_interrupt_trap();
-	}
-}
-
 pub struct CSRInfo {
-	/// whether this csr is valid/implemented
-	valid: bool,
-	/// true if the csr is writeable, false if it's only readable
-	rw: bool,
-	privilege: CSRPrivilege,
-	pub val: u64,
+	required_extensions: RiscvExtensions,
+	ops: CSROps,
 }
 
-#[allow(unused)]
+#[derive(Debug)]
+enum CSROps {
+	Read(CSRReadFn),
+	ReadWrite(CSRReadFn, CSRWriteFn),
+}
+
 impl CSRInfo {
-	#[inline]
-	pub fn valid(&self) -> bool {
-		self.valid
-	}
-
-	#[inline]
-	pub fn is_rw(&self) -> bool {
-		self.rw
-	}
-	#[inline]
-	pub fn privilege(&self) -> CSRPrivilege {
-		self.privilege
-	}
-}
-
-impl Default for CSRInfo {
-	fn default() -> Self {
+	fn new_read_only(read: CSRReadFn) -> Self {
 		Self {
-			valid: false,
-			rw: false,
-			privilege: CSRPrivilege::Machine,
-			val: 0,
+			required_extensions: RiscvExtensions::empty(),
+			ops: CSROps::Read(read),
 		}
 	}
-}
 
-impl Debug for CSRInfo {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("CSRInfo")
-			.field("val", &format_args!("{:#018X}", self.val))
-			.field("rw", if self.rw { &"RW" } else { &"RO" })
-			.field(
-				"privilege",
-				&match self.privilege {
-					CSRPrivilege::User => "U",
-					CSRPrivilege::Supervisor => "S",
-					CSRPrivilege::Hypervisor => "H",
-					CSRPrivilege::Machine => "M",
-				},
-			)
-			.finish()
+	fn new_read_write(read: CSRReadFn, write: CSRWriteFn) -> Self {
+		Self {
+			required_extensions: RiscvExtensions::empty(),
+			ops: CSROps::ReadWrite(read, write),
+		}
 	}
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum CSRPrivilege {
-	User = 0b00,
-	#[expect(unused, reason = "S mode not implemented")]
-	Supervisor = 0b01,
-	#[expect(unused, reason = "H mode not implemented")]
-	Hypervisor = 0b10,
-	Machine = 0b11,
+	fn is_rw(&self) -> bool {
+		matches!(self.ops, CSROps::ReadWrite { .. })
+	}
 }
 
 pub struct CSRReadToken {
@@ -294,3 +402,102 @@ impl Deref for CSRReadWriteToken {
 		&self.inner
 	}
 }
+
+macro_rules! assert_xlen {
+	($ty:ty) => {
+		assert!(::core::mem::size_of::<$ty>() == ::core::mem::size_of::<u64>());
+	};
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct InterruptBits {
+	_res_0_0: U1,
+	pub s_soft_interrupt: bool,
+	_res_2_2: U1,
+	pub m_soft_interrupt: bool,
+	_res_4_4: U1,
+	pub s_timer_interrupt: bool,
+	_res_6_6: U1,
+	pub m_timer_interrupt: bool,
+	_res_8_8: U1,
+	pub s_external_interrupt: bool,
+	_res_10_10: U1,
+	pub m_external_interrupt: bool,
+	_res_12_12: U1,
+	pub counter_overflow: bool,
+	_res_14_63: U50,
+}
+
+impl InterruptBits {
+	const MASK_M_MODE: u64 = 0b0010_1010_1010_1010;
+	const MASK_S_MODE: u64 = 0b0010_0010_0010_0010;
+
+	pub fn set_interrupt(&mut self, trap: TrapIdx, enabled: bool) {
+		debug_assert!(trap.kind() == TrapKind::Interrupt);
+		let mut inner = u64::from_le_bytes(self.inner());
+		let mask = !((1 << trap.cause()) & Self::MASK_M_MODE);
+		let bit = (u64::from(enabled) << trap.cause()) & Self::MASK_M_MODE;
+		inner &= mask;
+		inner |= bit;
+		self.set_inner(inner.to_le_bytes());
+	}
+
+	pub fn is_enabled(self, trap: TrapIdx) -> bool {
+		if trap.kind() != TrapKind::Interrupt {
+			return false;
+		}
+
+		let inner = u64::from_le_bytes(self.inner());
+		inner & (1 << trap.cause()) != 0
+	}
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct TrapVector {
+	pub mode: U2,
+	base: U62,
+}
+
+impl TrapVector {
+	pub fn addr_for_trap(self, trap: TrapIdx) -> u64 {
+		// FIXME: check mode of mtvec and handle offsets
+		self.get_base() << 2
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, BitFieldRepr)]
+#[allow(non_camel_case_types, reason = "reserved")]
+pub enum AddressTranslationMode {
+	Bare = 0,
+	__reserved_1,
+	__reserved_2,
+	__reserved_3,
+	__reserved_4,
+	__reserved_5,
+	__reserved_6,
+	__reserved_7,
+	Sv39,
+	Sv48,
+	Sv57,
+	__reserved_Sv64,
+	__reserved_12,
+	__reserved_13,
+	__reserved_14,
+	__reserved_15,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct AddressTranslationConfig {
+	root_page_num: U44,
+	address_space_id: U16,
+	pub mode: AddressTranslationMode,
+}
+
+const _: () = {
+	assert_xlen!(InterruptBits);
+	assert_xlen!(TrapVector);
+	assert_xlen!(AddressTranslationConfig);
+};

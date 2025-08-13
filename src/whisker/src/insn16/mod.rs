@@ -2,7 +2,7 @@ use tracing::trace;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::insn16::ty::CWideImmType;
-use crate::ty::SupportedExtensions;
+use crate::ty::RiscvExtensions;
 use crate::{
 	insn::*,
 	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},
@@ -456,7 +456,7 @@ impl CompressedInstruction {
 pub fn parse(hart: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
 	use consts::opcode::*;
 
-	debug_assert!(hart.supports_extensions(SupportedExtensions::COMPRESSED));
+	debug_assert!(hart.supports_extensions(RiscvExtensions::COMPRESSED));
 
 	let opcode_ty = extract_bits_16(parcel, 0, 1) as u8;
 	trace!("(C-ext) parcel={parcel:#018b}");

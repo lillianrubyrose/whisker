@@ -1,10 +1,10 @@
-use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType, ty::SupportedExtensions};
+use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType, ty::RiscvExtensions};
 
 pub fn parse_load_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	// all LOAD-FP instructions need the F extension
-	if !hart.supports_extensions(SupportedExtensions::FLOAT) {
+	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
 		return None;
 	}
 

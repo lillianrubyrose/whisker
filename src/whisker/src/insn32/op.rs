@@ -1,5 +1,5 @@
 use crate::cpu::hart::WhiskerHart;
-use crate::{insn::*, insn32::RType, ty::SupportedExtensions};
+use crate::{insn::*, insn32::RType, ty::RiscvExtensions};
 
 pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	use consts::*;
@@ -90,7 +90,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 		// ==================
 		// MULTIPLY
 		// ==================
-		MUL if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		MUL if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Multiply {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -98,7 +98,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULH if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		MULH if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHigh {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -106,7 +106,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULHSU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		MULHSU if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHighSignedUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -114,7 +114,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		MULHU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		MULHU if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::MultiplyHighUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -122,7 +122,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIV if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		DIV if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Divide {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -130,7 +130,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		DIVU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		DIVU if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::DivideUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -138,7 +138,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REM if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		REM if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::Remainder {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),
@@ -146,7 +146,7 @@ pub fn parse_op(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
-		REMU if hart.supports_extensions(SupportedExtensions::MULTIPLY) => Some(
+		REMU if hart.supports_extensions(RiscvExtensions::MULTIPLY) => Some(
 			MultiplyInstruction::RemainderUnsigned {
 				lhs: rtype.src1().to_gp(),
 				rhs: rtype.src2().to_gp(),

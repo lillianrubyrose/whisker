@@ -1,4 +1,3 @@
-use std::num::NonZeroU16;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 
@@ -159,7 +158,7 @@ impl MMIODevice for PlatformInterruptController {
 			ENABLE_REG_MIN..ENABLE_REG_MAX => {
 				let offset = offset - ENABLE_REG_MIN;
 				let context = ContextId::new((offset / 0x80) as u16);
-				let idx = (offset % 80) as usize;
+				let idx = (offset % 0x80) as usize;
 
 				trace!(
 					"setting context {:?} enabled idx {:#04X} to {:#032b}",
@@ -300,7 +299,7 @@ impl ContextId {
 	}
 
 	pub fn new_s_mode(hart_id: HartId) -> Self {
-		Self(hart_id.inner() << 1 + 1)
+		Self((hart_id.inner() << 1) + 1)
 	}
 
 	pub fn new(context: u16) -> Self {

@@ -71,6 +71,8 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 			func0::ECALL => Some(IntInstruction::ECall.into()),
 			func0::EBREAK => Some(IntInstruction::EBreak.into()),
 			func0::MRET => Some(PrivilegedInstruction::Mret.into()),
+			func0::SRET => Some(PrivilegedInstruction::Sret.into()),
+			func0::WFI => Some(PrivilegedInstruction::WaitForInterrupt.into()),
 			imm => {
 				warn!("UNIMPLEMENTED: SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}");
 				None
@@ -106,6 +108,8 @@ pub mod consts {
 	pub mod func0 {
 		pub const ECALL: i64 = 0;
 		pub const EBREAK: i64 = 1;
-		pub const MRET: i64 = 0b001100000010;
+		pub const MRET: i64 = 0b0011_0000_0010;
+		pub const SRET: i64 = 0b0001_0000_0010;
+		pub const WFI: i64 = 0b0001_0000_0101;
 	}
 }

@@ -32,7 +32,7 @@ impl CompressedInstruction {
 				}
 			}
 			FLD => {
-				todo!("FLD (D ext)")
+				todo!("FLD (D ext) {:#06X}", parcel)
 			}
 			LOAD_WORD => {
 				let cl = CLoadType::parse(parcel);
@@ -58,7 +58,7 @@ impl CompressedInstruction {
 			}
 			RESERVED => None,
 			FSD => {
-				todo!("FSD (D ext)")
+				todo!("FSD (D ext) {:#06X}", parcel)
 			}
 			STORE_WORD => {
 				let cs = CStoreType::parse(parcel);
@@ -126,7 +126,7 @@ impl CompressedInstruction {
 			LI => {
 				let im = CImmType::parse(parcel);
 				if im.reg() == GPRegisterIndex::ZERO {
-					todo!("HINT")
+					todo!("HINT {:#06X}", parcel)
 				} else {
 					Some(
 						IntInstruction::AddImmediate {
@@ -144,7 +144,7 @@ impl CompressedInstruction {
 				if im.imm() == 0 {
 					None
 				} else if im.reg() == GPRegisterIndex::ZERO {
-					todo!("HINT")
+					todo!("HINT {:#06X}", parcel)
 				} else if im.reg().as_usize() == 2 {
 					Some(
 						IntInstruction::AddImmediate {
@@ -203,7 +203,7 @@ impl CompressedInstruction {
 				match func2 {
 					func2::SRLI => {
 						if cb.imm() == 0 {
-							todo!("HINT")
+							todo!("HINT {:#06X}", parcel)
 						} else {
 							Some(
 								IntInstruction::ShiftRightLogicalImmediate {
@@ -217,7 +217,7 @@ impl CompressedInstruction {
 					}
 					func2::SRAI => {
 						if cb.imm() == 0 {
-							todo!("HINT")
+							todo!("HINT {:#06X}", parcel)
 						} else {
 							Some(
 								IntInstruction::ShiftRightArithmeticImmediate {
@@ -317,9 +317,9 @@ impl CompressedInstruction {
 			SLLI => {
 				let im = CImmType::parse(parcel);
 				if im.reg() == GPRegisterIndex::ZERO {
-					todo!("HINT")
+					todo!("HINT {:#06X}", parcel)
 				} else if im.imm() == 0 {
-					todo!("HINT")
+					todo!("HINT {:#06X}", parcel)
 				} else {
 					Some(
 						IntInstruction::ShiftLeftLogicalImmediate {
@@ -332,7 +332,7 @@ impl CompressedInstruction {
 				}
 			}
 			FLDSP => {
-				todo!("FLDSP (F extension)")
+				todo!("FLDSP (F extension) {:#06X}", parcel)
 			}
 			LWSP => {
 				let im = CImmType::parse(parcel);
@@ -377,7 +377,7 @@ impl CompressedInstruction {
 								None
 							}
 							(GPRegisterIndex::ZERO, _rs2) => {
-								todo!("HINT")
+								todo!("HINT {:#06X}", parcel)
 							}
 							(rs1, GPRegisterIndex::ZERO) => Some(
 								IntInstruction::JumpAndLinkRegister {
@@ -400,7 +400,7 @@ impl CompressedInstruction {
 					JALR_EBREAK_ADD => match (crtype.src1(), crtype.src2()) {
 						(GPRegisterIndex::ZERO, GPRegisterIndex::ZERO) => Some(IntInstruction::EBreak.into()),
 						(GPRegisterIndex::ZERO, _rs2) => {
-							todo!("HINT")
+							todo!("HINT {:#06X}", parcel)
 						}
 						(rs1, GPRegisterIndex::ZERO) => Some(
 							IntInstruction::JumpAndLinkRegister {
@@ -423,7 +423,7 @@ impl CompressedInstruction {
 				}
 			}
 			FSDSP => {
-				todo!("FSDSP (D extension)")
+				todo!("FSDSP (D extension) {:#06X}", parcel)
 			}
 			SWSP => {
 				let ss = CStackStoreType::parse(parcel);

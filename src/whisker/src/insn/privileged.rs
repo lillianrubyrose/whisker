@@ -3,6 +3,8 @@ use super::Instruction;
 #[derive(Debug)]
 pub enum PrivilegedInstruction {
 	Mret,
+	Sret,
+	WaitForInterrupt,
 }
 
 impl Into<Instruction> for PrivilegedInstruction {

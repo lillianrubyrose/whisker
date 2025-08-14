@@ -157,7 +157,7 @@ impl WhiskerHart {
 	pub fn set_mode(&mut self, mode: HartMode) {
 		trace!("hart {:?} setting mode to {:?}", self.hart_id(), mode);
 		match mode {
-			HartMode::Machine | HartMode::Supervisor => self.mode = mode,
+			HartMode::Machine | HartMode::Supervisor | HartMode::User => self.mode = mode,
 			unimp => panic!("unimplemented mode {:?}", unimp),
 		}
 	}
@@ -573,18 +573,14 @@ impl WhiskerHart {
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as u64;
-
-				let reg_val = self.registers.get(dst);
-				let val = (reg_val & 0xFFFFFFFF_FFFF0000) | val;
+				// LH sign extends to XLEN
+				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as i16 as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as u64;
-
-				let reg_val = self.registers.get(dst);
-				let val = (reg_val & 0xFFFFFFFF_00000000) | val;
+				// LW sign extends to XLEN
+				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as i32 as u64;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
@@ -1821,6 +1817,11 @@ impl WhiskerHart {
 	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			PrivilegedInstruction::Mret => {
+				if self.mode() < HartMode::Machine {
+					// FIXME: what val should this be?
+					self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+				}
+
 				let mut mstatus = self.mstatus;
 				let mpie = mstatus.get_mpie();
 				let new_priv = mstatus.get_mpp();
@@ -1830,7 +1831,7 @@ impl WhiskerHart {
 				mstatus.set_mpie(true);
 
 				// set mode to MPP
-				trace!("MRET setting mode to {:?}", self.mode());
+				trace!("MRET setting mode to {:?}", new_priv);
 				self.set_mode(new_priv);
 
 				// set MPP to lowest supported mode
@@ -1839,6 +1840,38 @@ impl WhiskerHart {
 				self.mstatus = mstatus;
 
 				self.next_pc = self.mepc;
+			}
+			PrivilegedInstruction::Sret => {
+				if self.mode() < HartMode::Supervisor {
+					// FIXME: what val should this be?
+					self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+				}
+
+				let mut mstatus = self.mstatus;
+				let spie = mstatus.get_spie();
+				let new_priv = match mstatus.get_spp() {
+					0 => HartMode::User,
+					1 => HartMode::Supervisor,
+					_ => unreachable!(),
+				};
+
+				// SIE = SPIE; SPIE = 1
+				mstatus.set_sie(spie);
+				mstatus.set_spie(true);
+
+				// set mode to SPP
+				trace!("SRET setting mode to {:?}", new_priv);
+				self.set_mode(new_priv);
+
+				// set SPP to lowest supported mode
+				mstatus.set_spp(0);
+				self.mstatus = mstatus;
+
+				self.next_pc = self.sepc;
+			}
+			PrivilegedInstruction::WaitForInterrupt => {
+				// it's legal for WFI to be a no-op
+				// FIXME: maybe make this more efficient tho?
 			}
 		}
 		Ok(())
@@ -1880,6 +1913,6 @@ impl WhiskerHart {
 		}
 		out.push_str("\n\n");
 
-		trace!("{}", out);
+		//trace!("{}", out);
 	}
 }

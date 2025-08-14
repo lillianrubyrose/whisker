@@ -39,7 +39,7 @@ define_csrs!(
     // 0x310 and 0x312 mstatush and medelegh are RV32 only
 
     // machine trap handling
-    mscratch,   0x300,
+    mscratch,   0x340,
     mepc,       0x341,
     mcause,     0x342,
     mtval,      0x343,

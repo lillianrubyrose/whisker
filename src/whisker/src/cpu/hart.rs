@@ -81,8 +81,8 @@ pub struct MStatus {
 	_fs: U2,
 	_xs: U2,
 	_mprv: U1,
-	_sum: U1,
-	_mxr: U1,
+	pub sum: bool,
+	pub mxr: bool,
 	_tvm: U1,
 	_tw: U1,
 	_tsr: U1,
@@ -386,7 +386,7 @@ impl WhiskerHart {
 
 		let mut mem = cpu::MEMORY.wait().lock().unwrap();
 
-		let parcel1 = mem.read_phys_u16(self, self.pc, ReadKind::Instruction)?;
+		let parcel1 = mem.read_u16(self, self.pc, ReadKind::Instruction)?;
 
 		// all encodings with the low 16 bits all 0s are invalid.
 		// NOTE: the length of an all-zeros instruction is considered
@@ -417,7 +417,7 @@ impl WhiskerHart {
 		} else if extract_bits_16(parcel1, 2, 4) != 0b111 {
 			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
 			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
-			let high_parcel = mem.read_phys_u16(self, self.pc + 2, ReadKind::Instruction)?;
+			let high_parcel = mem.read_u16(self, self.pc + 2, ReadKind::Instruction)?;
 			let full_parcel = high_parcel.extend::<u32>() << 16 | parcel1.extend::<u32>();
 			match insn32::parse(self, full_parcel) {
 				Some(insn) => Ok((insn, 4)),
@@ -451,35 +451,35 @@ impl WhiskerHart {
 macro_rules! read_mem_u8 {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_u8($self, $offset, $kind)
+		mem.read_u8($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u16 {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_u16($self, $offset, $kind)
+		mem.read_u16($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u32 {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_u32($self, $offset, $kind)
+		mem.read_u32($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u64 {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_u64($self, $offset, $kind)
+		mem.read_u64($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_float {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_soft_float($self, $offset, $kind)
+		mem.read_soft_float($self, $offset, $kind)
 	}};
 }
 
@@ -487,42 +487,42 @@ macro_rules! read_mem_float {
 macro_rules! read_mem_double {
 	($self:ident, $offset:ident, $kind:path) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.read_phys_soft_double($self, $offset, $kind)
+		mem.read_soft_double($self, $offset, $kind)
 	}};
 }
 
 macro_rules! write_mem_u8 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_u8($self, $offset, $kind, $val)
+		mem.write_u8($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u16 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_u16($self, $offset, $kind, $val)
+		mem.write_u16($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u32 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_u32($self, $offset, $kind, $val)
+		mem.write_u32($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_u64($self, $offset, $kind, $val)
+		mem.write_u64($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_float {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_soft_float($self, $offset, $kind, $val)
+		mem.write_soft_float($self, $offset, $kind, $val)
 	}};
 }
 
@@ -530,7 +530,7 @@ macro_rules! write_mem_float {
 macro_rules! write_mem_double {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
 		let mut mem = MEMORY.wait().lock().unwrap();
-		mem.write_phys_soft_double($self, $offset, $kind, $val)
+		mem.write_soft_double($self, $offset, $kind, $val)
 	}};
 }
 

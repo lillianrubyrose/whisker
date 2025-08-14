@@ -341,10 +341,10 @@ fn read_satp(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_satp(hart: &mut WhiskerHart, val: u64) {
 	let conf = AddressTranslationMode::from_bits((val >> 60).truncate());
-	if conf != AddressTranslationMode::Bare {
-		error!("satp.MODE != Bare is not supported; satp not updated");
-		return;
+	if !matches!(conf, AddressTranslationMode::Bare | AddressTranslationMode::Sv39) {
+		unimplemented!("satp.MODE {:?} not supported", conf);
 	}
+
 	hart.translation_config.set_inner(val.to_le_bytes());
 }
 
@@ -506,8 +506,8 @@ pub enum AddressTranslationMode {
 #[bitfields]
 #[derive(Debug, Clone, Copy)]
 pub struct AddressTranslationConfig {
-	root_page_num: U44,
-	address_space_id: U16,
+	pub root_page_num: U44,
+	pub address_space_id: U16,
 	pub mode: AddressTranslationMode,
 }
 

@@ -6,6 +6,8 @@ use tracing::trace;
 
 pub mod mmio;
 
+mod paging;
+
 use crate::cpu::hart::WhiskerHart;
 use crate::mem::mmio::MMIOKind;
 use crate::soft::double::SoftDouble;
@@ -45,17 +47,18 @@ macro_rules! impl_mem_read_write {
 			paste::paste! {
 			    $(
 			    #[allow(dead_code)]
-				pub fn [<read_phys_ $ty:snake>](
+				pub fn [<read_ $ty:snake>](
 					&mut self,
 					hart: &mut WhiskerHart,
-					phys_addr: u64,
+					effective_addr: u64,
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
+				    let phys_addr = self.translate_addr(hart, effective_addr, kind.as_mem_op())?;
+
 					let Some(region) = self.region_for_addr_mut(phys_addr) else {
 						let e = match kind {
                             ReadKind::Normal | ReadKind::Atomic => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
                             ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
-                            ReadKind::PageTable => todo!("page table read fault"),
                         };
                         return Err(e);
 					};
@@ -77,13 +80,15 @@ macro_rules! impl_mem_read_write {
 				}
 
 				#[allow(dead_code)]
-               	pub fn [<write_phys_ $ty:snake>](
+               	pub fn [<write_ $ty:snake>](
 					&mut self,
               		hart: &mut WhiskerHart,
-              		phys_addr: u64,
+              		effective_addr: u64,
               		kind: WriteKind,
                     val: $ty,
                	) -> Result<(), TrapRequestGuaranteed> {
+   				    let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
+
                     let Some(region) = self.region_for_addr_mut(phys_addr) else {
                        	// FIXME: these are the same, is this always the case? should this be inline?
                        	let e = match kind {
@@ -275,6 +280,61 @@ impl Memory {
 	}
 }
 
+impl Memory {
+	fn read_pte(
+		&mut self,
+		hart: &mut WhiskerHart,
+		phys_addr: u64,
+		kind: MemoryOpKind,
+	) -> Result<u64, TrapRequestGuaranteed> {
+		let Some(region) = self.region_for_addr_mut(phys_addr) else {
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, kind, phys_addr));
+		};
+
+		let access_kinds = region.attrs.access_kinds;
+		let max_size = region.attrs.max_size;
+		let size = core::mem::size_of::<u64>() as u8;
+		if !access_kinds.contains(AccessKind::READ) || size > max_size {
+			trace!("PTE access not in read region: {:?} at {:#018X}", region, phys_addr);
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, kind, phys_addr));
+		}
+		// FIXME: can this be removed?
+		if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+			trace!(
+				"PTE access not in misaligned region: {:?} at {:#018X}",
+				region,
+				phys_addr
+			);
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, kind, phys_addr));
+		}
+
+		match region.kind {
+			MemoryKind::MainMemory { ref mut backing } => {
+				let offset = phys_addr - region.start;
+				let mut ret = u64::default().to_le_bytes();
+				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
+				Ok(u64::from_le_bytes(ret))
+			}
+			MemoryKind::MMIO(kind) => {
+				let mut ret = <u64>::default().to_le_bytes();
+				kind.read(hart, phys_addr, ret.as_mut_slice());
+				Ok(<u64>::from_le_bytes(ret))
+			}
+		}
+	}
+}
+
+fn pte_fault(hart: &mut WhiskerHart, kind: MemoryOpKind, effective_addr: u64) -> TrapRequestGuaranteed {
+	match kind {
+		MemoryOpKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr),
+		MemoryOpKind::Load => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr),
+		MemoryOpKind::Store => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr),
+	}
+}
+
 #[derive(Debug, Default)]
 struct MemoryReservations {
 	/// map of hart ID to reservation base address
@@ -356,8 +416,6 @@ fn check_read_access(
 				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
 			}
 		}
-
-		ReadKind::PageTable => todo!("check page table access"),
 	}
 
 	Ok(())
@@ -403,6 +461,13 @@ fn check_write_access(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MemoryOpKind {
+	Instruction,
+	Load,
+	Store,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ReadKind {
 	/// reading memory for normal accesses
 	Normal,
@@ -410,9 +475,15 @@ pub enum ReadKind {
 	Instruction,
 	/// reads for LR (note: not AMOs, those go through writes)
 	Atomic,
-	/// reading memory for page table lookups
-	#[expect(dead_code, reason = "page tables not yet implemented")]
-	PageTable,
+}
+
+impl ReadKind {
+	pub fn as_mem_op(&self) -> MemoryOpKind {
+		match self {
+			ReadKind::Normal | ReadKind::Atomic => MemoryOpKind::Load,
+			ReadKind::Instruction => MemoryOpKind::Instruction,
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -94,7 +94,6 @@ pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
 		(MHARTID, CSRInfo::new_read_only(read_mhartid)),
 		(MCONFIGPTR, constant!(0)),
 		// machine trap setup
-		(MSCRATCH, read_write_trivial!(mscratch)),
 		(MSTATUS, CSRInfo::new_read_write(read_mstatus, write_mstatus)),
 		(MISA, CSRInfo::new_read_write(read_misa, noop_writer)),
 		(MEDELEG, CSRInfo::new_read_write(read_medeleg, write_medeleg)),
@@ -102,6 +101,7 @@ pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
 		(MIE, CSRInfo::new_read_write(read_mie, write_mie)),
 		(MTVEC, CSRInfo::new_read_write(read_mtvec, write_mtvec)),
 		// machine trap handling
+		(MSCRATCH, read_write_trivial!(mscratch)),
 		(MEPC, read_write_trivial!(mepc)),
 		(MCAUSE, CSRInfo::new_read_write(read_mcause, write_mcause)),
 		(MTVAL, read_write_trivial!(mtval)),
@@ -111,6 +111,7 @@ pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
 		(SIE, CSRInfo::new_read_write(read_sie, write_sie)),
 		(STVEC, CSRInfo::new_read_write(read_stvec, write_stvec)),
 		// supervisor trap handling
+		(SSCRATCH, read_write_trivial!(sscratch)),
 		(SEPC, read_write_trivial!(sepc)),
 		(SCAUSE, CSRInfo::new_read_write(read_scause, write_scause)),
 		(STVAL, read_write_trivial!(stval)),

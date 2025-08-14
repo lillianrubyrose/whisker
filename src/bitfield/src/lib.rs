@@ -69,8 +69,8 @@ pub mod private_impl {
 
 		// handle potential high byte
 		if end_idx > start_idx {
-			let mask = (1_u8 << end_bit_idx) - 1;
-			collector.push_bits(bytes[end_idx] & mask, end_bit_idx);
+			let mask = (1_u8 << (end_bit_idx + 1)) - 1;
+			collector.push_bits(bytes[end_idx] & mask, end_bit_idx + 1);
 		}
 		// handle middle bytes
 		if end_idx - start_idx >= 2 {
@@ -105,16 +105,6 @@ pub mod private_impl {
 
 		let mut bit_reader = BitReader(T::to_bits(val));
 
-		// handle potential high byte
-		if end_idx > start_idx {
-			let mask = !((1_u8 << end_bit_idx) - 1);
-			bytes[end_idx] &= mask;
-			bytes[end_idx] |= bit_reader.read_bits(end_bit_idx);
-		}
-		// handle middle bytes
-		if end_idx - start_idx >= 2 {
-			todo!()
-		}
 		// handle least significant byte
 		if start_idx == end_idx {
 			// if the indices are the same, make sure to only set T::SIZE bits
@@ -125,7 +115,24 @@ pub mod private_impl {
 			// if the indices are not the same, set from start_bit_idx to the end of the byte
 			let mask = !(0xFF_u8 << start_bit_idx);
 			bytes[start_idx] &= mask;
-			bytes[start_idx] |= bit_reader.read_bits(8 - start_bit_idx) << start_bit_idx;
+			let val = bit_reader.read_bits(8 - start_bit_idx);
+			bytes[start_idx] |= val << start_bit_idx;
+		}
+
+		// handle middle bytes
+		if end_idx - start_idx >= 2 {
+			for idx in ((start_idx + 1)..=(end_idx - 1)).rev() {
+				let val = bit_reader.read_bits(8);
+				bytes[idx] = val;
+			}
+		}
+
+		// handle potential high byte
+		if end_idx > start_idx {
+			let mask = !((1_u8 << (end_bit_idx + 1)) - 1);
+			bytes[end_idx] &= mask;
+			let val = bit_reader.read_bits(end_bit_idx + 1);
+			bytes[end_idx] |= val;
 		}
 	}
 
@@ -169,7 +176,7 @@ pub mod private_impl {
             $(impl BitReaderImpl for BitReader<$ty> {
                 #[inline]
                 fn read_bits(&mut self, num_bits: usize) -> u8 {
-                    let mask = (1_u8  << num_bits) - 1;
+                    let mask = ((1_u16 << num_bits) - 1) as u8;
                     let ret = self.0 as u8 & mask;
                     self.0 >>= num_bits;
                     ret

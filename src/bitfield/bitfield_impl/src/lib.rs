@@ -36,7 +36,7 @@ fn generate_basic_type(num_bits: usize) -> TokenStream2 {
 			type IO = #io_ty;
 			#[inline]
 			fn from_bits(bits: <Self as crate::BitField>::Storage) -> <Self as crate::BitField>::IO {
-				assert!(bits < #max_val);
+				assert!(bits <= #max_val, "{:b}", bits);
 				bits
 			}
 			#[inline]

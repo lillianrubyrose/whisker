@@ -15,6 +15,7 @@ use crate::ty::{HartId, HartMode, TrapIdx};
 pub struct InterruptSource(u16);
 
 impl InterruptSource {
+	pub const VIRTIO: Self = Self(1);
 	pub const UART: Self = Self(10);
 
 	pub fn inner(self) -> u16 {
@@ -78,12 +79,8 @@ impl PlatformInterruptController {
 	pub fn poll(&mut self, harts: &mut Vec<WhiskerHart>) {
 		match self.interrupt_rx.try_recv() {
 			Ok(source) => {
-				let (idx, bit_idx) = irq_to_idx(source.kind.inner());
-				let mask = 1 << bit_idx;
-				let val = u32::from(source.level) << bit_idx;
-
-				self.pending[idx] &= !mask;
-				self.pending[idx] |= val;
+				trace!("recv {:?}", source);
+				self.set_pending(source.kind.inner(), source.level);
 			}
 			Err(TryRecvError::Empty) => {}
 			Err(TryRecvError::Disconnected) => panic!("interrupt controller sources disconnected"),
@@ -264,6 +261,15 @@ impl PlatformInterruptController {
 		let (idx, bit_idx) = irq_to_idx(irq);
 		let mask = 1 << bit_idx;
 		self.claimed[idx] &= !mask;
+	}
+
+	fn set_pending(&mut self, irq: u16, level: bool) {
+		let (idx, bit_idx) = irq_to_idx(irq);
+		let mask = 1 << bit_idx;
+		let val = u32::from(level) << bit_idx;
+
+		self.pending[idx] &= !mask;
+		self.pending[idx] |= val;
 	}
 }
 

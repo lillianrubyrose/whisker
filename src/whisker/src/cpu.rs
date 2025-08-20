@@ -76,6 +76,11 @@ impl WhiskerCpu {
 
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as Arc<Mutex<_>>).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
+		mem::mmio::register_mmio(
+			MMIOKind::VirtioBlock,
+			mem::mmio::virtio_block::VirtioBlockDevice::init(int_tx.clone()) as Arc<Mutex<_>>,
+		)
+		.unwrap();
 
 		Self {
 			steps: 0,

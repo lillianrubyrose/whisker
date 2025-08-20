@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use bitflags::bitflags;
 use rustc_hash::FxHashMap;
-use tracing::trace;
+use tracing::{error, trace};
 
 pub mod mmio;
 
@@ -334,6 +334,111 @@ fn pte_fault(hart: &mut WhiskerHart, kind: MemoryOpKind, effective_addr: u64) ->
 		MemoryOpKind::Store => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr),
 	}
 }
+
+macro_rules! impl_hw_read_write {
+	($($ty:ty),*$(,)*) => {
+		impl Memory {
+			paste::paste! {$(
+				#[allow(dead_code)]
+				/// reads from an address as if the read was not done by a hart, instead by other hardware.
+				/// returns Err(()) if the access could not be performed.
+				pub fn [<read_hw_ $ty:snake>](
+					&mut self,
+					phys_addr: u64,
+				) -> Result<$ty, ()> {
+					let Some(region) = self.region_for_addr_mut(phys_addr) else {
+						return Err(());
+					};
+
+					let access_kinds = region.attrs.access_kinds;
+					let max_size = region.attrs.max_size;
+					let size = core::mem::size_of::<$ty>() as u8;
+					if !access_kinds.contains(AccessKind::READ) {
+						trace!("HW access not in read region: {:?} at {:#018X}", region, phys_addr);
+						return Err(());
+					}
+					if size > max_size {
+						trace!("HW access of size {:?} greater than region max: {:?}", size, region);
+						return Err(());
+					}
+					if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+						trace!(
+							"HW access for size {:?} not in misaligned region: {:?} at {:#018X}",
+							size,
+							region,
+							phys_addr
+						);
+						return Err(());
+					}
+
+					match region.kind {
+						MemoryKind::MainMemory { ref backing } => {
+							let offset = phys_addr - region.start;
+							let mut ret = <$ty>::default().to_le_bytes();
+							ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<$ty>()]);
+							Ok(<$ty>::from_le_bytes(ret))
+						}
+						MemoryKind::MMIO(_kind) => {
+							// FIXME: can this be relaxed?
+							error!("HW mem ops cannot interact with MMIO");
+							Err(())
+						}
+					}
+				}
+
+				#[allow(dead_code)]
+				/// writes to an address as if the write was not done by a hart, instead by other hardware.
+				/// returns Err(()) if the access could not be performed.
+				pub fn [<write_hw_ $ty:snake>](
+					&mut self,
+					phys_addr: u64,
+					val: $ty,
+				) -> Result<(), ()> {
+					let Some(region) = self.region_for_addr_mut(phys_addr) else {
+						return Err(());
+					};
+
+					let access_kinds = region.attrs.access_kinds;
+					let max_size = region.attrs.max_size;
+					let size = core::mem::size_of::<$ty>() as u8;
+					if !access_kinds.contains(AccessKind::WRITE) {
+						trace!("HW access not in write region: {:?} at {:#018X}", region, phys_addr);
+						return Err(());
+					}
+					if size > max_size {
+						trace!("HW access of size {:?} greater than region max: {:?}", size, region);
+						return Err(());
+					}
+					if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+						trace!(
+							"HW access for size {:?} not in misaligned region: {:?} at {:#018X}",
+							size,
+							region,
+							phys_addr
+						);
+						return Err(());
+					}
+
+					match region.kind {
+						MemoryKind::MainMemory { ref mut backing } => {
+							let offset = phys_addr - region.start;
+							let bytes = val.to_le_bytes();
+							backing[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&bytes);
+							Ok(())
+						}
+						MemoryKind::MMIO(_kind) => {
+							// FIXME: can this be relaxed?
+							error!("HW mem ops cannot interact with MMIO");
+							Err(())
+						}
+					}
+				}
+			)*}
+		}
+	};
+}
+
+impl_hw_read_write!(u8, u16, u32, u64);
 
 #[derive(Debug, Default)]
 struct MemoryReservations {

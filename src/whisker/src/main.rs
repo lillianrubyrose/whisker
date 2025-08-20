@@ -11,13 +11,14 @@ mod regs;
 mod soft;
 mod ty;
 mod util;
+mod virtio;
 
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::{fs, panic};
 
 use clap::{command, Parser, Subcommand};
@@ -31,7 +32,8 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 use crate::cpu::{WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
-use crate::interrupts::{PlatformInterruptController, PLIC_BASE, PLIC_LEN};
+use crate::interrupts::{PLIC_BASE, PLIC_LEN};
+use crate::mem::mmio::virtio_block::VIRTIO_BLOCK_BASE;
 use crate::mem::mmio::{MMIOKind, UART_BASE};
 use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
 use crate::ty::RiscvExtensions;
@@ -146,6 +148,12 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>, num_har
 			PLIC_BASE,
 			PLIC_LEN,
 			MMIOKind::PLIC,
+			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
+		))
+		.add_region(MemoryRegion::new_mmio(
+			VIRTIO_BLOCK_BASE,
+			0x1000,
+			MMIOKind::VirtioBlock,
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		));
 

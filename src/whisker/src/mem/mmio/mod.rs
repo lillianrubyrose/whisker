@@ -3,6 +3,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use rustc_hash::FxHashMap;
 
 pub mod uart;
+pub mod virtio_block;
+
 pub use uart::*;
 
 use crate::cpu::hart::WhiskerHart;
@@ -16,6 +18,7 @@ pub trait MMIODevice {
 pub enum MMIOKind {
 	UART,
 	PLIC,
+	VirtioBlock,
 }
 
 static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send>>>>> =

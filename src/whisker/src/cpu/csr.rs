@@ -295,16 +295,24 @@ fn read_sstatus(hart: &mut WhiskerHart) -> u64 {
 	read_mstatus(hart) & MStatus::MASK_S_MODE
 }
 fn write_sstatus(hart: &mut WhiskerHart, val: u64) {
+	trace!("hart {:?} write {:#018X} to sstatus", hart.hart_id(), val);
+	let mstatus = read_mstatus(hart) & !MStatus::MASK_S_MODE;
 	let val = val & MStatus::MASK_S_MODE;
-	write_mstatus(hart, val);
+	write_mstatus(hart, mstatus | val);
+	trace!(
+		"hart {:?} resulting mstatus: {:#018X}",
+		hart.hart_id(),
+		read_mstatus(hart)
+	);
 }
 
-fn read_sie(hart: &mut WhiskerHart) -> u64 {
+pub fn read_sie(hart: &mut WhiskerHart) -> u64 {
 	read_mie(hart) & InterruptBits::MASK_S_MODE
 }
 fn write_sie(hart: &mut WhiskerHart, val: u64) {
+	let mie = read_mie(hart) & !InterruptBits::MASK_S_MODE;
 	let val = val & InterruptBits::MASK_S_MODE;
-	write_mie(hart, val);
+	write_mie(hart, mie | val);
 }
 
 fn read_stvec(hart: &mut WhiskerHart) -> u64 {
@@ -325,7 +333,7 @@ fn write_scause(hart: &mut WhiskerHart, val: u64) {
 	hart.scause = TrapIdx::from_raw(val);
 }
 
-fn read_sip(hart: &mut WhiskerHart) -> u64 {
+pub fn read_sip(hart: &mut WhiskerHart) -> u64 {
 	read_mip(hart) & InterruptBits::MASK_S_MODE
 }
 fn write_sip(hart: &mut WhiskerHart, val: u64) {

@@ -96,7 +96,7 @@ pub struct MStatus {
 }
 
 impl MStatus {
-	pub const MASK_S_MODE: u64 = 0b1000_0000_0000_0000_0000_0000_0000_0011_0000_0000_0000_1111_1110_0111_0110_0011;
+	pub const MASK_S_MODE: u64 = 0b1000_0000_0000_0000_0000_0000_0000_0011_0000_0000_0000_1101_1110_0111_0110_0010;
 }
 
 const _: () = {
@@ -316,21 +316,12 @@ impl WhiskerHart {
 	}
 
 	pub fn check_interrupt_trap(&mut self) -> bool {
-		// FIXME: modes?
+		let to_trap = match self.mode() {
+			HartMode::User | HartMode::Supervisor => self.check_interrupt_s_mode(),
+			HartMode::Hypervisor => todo!("H-mode traps not implemented"),
+			HartMode::Machine => self.check_interrupt_m_mode(),
+		};
 
-		trace!("checking interrupts on {:?}", self.hart_id());
-		let global_enable = self.mstatus.get_mie();
-		if !global_enable {
-			trace!("interrupts globally disabled");
-			return false;
-		}
-		// NOTE: mideleg CSR does not exist, so we do not need to check it
-
-		let mip = u64::from_le_bytes(self.mip.inner());
-		trace!(" mip currently pending: {:#018X}", mip);
-		let mie = u64::from_le_bytes(self.mie.inner());
-		let to_trap = mip & mie;
-		trace!("pending and enabled: {:#018X}", to_trap);
 		if to_trap == 0 {
 			return false;
 		}
@@ -344,20 +335,24 @@ impl WhiskerHart {
 		}
 
 		// standard interrupts have priority:
-		// external interrupt
-		// software interrupt
-		// timer interrupt
-		const EXTERNAL_INTERRUPT_MASK: u64 = 1 << 11;
-		const SOFTWARE_INTERRUPT_MASK: u64 = 1 << 3;
-		const TIMER_INTERRUPT_MASK: u64 = 1 << 7;
-		if to_trap & EXTERNAL_INTERRUPT_MASK != 0 {
+		// MEI, MSI, MTI, SEI, SSI, STI
+		if to_trap & (1 << TrapIdx::MACHINE_EXTERNAL_INTERRUPT.cause()) != 0 {
 			self.request_trap(TrapIdx::MACHINE_EXTERNAL_INTERRUPT, 0);
 			true
-		} else if to_trap & SOFTWARE_INTERRUPT_MASK != 0 {
+		} else if to_trap & (1 << TrapIdx::MACHINE_SOFTWARE_INTERRUPT.cause()) != 0 {
 			self.request_trap(TrapIdx::MACHINE_SOFTWARE_INTERRUPT, 0);
 			true
-		} else if to_trap & TIMER_INTERRUPT_MASK != 0 {
+		} else if to_trap & (1 << TrapIdx::MACHINE_TIMER_INTERRUPT.cause()) != 0 {
 			self.request_trap(TrapIdx::MACHINE_TIMER_INTERRUPT, 0);
+			true
+		} else if to_trap & (1 << TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT.cause()) != 0 {
+			self.request_trap(TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT, 0);
+			true
+		} else if to_trap & (1 << TrapIdx::SUPERVISOR_SOFTWARE_INTERRUPT.cause()) != 0 {
+			self.request_trap(TrapIdx::SUPERVISOR_SOFTWARE_INTERRUPT, 0);
+			true
+		} else if to_trap & (1 << TrapIdx::SUPERVISOR_TIMER_INTERRUPT.cause()) != 0 {
+			self.request_trap(TrapIdx::SUPERVISOR_TIMER_INTERRUPT, 0);
 			true
 		} else {
 			error!("unsupported trap bits {:#018X}", to_trap);
@@ -365,16 +360,49 @@ impl WhiskerHart {
 		}
 	}
 
-	pub fn set_interrupt_pending(&mut self, interrupt: TrapIdx, pending: bool) {
-		trace!("set {:?} pending: {}", interrupt, pending);
+	fn check_interrupt_m_mode(&mut self) -> u64 {
+		trace!("checking interrupts on {:?}", self.hart_id());
+		let global_enable = self.mstatus.get_mie();
+		if !global_enable {
+			trace!("M-mode interrupts globally disabled");
+			return 0;
+		}
 
+		let mip = u64::from_le_bytes(self.mip.inner());
+		trace!(" mip currently pending: {:#018X}", mip);
+		let mie = u64::from_le_bytes(self.mie.inner());
+		let to_trap = mip & mie;
+		trace!("pending and enabled: {:#018X}", to_trap);
+		to_trap
+	}
+
+	fn check_interrupt_s_mode(&mut self) -> u64 {
+		trace!("checking interrupts on {:?}", self.hart_id());
+		let global_enable = self.mstatus.get_sie();
+		if !global_enable {
+			trace!("S-mode interrupts globally disabled");
+			return 0;
+		}
+
+		let sip = csr::read_sip(self);
+		trace!(" sip currently pending: {:#018X}", sip);
+		let sie = csr::read_sie(self);
+		let to_trap = sip & sie;
+		trace!("pending and enabled: {:#018X}", to_trap);
+		to_trap
+	}
+
+	pub fn set_interrupt_pending(&mut self, interrupt: TrapIdx, pending: bool) {
 		assert_matches!(interrupt.kind(), TrapKind::Interrupt);
 
 		let mip = u64::from_le_bytes(self.mip.inner());
-		let bit_idx = interrupt.inner() & TrapIdx::CAUSE_MASK;
+		let bit_idx = interrupt.cause();
 		let mask = 1 << bit_idx;
 		let value_bit = u64::from(pending) << bit_idx;
 		let mip = (mip & !mask) | value_bit;
+		if mip > (1 << 19) {
+			panic!("mip {:#018X} {:?}", mip, interrupt);
+		}
 		self.mip.set_inner(mip.to_le_bytes());
 	}
 }

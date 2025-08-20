@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
 
+use bitfield::prelude::*;
 use command_fds::{CommandFdExt as _, FdMapping};
 use num_conv::Truncate;
 use socketpair::socketpair_stream;
@@ -40,6 +41,8 @@ pub struct UART {
 	scratch_reg: u8,
 
 	divisor: u16,
+
+	interrupt_id: InterruptIdentification,
 
 	data_queue: VecDeque<u8>,
 
@@ -77,6 +80,8 @@ impl UART {
 
 			divisor: 1,
 
+			interrupt_id: InterruptIdentification::new(),
+
 			data_queue: VecDeque::new(),
 			stdout: Box::new(local.try_clone().unwrap()),
 			interrupt_tx,
@@ -98,6 +103,7 @@ impl UART {
 				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE)
 					&& uart.data_queue.len() >= usize::from(uart.queue_interrupt_level)
 				{
+					uart.interrupt_id.set_pending(true);
 					uart.interrupt_tx
 						.send(InterruptMessage::new_high(InterruptSource::UART))
 						.expect("could not send to interrupt controller");
@@ -129,7 +135,13 @@ impl MMIODevice for UART {
 					buf[0] = self.interrupt_enable.bits();
 				}
 			}
-			INTERRUPT_IDENT_REG => todo!("read interrupt ident register"),
+			INTERRUPT_IDENT_REG => {
+				let ret = u8::from_le_bytes(self.interrupt_id.inner());
+				self.interrupt_tx
+					.send(InterruptMessage::new_low(InterruptSource::UART))
+					.expect("unable to send interrupt controller");
+				buf[0] = ret;
+			}
 			LINE_CONTROL_REG => buf[0] = self.line_control_reg,
 			MODEM_CONTROL_REG => todo!("read modem control register"),
 			LINE_STATUS_REG => buf[0] = self.read_line_status(),
@@ -178,6 +190,7 @@ impl UART {
 		if let Some(val) = self.data_queue.pop_front() {
 			self.data_reg = val;
 			if self.data_queue.len() < usize::from(self.queue_interrupt_level) {
+				self.interrupt_id.set_pending(false);
 				self.interrupt_tx
 					.send(InterruptMessage::new_low(InterruptSource::UART))
 					.expect("unable to send interrupt controller");
@@ -193,7 +206,8 @@ impl UART {
 		let _ = self.stdout.flush();
 
 		// the transmitter register is considered to immedately be empty
-		if self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
+		// FIXME: reenable this?
+		if false && self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
 			thread::spawn({
 				let interrupt_tx = self.interrupt_tx.clone();
 				move || {
@@ -232,4 +246,12 @@ bitflags::bitflags! {
 		const RX_STATUS_CHANGE = 1 << 2;
 		const MODEM_STATUS_CHANGE = 1 << 3;
 	}
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+struct InterruptIdentification {
+	pending: bool,
+	kind: U3,
+	_res_4_7: U4,
 }

@@ -1,3 +1,5 @@
+#![feature(unbounded_shifts)]
+
 pub use bitfield_impl::{BitFieldRepr, bitfields};
 
 pub mod prelude {
@@ -69,7 +71,7 @@ pub mod private_impl {
 
 		// handle potential high byte
 		if end_idx > start_idx {
-			let mask = (1_u8 << (end_bit_idx + 1)) - 1;
+			let mask = (1_u8.unbounded_shl((end_bit_idx + 1) as u32)).wrapping_sub(1);
 			collector.push_bits(bytes[end_idx] & mask, end_bit_idx + 1);
 		}
 		// handle middle bytes
@@ -129,7 +131,7 @@ pub mod private_impl {
 
 		// handle potential high byte
 		if end_idx > start_idx {
-			let mask = !((1_u8 << (end_bit_idx + 1)) - 1);
+			let mask = !(1_u8.unbounded_shl((end_bit_idx + 1) as u32)).wrapping_sub(1);
 			bytes[end_idx] &= mask;
 			let val = bit_reader.read_bits(end_bit_idx + 1);
 			bytes[end_idx] |= val;

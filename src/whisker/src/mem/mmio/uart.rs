@@ -3,13 +3,14 @@ use std::io::{Read, Write};
 use std::os::fd::{AsFd, RawFd};
 use std::process::Command;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{env, thread};
 
 use bitfield::prelude::*;
 use command_fds::{CommandFdExt as _, FdMapping};
 use num_conv::Truncate;
+use parking_lot::Mutex;
 use socketpair::socketpair_stream;
 
 use crate::tracing::*;
@@ -98,7 +99,7 @@ impl UART {
 
 				debug!("UART read: {:0X}", b);
 
-				let mut uart = uart.lock().unwrap();
+				let mut uart = uart.lock();
 				uart.data_queue.push_back(b);
 				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE)
 					&& uart.data_queue.len() >= usize::from(uart.queue_interrupt_level)

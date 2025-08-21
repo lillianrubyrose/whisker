@@ -1,5 +1,6 @@
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
+use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
 pub mod uart;
@@ -28,7 +29,7 @@ static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice
 pub struct DeviceAlreadyPresentErr(MMIOKind);
 
 pub fn register_mmio(kind: MMIOKind, device: Arc<Mutex<dyn MMIODevice + Send>>) -> Result<(), DeviceAlreadyPresentErr> {
-	let mut devices = MMIO_DEVICES.lock().unwrap();
+	let mut devices = MMIO_DEVICES.lock();
 	if devices.contains_key(&kind) {
 		return Err(DeviceAlreadyPresentErr(kind));
 	}
@@ -49,8 +50,8 @@ impl MMIOKind {
 			"invalid MMIO read size"
 		);
 
-		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.lock().unwrap().read(hart, addr, buf),
+		match MMIO_DEVICES.lock().get_mut(&self) {
+			Some(device) => device.lock().read(hart, addr, buf),
 			None => todo!("missing MMIO device?"),
 		}
 	}
@@ -66,8 +67,8 @@ impl MMIOKind {
 			"invalid MMIO write size"
 		);
 
-		match MMIO_DEVICES.lock().unwrap().get_mut(&self) {
-			Some(device) => device.lock().unwrap().write(hart, addr, val),
+		match MMIO_DEVICES.lock().get_mut(&self) {
+			Some(device) => device.lock().write(hart, addr, val),
 			None => todo!("missing MMIO device?"),
 		}
 	}

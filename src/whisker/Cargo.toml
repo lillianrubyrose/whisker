@@ -12,6 +12,7 @@ gdbstub_arch = "0.3.1"
 
 # has better hash algorithm for basic numbers
 rustc-hash = "2.1.1"
+parking_lot = "0.12"
 
 softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.0", default-features = false, features = [
     "riscv",

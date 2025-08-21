@@ -1,6 +1,8 @@
 use std::fs::OpenOptions;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+
+use parking_lot::Mutex;
 
 use crate::tracing::*;
 
@@ -98,7 +100,9 @@ impl WhiskerCpu {
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		self.steps += 1;
 
-		self.interrupt_controller.lock().unwrap().poll(&mut self.harts);
+		if self.steps % 16 == 0 {
+			self.interrupt_controller.lock().poll(&mut self.harts);
+		}
 
 		trace!("executing hart {}", self.current_hart_id);
 		let hart = &mut self.harts[self.current_hart_id];

@@ -18,7 +18,6 @@ compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::{fs, panic};
 
 use ::tracing::level_filters::LevelFilter;
@@ -26,6 +25,7 @@ use clap::{command, Parser, Subcommand};
 use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
+use parking_lot::Mutex;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 

@@ -412,7 +412,7 @@ impl WhiskerHart {
 	fn fetch_instruction(&mut self) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
 		let support_compressed = self.supports_extensions(RiscvExtensions::COMPRESSED);
 
-		let mut mem = cpu::MEMORY.wait().lock().unwrap();
+		let mut mem = cpu::MEMORY.wait().lock();
 
 		let parcel1 = mem.read_u16(self, self.pc, ReadKind::Instruction)?;
 
@@ -478,35 +478,35 @@ impl WhiskerHart {
 
 macro_rules! read_mem_u8 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_u8($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u16 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_u16($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u32 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_u32($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u64 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_u64($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_float {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_soft_float($self, $offset, $kind)
 	}};
 }
@@ -514,42 +514,42 @@ macro_rules! read_mem_float {
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.read_soft_double($self, $offset, $kind)
 	}};
 }
 
 macro_rules! write_mem_u8 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_u8($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u16 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_u16($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u32 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_u32($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_u64($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_float {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_soft_float($self, $offset, $kind, $val)
 	}};
 }
@@ -557,7 +557,7 @@ macro_rules! write_mem_float {
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait().lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
 		mem.write_soft_double($self, $offset, $kind, $val)
 	}};
 }
@@ -1138,7 +1138,7 @@ impl WhiskerHart {
 					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				let mut memory = MEMORY.wait().lock().unwrap();
+				let mut memory = MEMORY.wait().lock();
 				let val = memory.load_reserved_word(self, addr)?;
 				self.registers.set(dst, val.extend());
 			}
@@ -1156,7 +1156,7 @@ impl WhiskerHart {
 
 				let val = self.registers.get(src2) as u32;
 
-				let mut memory = MEMORY.wait().lock().unwrap();
+				let mut memory = MEMORY.wait().lock();
 				let success = memory.store_conditional_word(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
@@ -1418,7 +1418,7 @@ impl WhiskerHart {
 					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				let mut memory = MEMORY.wait().lock().unwrap();
+				let mut memory = MEMORY.wait().lock();
 				let val = memory.load_reserved_dword(self, addr)?;
 				self.registers.set(dst, val);
 			}
@@ -1436,7 +1436,7 @@ impl WhiskerHart {
 
 				let val = self.registers.get(src2);
 
-				let mut memory = MEMORY.wait().lock().unwrap();
+				let mut memory = MEMORY.wait().lock();
 				let success = memory.store_conditional_dword(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
@@ -1910,7 +1910,7 @@ impl WhiskerHart {
 				let vaddr = self.registers.get(vaddr);
 				let asid = self.registers.get(asid);
 
-				MEMORY.wait().lock().unwrap().clear_vm_cache(asid, vaddr);
+				MEMORY.wait().lock().clear_vm_cache(asid, vaddr);
 			}
 		}
 		Ok(())

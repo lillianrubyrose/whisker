@@ -1,10 +1,11 @@
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::{fs, thread};
 
 use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::prelude::*;
+use parking_lot::Mutex;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::cpu::MEMORY;
@@ -238,8 +239,8 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 		let command = command_rx.recv().unwrap();
 		trace!("block device thread cmd: {:?}", command);
 		let queue_idx = command.queue;
-		let mut mem = MEMORY.wait().lock().unwrap();
-		let mut virtio = virt_blk.lock().unwrap();
+		let mut mem = MEMORY.wait().lock();
+		let mut virtio = virt_blk.lock();
 		let queue = &mut virtio.queues[queue_idx.extend::<usize>()];
 		if let Some((mut descriptors, head_idx)) = queue.next_avail(&mut mem) {
 			let Some(first) = descriptors.next(&mut mem) else {
@@ -338,7 +339,7 @@ fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
 		} => {
 			let offset = (sector * SECTOR_SIZE) as usize;
 			let end = offset + buf_len as usize;
-			let data = &FS_DATA.lock().unwrap()[offset..end];
+			let data = &FS_DATA.lock()[offset..end];
 
 			for (idx, chunk) in data.chunks_exact(8).enumerate() {
 				let val = u64::from_le_bytes(chunk.try_into().unwrap());
@@ -360,7 +361,7 @@ fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
 			buf_len,
 		} => {
 			let fs_offset = (sector * SECTOR_SIZE) as usize;
-			let mut fs_data = FS_DATA.lock().unwrap();
+			let mut fs_data = FS_DATA.lock();
 
 			for idx in 0..u64::from(buf_len / 8) {
 				let Ok(val) = mem.read_hw_u64(buf_addr + idx * 8) else {

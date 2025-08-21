@@ -1,9 +1,10 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::tracing::*;
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
+use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
 use crate::cpu::hart::WhiskerHart;
@@ -77,13 +78,15 @@ impl PlatformInterruptController {
 	}
 
 	pub fn poll(&mut self, harts: &mut Vec<WhiskerHart>) {
-		match self.interrupt_rx.try_recv() {
-			Ok(source) => {
-				trace!("recv {:?}", source);
-				self.set_pending(source.kind.inner(), source.level);
+		loop {
+			match self.interrupt_rx.try_recv() {
+				Ok(source) => {
+					trace!("recv {:?}", source);
+					self.set_pending(source.kind.inner(), source.level);
+				}
+				Err(TryRecvError::Empty) => break,
+				Err(TryRecvError::Disconnected) => panic!("interrupt controller sources disconnected"),
 			}
-			Err(TryRecvError::Empty) => {}
-			Err(TryRecvError::Disconnected) => panic!("interrupt controller sources disconnected"),
 		}
 
 		for context in self.context_info.keys().copied() {

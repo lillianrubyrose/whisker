@@ -1,4 +1,4 @@
-use tracing::trace;
+use crate::tracing::*;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::insn16::ty::CWideImmType;

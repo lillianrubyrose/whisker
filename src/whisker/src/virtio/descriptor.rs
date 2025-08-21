@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
+use crate::tracing::*;
 use num_conv::prelude::*;
-use tracing::*;
 
 use crate::mem::Memory;
 

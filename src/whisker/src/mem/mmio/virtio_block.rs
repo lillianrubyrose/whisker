@@ -2,9 +2,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::{fs, thread};
 
+use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::prelude::*;
-use tracing::*;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::cpu::MEMORY;

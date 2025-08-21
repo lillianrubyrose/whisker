@@ -12,7 +12,7 @@ use command_fds::{CommandFdExt as _, FdMapping};
 use num_conv::Truncate;
 use socketpair::socketpair_stream;
 
-use tracing::{debug, error, warn};
+use crate::tracing::*;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::interrupts::{InterruptMessage, InterruptSource};
@@ -172,7 +172,7 @@ impl MMIODevice for UART {
 					self.interrupt_enable = UartInterruptKind::from_bits_retain(val[0]);
 				}
 			}
-			FIFO_CONTROL_REG => todo!("write FIFO queue settings"),
+			FIFO_CONTROL_REG => self.write_fifo_control(val[0]),
 			LINE_CONTROL_REG => self.write_line_control(val[0]),
 			MODEM_CONTROL_REG => todo!("write modem control reg"),
 			LINE_STATUS_REG => {} // ignored
@@ -203,16 +203,21 @@ impl UART {
 		self.data_reg = val;
 		let _ = write!(&mut self.stdout, "{}", self.data_reg as char);
 		// FIXME: it would be nice to flush stdout all the time but its VERY slow, reconsider this
-		let _ = self.stdout.flush();
+		//let _ = self.stdout.flush();
+
+		// writing to THR resets interrupt
+		self.interrupt_tx
+			.send(InterruptMessage::new_low(InterruptSource::UART))
+			.unwrap();
 
 		// the transmitter register is considered to immedately be empty
 		// FIXME: reenable this?
-		if false && self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
+		if self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
 			thread::spawn({
 				let interrupt_tx = self.interrupt_tx.clone();
 				move || {
 					// TODO: actually get the right timings for this
-					thread::sleep(Duration::from_millis(200));
+					thread::sleep(Duration::from_millis(20));
 					interrupt_tx
 						.send(InterruptMessage::new_high(InterruptSource::UART))
 						.expect("could not send to interrupt controller");
@@ -235,6 +240,27 @@ impl UART {
 		let tx_line_ready = u8::from(true);
 
 		tx_line_ready << 6 | tx_ready << 5 | has_data
+	}
+
+	fn write_fifo_control(&mut self, val: u8) {
+		if val & (1 << 1) != 0 {
+			self.data_queue.clear();
+		}
+		if val & (1 << 2) != 0 {
+			// clear transmit queue
+		}
+		if val & (1 << 3) != 0 {
+			error!("DMA mode not supported");
+		}
+		let level = val >> 6;
+		let queue_size = match level {
+			0 => 1,
+			1 => 4,
+			2 => 8,
+			3 => 14,
+			_ => unreachable!(),
+		};
+		self.queue_interrupt_level = queue_size;
 	}
 }
 

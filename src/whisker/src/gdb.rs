@@ -1,5 +1,6 @@
 use std::net::{TcpListener, TcpStream};
 
+use crate::tracing::info;
 use gdbstub::arch::{Arch, Registers};
 use gdbstub::target::TargetError;
 use gdbstub::{
@@ -18,7 +19,6 @@ use gdbstub::{
 	},
 };
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
-use tracing::info;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
 use crate::WhiskerCpu;

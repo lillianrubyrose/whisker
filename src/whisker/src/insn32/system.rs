@@ -1,7 +1,8 @@
-use tracing::warn;
+use crate::tracing::*;
 
 use crate::cpu::csr::CSRIndex;
 use crate::cpu::hart::WhiskerHart;
+use crate::ty::GPRegisterIndex;
 use crate::{insn::*, insn32::IType};
 
 pub fn parse_system(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
@@ -73,6 +74,14 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 			func0::MRET => Some(PrivilegedInstruction::Mret.into()),
 			func0::SRET => Some(PrivilegedInstruction::Sret.into()),
 			func0::WFI => Some(PrivilegedInstruction::WaitForInterrupt.into()),
+			// FIXME: dont hard code these
+			func0::SFENCE => Some(
+				PrivilegedInstruction::Sfence {
+					asid: GPRegisterIndex::ZERO,
+					vaddr: GPRegisterIndex::ZERO,
+				}
+				.into(),
+			),
 			imm => {
 				warn!("UNIMPLEMENTED: SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}");
 				None
@@ -80,8 +89,8 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 		},
 		(rd, rs1) => {
 			warn!(
-				"UNIMPLEMENTED: SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b} imm={imm:#014b}",
-				imm = itype.imm()
+				"UNIMPLEMENTED: SYSTEM func=0b000 rd={rd:#07b} rs1={rs1:#07b} imm={:#014b}",
+				itype.imm()
 			);
 			None
 		}
@@ -111,5 +120,7 @@ pub mod consts {
 		pub const MRET: i64 = 0b0011_0000_0010;
 		pub const SRET: i64 = 0b0001_0000_0010;
 		pub const WFI: i64 = 0b0001_0000_0101;
+		// FIXME: parse rs2 out instead of requiring it to be 0
+		pub const SFENCE: i64 = 0b0001_0010_0000;
 	}
 }

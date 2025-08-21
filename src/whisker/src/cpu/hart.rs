@@ -2,10 +2,10 @@ use std::assert_matches::assert_matches;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
 
+use crate::tracing::*;
 use bitfield::bitfields;
 use num_conv::prelude::*;
 use rustc_hash::FxHashMap;
-use tracing::*;
 
 use bitfield::prelude::*;
 
@@ -1901,6 +1901,17 @@ impl WhiskerHart {
 				// it's legal for WFI to be a no-op
 				// FIXME: maybe make this more efficient tho?
 			}
+			PrivilegedInstruction::Sfence { asid, vaddr } => {
+				if self.mode() < HartMode::Supervisor {
+					// FIXME: what val should this be?
+					self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+				}
+
+				let vaddr = self.registers.get(vaddr);
+				let asid = self.registers.get(asid);
+
+				MEMORY.wait().lock().unwrap().clear_vm_cache(asid, vaddr);
+			}
 		}
 		Ok(())
 	}
@@ -1915,6 +1926,8 @@ impl WhiskerHart {
 	}
 
 	fn dump(&mut self) {
+		// FIXME: uhhhhhh do this better
+		return;
 		let mut out = format!("state after cycle {}\n", self.cycles);
 		writeln!(&mut out, "    pc: {:#018X}\n", self.pc).unwrap();
 		let regs = self.registers.regs();
@@ -1941,6 +1954,6 @@ impl WhiskerHart {
 		}
 		out.push_str("\n\n");
 
-		//trace!("{}", out);
+		trace!("{}", out);
 	}
 }

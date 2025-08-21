@@ -1,6 +1,6 @@
 mod sv39;
 
-use tracing::*;
+use crate::tracing::*;
 
 use crate::cpu::csr::AddressTranslationMode;
 use crate::cpu::hart::WhiskerHart;
@@ -23,16 +23,28 @@ impl Memory {
 			return Ok(addr);
 		}
 
-		let phys_addr = match hart.translation_config.get_mode() {
-			AddressTranslationMode::Bare => addr,
-			AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
-			AddressTranslationMode::Sv48 => todo!(),
-			AddressTranslationMode::Sv57 => todo!(),
-			mode => unreachable!("unimplemented addr mode {:?}", mode),
+		let page = addr & !(PAGE_SIZE - 1);
+		let phys_addr = if let Some(virt_base) = self.page_table_cache.get(&page) {
+			virt_base + (addr & (PAGE_SIZE - 1))
+		} else {
+			let phys_addr = match hart.translation_config.get_mode() {
+				AddressTranslationMode::Bare => addr,
+				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
+				AddressTranslationMode::Sv48 => todo!(),
+				AddressTranslationMode::Sv57 => todo!(),
+				mode => unreachable!("unimplemented addr mode {:?}", mode),
+			};
+			self.page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
+			phys_addr
 		};
 
 		trace!("translated {:#018X}->{:#018X}", addr, phys_addr);
 		Ok(phys_addr)
+	}
+
+	pub fn clear_vm_cache(&mut self, _asid: u64, _vaddr: u64) {
+		warn!("clearing vm cache");
+		self.page_table_cache.clear();
 	}
 }
 

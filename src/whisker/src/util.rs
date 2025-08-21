@@ -2,9 +2,9 @@ use num_conv::Extend;
 
 /// extracts bits start..=end from val
 pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
-	assert!(start <= end);
-	assert!(start < u8::BITS as u8);
-	assert!(end < u8::BITS as u8);
+	debug_assert!(start <= end);
+	debug_assert!(start < u8::BITS as u8);
+	debug_assert!(end < u8::BITS as u8);
 
 	// masks off the low bits
 	let low_mask = (u8::MAX >> start) << start;
@@ -15,9 +15,9 @@ pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
 
 /// extracts bits start..=end from val
 pub fn extract_bits_16(val: u16, start: u8, end: u8) -> u16 {
-	assert!(start <= end);
-	assert!(start < u16::BITS as u8);
-	assert!(end < u16::BITS as u8);
+	debug_assert!(start <= end);
+	debug_assert!(start < u16::BITS as u8);
+	debug_assert!(end < u16::BITS as u8);
 
 	// masks off the low bits
 	let low_mask = (u16::MAX >> start) << start;
@@ -28,9 +28,9 @@ pub fn extract_bits_16(val: u16, start: u8, end: u8) -> u16 {
 
 /// extracts bits start..=end from val
 pub fn extract_bits_32(val: u32, start: u8, end: u8) -> u32 {
-	assert!(start <= end);
-	assert!(start < u32::BITS as u8);
-	assert!(end < u32::BITS as u8);
+	debug_assert!(start <= end);
+	debug_assert!(start < u32::BITS as u8);
+	debug_assert!(end < u32::BITS as u8);
 
 	// masks off the low bits
 	let low_mask = (u32::MAX >> start) << start;
@@ -41,9 +41,9 @@ pub fn extract_bits_32(val: u32, start: u8, end: u8) -> u32 {
 
 /// extracts bits start..=end from val
 pub fn extract_bits_64(val: u64, start: u8, end: u8) -> u64 {
-	assert!(start <= end);
-	assert!(start < u64::BITS as u8);
-	assert!(end < u64::BITS as u8);
+	debug_assert!(start <= end);
+	debug_assert!(start < u64::BITS as u8);
+	debug_assert!(end < u64::BITS as u8);
 
 	// masks off the low bits
 	let low_mask = (u64::MAX >> start) << start;
@@ -61,9 +61,9 @@ pub fn extract_bit_64(val: u64, bit: u8) -> u64 {
 /// inserts a value into bits start..=end in the input val
 /// the inserted value must fit within the specified bit range
 pub fn insert_bits_64(val: u64, insert: u64, start: u8, end: u8) -> u64 {
-	assert!(start <= end);
-	assert!(start < u64::BITS as u8);
-	assert!(end < u64::BITS as u8);
+	debug_assert!(start <= end);
+	debug_assert!(start < u64::BITS as u8);
+	debug_assert!(end < u64::BITS as u8);
 
 	// mask off the low bits
 	let low_mask = (u64::MAX >> start) << start;

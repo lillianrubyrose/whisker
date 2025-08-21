@@ -1,10 +1,10 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 
+use crate::tracing::*;
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
 use rustc_hash::FxHashMap;
-use tracing::*;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::mem::mmio::MMIODevice;
@@ -134,7 +134,6 @@ impl MMIODevice for PlatformInterruptController {
 	}
 
 	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
-		assert!(val.len() == 4);
 		let val = u32::from_le_bytes(val.try_into().unwrap());
 		let offset = addr - PLIC_BASE;
 
@@ -309,7 +308,7 @@ impl ContextId {
 	}
 
 	pub fn new(context: u16) -> Self {
-		assert!(context.extend::<u64>() < Self::MAX_NUM_CONTEXTS);
+		debug_assert!(context.extend::<u64>() < Self::MAX_NUM_CONTEXTS);
 		Self(context)
 	}
 

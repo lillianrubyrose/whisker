@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use crate::tracing::*;
 use bitfield::{prelude::*, BitField};
 use num_conv::prelude::*;
 use rustc_hash::FxHashMap;
-use tracing::*;
 
 use crate::cpu::hart::{MStatus, WhiskerHart};
 use crate::ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};

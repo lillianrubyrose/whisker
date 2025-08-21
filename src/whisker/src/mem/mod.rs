@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
+use crate::tracing::*;
 use bitflags::bitflags;
 use rustc_hash::FxHashMap;
-use tracing::{error, trace};
 
 pub mod mmio;
 
@@ -23,6 +23,8 @@ pub struct Memory {
 	regions: Vec<MemoryRegion>,
 
 	reservations: MemoryReservations,
+	/// cache of page base addresses to physical addresses
+	page_table_cache: FxHashMap<u64, u64>,
 }
 
 impl Memory {
@@ -724,6 +726,7 @@ impl MemoryBuilder {
 		Memory {
 			regions: self.regions,
 			reservations: MemoryReservations::default(),
+			page_table_cache: FxHashMap::default(),
 		}
 	}
 }

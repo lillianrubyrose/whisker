@@ -1,6 +1,6 @@
+use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::Extend;
-use tracing::*;
 
 use crate::mem::Memory;
 use crate::virtio::descriptor::DescriptorChain;

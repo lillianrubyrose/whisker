@@ -21,12 +21,11 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::{fs, panic};
 
+use ::tracing::level_filters::LevelFilter;
 use clap::{command, Parser, Subcommand};
 use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
-use tracing::level_filters::LevelFilter;
-use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -59,15 +58,70 @@ enum Commands {
 	},
 }
 
+#[macro_export]
+macro_rules! trace {
+    ($fmt:expr $(, $args:expr)*$(,)* ) => {
+        if cfg!(feature = "tracing") {
+            ::tracing::trace!($fmt $(, $args)*);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! debug {
+    ($fmt:expr $(, $args:expr)*$(,)* ) => {
+        if cfg!(feature = "tracing") {
+            ::tracing::debug!($fmt $(, $args)*);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! info {
+    ($fmt:expr $(, $args:expr)*$(,)* ) => {
+        if cfg!(feature = "tracing") {
+            ::tracing::info!($fmt $(, $args)*);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! warn {
+    ($fmt:expr $(, $args:expr)*$(,)* ) => {
+        if cfg!(feature = "tracing") {
+            ::tracing::warn!($fmt $(, $args)*);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! error {
+    ($fmt:expr $(, $args:expr)*$(,)* ) => {
+        if cfg!(feature = "tracing") {
+            ::tracing::error!($fmt $(, $args)*);
+        }
+    }
+}
+
+pub mod tracing {
+	pub use crate::debug;
+	pub use crate::error;
+	pub use crate::info;
+	pub use crate::trace;
+	pub use crate::warn;
+}
+
 fn main() {
-	tracing_subscriber::registry()
-		.with(tracing_subscriber::fmt::layer().without_time())
-		.with(
-			tracing_subscriber::EnvFilter::builder()
-				.with_default_directive(LevelFilter::INFO.into())
-				.from_env_lossy(),
-		)
-		.init();
+	if cfg!(feature = "tracing") {
+		tracing_subscriber::registry()
+			.with(tracing_subscriber::fmt::layer().without_time())
+			.with(
+				tracing_subscriber::EnvFilter::builder()
+					.with_default_directive(LevelFilter::INFO.into())
+					.from_env_lossy(),
+			)
+			.init();
+	}
 
 	let cli = CliArgs::parse();
 

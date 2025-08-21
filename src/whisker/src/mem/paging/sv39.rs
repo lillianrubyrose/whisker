@@ -1,5 +1,5 @@
+use crate::tracing::*;
 use bitfield::prelude::*;
-use tracing::*;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::mem::paging::{is_access_allowed, trap_page_fault, PAGE_SIZE};

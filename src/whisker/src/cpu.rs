@@ -2,8 +2,9 @@ use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::tracing::*;
+
 use rustc_hash::FxHashSet;
-use tracing::*;
 
 pub mod csr;
 pub mod hart;

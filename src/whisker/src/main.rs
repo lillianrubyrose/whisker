@@ -17,7 +17,7 @@ mod virtio;
 compile_error!("whisker only supports 64bit architectures");
 
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, panic};
 
 use ::tracing::level_filters::LevelFilter;
@@ -49,6 +49,8 @@ enum Commands {
 	Run {
 		#[arg(long)]
 		logfile: Option<PathBuf>,
+		#[arg(long)]
+		fs_img: Option<PathBuf>,
 		#[arg(short = 'g', long)]
 		use_gdb: bool,
 		#[arg()]
@@ -131,10 +133,11 @@ fn main() {
 			bootrom,
 			kernel,
 			logfile,
+			fs_img,
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
-			let cpu = init_cpu(bootrom, kernel, logfile, NUM_HARTS);
+			let cpu = init_cpu(bootrom, kernel, logfile, NUM_HARTS, fs_img.as_deref());
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -149,7 +152,13 @@ const BOOTROM_OFFSET: u64 = 0x00001000;
 const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 
-fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>, num_harts: u16) -> WhiskerCpu {
+fn init_cpu(
+	bootrom: PathBuf,
+	kernel: PathBuf,
+	logfile: Option<PathBuf>,
+	num_harts: u16,
+	fs_img: Option<&Path>,
+) -> WhiskerCpu {
 	let mut bootrom_data =
 		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 	bootrom_data.resize(0x1000, 0);
@@ -241,7 +250,7 @@ fn init_cpu(bootrom: PathBuf, kernel: PathBuf, logfile: Option<PathBuf>, num_har
 	));
 	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
 
-	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET)
+	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img)
 }
 
 fn run_gdb(mut cpu: WhiskerCpu) {

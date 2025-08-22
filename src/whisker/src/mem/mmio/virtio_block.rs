@@ -1,6 +1,9 @@
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, LazyLock};
-use std::{fs, thread};
+use std::sync::{Arc, OnceLock};
+use std::thread;
 
 use crate::tracing::*;
 use bitflags::bitflags;
@@ -36,7 +39,9 @@ pub struct VirtioBlockDevice {
 }
 
 impl VirtioBlockDevice {
-	pub fn init(interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
+	pub fn init(fs_img: &Path, interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
+		FS_IMG.get_or_init(|| OpenOptions::new().read(true).write(true).open(fs_img).unwrap());
+
 		let (thread_tx, thread_rx) = mpsc::channel();
 
 		let this = Arc::new(Mutex::new(Self {
@@ -320,8 +325,7 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 	}
 }
 
-// FIXME: dont do this
-static FS_DATA: LazyLock<Mutex<Vec<u8>>> = LazyLock::new(|| Mutex::new(fs::read("fs.img").unwrap()));
+static FS_IMG: OnceLock<File> = OnceLock::new();
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -337,9 +341,13 @@ fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
 			status_addr,
 			buf_len,
 		} => {
-			let offset = (sector * SECTOR_SIZE) as usize;
-			let end = offset + buf_len as usize;
-			let data = &FS_DATA.lock()[offset..end];
+			let offset = sector * SECTOR_SIZE;
+
+			let mut data = vec![0_u8; buf_len as usize];
+
+			let mut f = FS_IMG.wait();
+			f.seek(SeekFrom::Start(offset)).unwrap();
+			f.read_exact(&mut data).unwrap();
 
 			for (idx, chunk) in data.chunks_exact(8).enumerate() {
 				let val = u64::from_le_bytes(chunk.try_into().unwrap());
@@ -360,8 +368,10 @@ fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
 			status_addr,
 			buf_len,
 		} => {
-			let fs_offset = (sector * SECTOR_SIZE) as usize;
-			let mut fs_data = FS_DATA.lock();
+			let offset = sector * SECTOR_SIZE;
+
+			let mut f = FS_IMG.wait();
+			f.seek(SeekFrom::Start(offset)).unwrap();
 
 			for idx in 0..u64::from(buf_len / 8) {
 				let Ok(val) = mem.read_hw_u64(buf_addr + idx * 8) else {
@@ -370,8 +380,7 @@ fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
 					return Err(());
 				};
 
-				let fs_start = fs_offset + (idx * 8) as usize;
-				fs_data[fs_start..][..8].copy_from_slice(&val.to_le_bytes());
+				f.write_all(val.to_le_bytes().as_slice()).unwrap();
 			}
 
 			let _ = mem.write_hw_u8(status_addr, STATUS_OK);

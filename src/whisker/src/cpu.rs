@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
@@ -56,6 +56,7 @@ impl WhiskerCpu {
 		logfile: Option<PathBuf>,
 		num_harts: u16,
 		initial_pc: u64,
+		fs_img: Option<&Path>,
 	) -> Self {
 		assert!(0 < num_harts && num_harts <= HartId::MAX_NUM_HARTS);
 
@@ -79,11 +80,14 @@ impl WhiskerCpu {
 
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as Arc<Mutex<_>>).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
-		mem::mmio::register_mmio(
-			MMIOKind::VirtioBlock,
-			mem::mmio::virtio_block::VirtioBlockDevice::init(int_tx.clone()) as Arc<Mutex<_>>,
-		)
-		.unwrap();
+
+		if let Some(fs_img) = fs_img {
+			mem::mmio::register_mmio(
+				MMIOKind::VirtioBlock,
+				mem::mmio::virtio_block::VirtioBlockDevice::init(fs_img, int_tx.clone()) as Arc<Mutex<_>>,
+			)
+			.unwrap();
+		}
 
 		Self {
 			steps: 0,

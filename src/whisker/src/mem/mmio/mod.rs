@@ -9,6 +9,7 @@ pub mod virtio_block;
 pub use uart::*;
 
 use crate::cpu::hart::WhiskerHart;
+use crate::error;
 
 pub trait MMIODevice {
 	fn read(&mut self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]);
@@ -52,7 +53,7 @@ impl MMIOKind {
 
 		match MMIO_DEVICES.lock().get_mut(&self) {
 			Some(device) => device.lock().read(hart, addr, buf),
-			None => todo!("missing MMIO device?"),
+			None => error!("missing MMIO device {:?}", self),
 		}
 	}
 

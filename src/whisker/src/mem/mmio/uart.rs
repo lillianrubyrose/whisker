@@ -4,7 +4,6 @@ use std::os::fd::{AsFd, RawFd};
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use std::time::Duration;
 use std::{env, thread};
 
 use bitfield::prelude::*;
@@ -212,18 +211,14 @@ impl UART {
 			.unwrap();
 
 		// the transmitter register is considered to immedately be empty
-		// FIXME: reenable this?
 		if self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
-			thread::spawn({
-				let interrupt_tx = self.interrupt_tx.clone();
-				move || {
-					// TODO: actually get the right timings for this
-					thread::sleep(Duration::from_millis(20));
-					interrupt_tx
-						.send(InterruptMessage::new_high(InterruptSource::UART))
-						.expect("could not send to interrupt controller");
-				}
-			});
+			// FIXME: consider limiting this?
+			// 8N1 @ 115200 baud is 11520 bytes per second
+			// it might be a good idea to hold off on sending interrupts to allow
+			// the cpu to process other things
+			self.interrupt_tx
+				.send(InterruptMessage::new_high(InterruptSource::UART))
+				.expect("could not send to interrupt controller");
 		}
 	}
 

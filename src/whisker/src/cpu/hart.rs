@@ -197,15 +197,7 @@ impl WhiskerHart {
 			Ok((inst, size)) => {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
-				let _ = match inst {
-					Instruction::IntExtension(insn) => self.execute_i_insn(insn),
-					Instruction::FloatExtension(insn) => self.execute_f_insn(insn),
-					Instruction::Csr(insn) => self.execute_csr_insn(insn),
-					Instruction::CompressedExtension(insn) => self.execute_compressed_insn(insn),
-					Instruction::AtomicExtension(insn) => self.execute_atomic_insn(insn),
-					Instruction::MultiplyInstruction(insn) => self.execute_multiply_insn(insn),
-					Instruction::PrivilegedInstruction(insn) => self.execute_privileged_insn(insn),
-				};
+				self.execute_instruction(inst);
 			}
 			// trap was requested during decoding
 			Err(TrapRequestGuaranteed { .. }) => {}
@@ -469,6 +461,18 @@ impl WhiskerHart {
 			// FIXME: this is probably not the right mtval
 			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend()))
 		}
+	}
+
+	fn execute_instruction(&mut self, inst: Instruction) {
+		let _ = match inst {
+			Instruction::IntExtension(insn) => self.execute_i_insn(insn),
+			Instruction::FloatExtension(insn) => self.execute_f_insn(insn),
+			Instruction::Csr(insn) => self.execute_csr_insn(insn),
+			Instruction::CompressedExtension(insn) => self.execute_compressed_insn(insn),
+			Instruction::AtomicExtension(insn) => self.execute_atomic_insn(insn),
+			Instruction::MultiplyInstruction(insn) => self.execute_multiply_insn(insn),
+			Instruction::PrivilegedInstruction(insn) => self.execute_privileged_insn(insn),
+		};
 	}
 }
 

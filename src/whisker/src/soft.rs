@@ -1,6 +1,5 @@
 use bitfield::prelude::*;
 
-use crate::cpu::csr;
 use crate::cpu::hart::WhiskerHart;
 
 pub mod double;
@@ -9,12 +8,12 @@ pub mod float;
 #[bitfields]
 #[derive(Debug, Clone, Copy)]
 pub struct FloatStatusControl {
-	inexact: bool,
-	underflow: bool,
-	overflow: bool,
-	div_by_zero: bool,
-	invalid_operation: bool,
-	rounding_mode: RoundingMode,
+	pub inexact: bool,
+	pub underflow: bool,
+	pub overflow: bool,
+	pub div_by_zero: bool,
+	pub invalid_operation: bool,
+	pub rounding_mode: RoundingMode,
 }
 
 /// Defined on unpriv isa page 119
@@ -119,12 +118,12 @@ impl RoundingMode {
 	}
 
 	fn write_thread_local(self, hart: &mut WhiskerHart) {
-		let val = match self {
-			RoundingMode::Dynamic => (hart.read_csr_unchecked(csr::FCSR) & FCSR_ROUNDING_MODE_MASK >> 5) as u8,
-			rm => rm.to_sf_u8(),
+		let rm = match self {
+			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode(),
+			rm => rm,
 		};
 		unsafe {
-			softfloat_sys::softfloat_roundingMode_write_helper(val);
+			softfloat_sys::softfloat_roundingMode_write_helper(rm.to_sf_u8());
 		}
 	}
 }
@@ -170,5 +169,3 @@ impl ExceptionFlags {
 		Self(val)
 	}
 }
-
-pub const FCSR_ROUNDING_MODE_MASK: u64 = 0b11100000;

@@ -14,7 +14,7 @@ use crate::cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, Interru
 use crate::insn::*;
 use crate::mem::{ReadKind, WriteKind};
 use crate::regs::{FPRegisters, GPRegisters};
-use crate::soft::{ExceptionFlags, FloatStatusControl};
+use crate::soft::FloatStatusControl;
 use crate::ty::{
 	ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed,
 };
@@ -1010,8 +1010,7 @@ impl WhiskerHart {
 						self.registers.set(dst, 0);
 						// if either input was sNaN, write invalid operation
 						if lhs.is_snan() || rhs.is_snan() {
-							let val = self.read_csr_unchecked(csr::FCSR);
-							self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+							self.float_status_control.set_invalid_operation(true);
 						}
 					}
 				}
@@ -1025,8 +1024,7 @@ impl WhiskerHart {
 					Some(cmp) => self.registers.set(dst, u64::from(cmp == Ordering::Less)),
 					None => {
 						self.registers.set(dst, 0);
-						let val = self.read_csr_unchecked(csr::FCSR);
-						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+						self.float_status_control.set_invalid_operation(true);
 					}
 				}
 			}
@@ -1041,8 +1039,7 @@ impl WhiskerHart {
 						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal))),
 					None => {
 						self.registers.set(dst, 0);
-						let val = self.read_csr_unchecked(csr::FCSR);
-						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
+						self.float_status_control.set_invalid_operation(true);
 					}
 				}
 			}

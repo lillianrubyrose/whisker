@@ -17,6 +17,7 @@ mod virtio;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
+use std::fmt::Write as _;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::{fs, panic};
@@ -30,13 +31,13 @@ use spin::Mutex;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
-use crate::cpu::{WhiskerCpu, WhiskerExecState};
+use crate::cpu::{csr, WhiskerCpu, WhiskerExecState};
 use crate::gdb::WhiskerEventLoop;
 use crate::interrupts::{PLIC_BASE, PLIC_LEN};
 use crate::mem::mmio::virtio_block::VIRTIO_BLOCK_BASE;
 use crate::mem::mmio::{MMIOKind, UART_BASE};
 use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
-use crate::ty::RiscvExtensions;
+use crate::ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions};
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -62,6 +63,7 @@ enum Commands {
 		#[arg()]
 		kernel: PathBuf,
 	},
+	GenerateGdbXML,
 }
 
 #[macro_export]
@@ -148,6 +150,10 @@ fn main() {
 			} else {
 				run_normal(cpu);
 			}
+		}
+		Commands::GenerateGdbXML => {
+			let xml = generate_gdb_xml();
+			fs::write("rv64.xml", xml.as_bytes()).expect("failed to write rv64.xml");
 		}
 	}
 }
@@ -312,4 +318,57 @@ fn run_normal(mut cpu: WhiskerCpu) {
 		#[allow(unused_must_use)]
 		cpu.execute_one();
 	}
+}
+
+fn generate_gdb_xml() -> String {
+	let mut xml = String::from(
+		r#"<?xml version="1.0"?>
+<!-- Copyright (C) 2018-2024 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- Register numbers are hard-coded in order to maintain backward
+     compatibility with older versions of tools that didn't use xml
+     register descriptions.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<target>
+"#,
+	);
+
+	// GPRs
+	xml.push_str("  <feature name=\"org.gnu.gdb.riscv.cpu\">\n");
+	for reg in GPRegisterIndex::ALL_REGS {
+		writeln!(
+			&mut xml,
+			"    <reg name=\"{}\" bitsize=\"64\" type=\"{}\" regnum=\"{}\"/>",
+			reg.display(),
+			reg.abi_kind(),
+			reg.as_u8()
+		)
+		.unwrap();
+	}
+	xml.push_str("    <reg name=\"pc\" bitsize=\"64\" type=\"code_ptr\" regnum=\"32\"/>\n");
+	xml.push_str("  </feature>\n");
+
+	// FPRs
+	xml.push_str("  <feature name=\"org.gnu.gdb.riscv.fpu\">\n");
+	for reg in FPRegisterIndex::ALL_REGS {
+		writeln!(
+			&mut xml,
+			"    <reg name=\"{}\" bitsize=\"64\" type=\"ieee_double\" regnum=\"{}\"/>",
+			reg.display(),
+			33 + reg.as_u8()
+		)
+		.unwrap();
+	}
+	xml.push_str("  </feature>\n");
+
+	xml.push_str(&csr::generate_csr_xml(&csr::create_info()));
+
+	xml.push_str("</target>\n");
+
+	xml
 }

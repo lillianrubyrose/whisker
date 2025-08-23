@@ -11,74 +11,175 @@
 
 <!DOCTYPE feature SYSTEM "gdb-target.dtd">
 <target>
-    <feature name="org.gnu.gdb.riscv.cpu">
-      <reg name="zero" bitsize="64" type="int" regnum="0"/>
-      <reg name="ra" bitsize="64" type="code_ptr"/>
-      <reg name="sp" bitsize="64" type="data_ptr"/>
-      <reg name="gp" bitsize="64" type="data_ptr"/>
-      <reg name="tp" bitsize="64" type="data_ptr"/>
-      <reg name="t0" bitsize="64" type="int"/>
-      <reg name="t1" bitsize="64" type="int"/>
-      <reg name="t2" bitsize="64" type="int"/>
-      <reg name="fp" bitsize="64" type="data_ptr"/>
-      <reg name="s1" bitsize="64" type="int"/>
-      <reg name="a0" bitsize="64" type="int"/>
-      <reg name="a1" bitsize="64" type="int"/>
-      <reg name="a2" bitsize="64" type="int"/>
-      <reg name="a3" bitsize="64" type="int"/>
-      <reg name="a4" bitsize="64" type="int"/>
-      <reg name="a5" bitsize="64" type="int"/>
-      <reg name="a6" bitsize="64" type="int"/>
-      <reg name="a7" bitsize="64" type="int"/>
-      <reg name="s2" bitsize="64" type="int"/>
-      <reg name="s3" bitsize="64" type="int"/>
-      <reg name="s4" bitsize="64" type="int"/>
-      <reg name="s5" bitsize="64" type="int"/>
-      <reg name="s6" bitsize="64" type="int"/>
-      <reg name="s7" bitsize="64" type="int"/>
-      <reg name="s8" bitsize="64" type="int"/>
-      <reg name="s9" bitsize="64" type="int"/>
-      <reg name="s10" bitsize="64" type="int"/>
-      <reg name="s11" bitsize="64" type="int"/>
-      <reg name="t3" bitsize="64" type="int"/>
-      <reg name="t4" bitsize="64" type="int"/>
-      <reg name="t5" bitsize="64" type="int"/>
-      <reg name="t6" bitsize="64" type="int"/>
-      <reg name="pc" bitsize="64" type="code_ptr"/>
-    </feature>
-
-    <feature name="org.gnu.gdb.whisker-rv64-fp">
-      <reg name="f0" bitsize="64"  type="ieee_double" regnum="33"/>
-      <reg name="f1" bitsize="64"  type="ieee_double"/>
-      <reg name="f2" bitsize="64"  type="ieee_double"/>
-      <reg name="f3" bitsize="64"  type="ieee_double"/>
-      <reg name="f4" bitsize="64"  type="ieee_double"/>
-      <reg name="f5" bitsize="64"  type="ieee_double"/>
-      <reg name="f6" bitsize="64"  type="ieee_double"/>
-      <reg name="f7" bitsize="64"  type="ieee_double"/>
-      <reg name="f8" bitsize="64"  type="ieee_double"/>
-      <reg name="f9" bitsize="64"  type="ieee_double"/>
-      <reg name="f10" bitsize="64" type="ieee_double"/>
-      <reg name="f11" bitsize="64" type="ieee_double"/>
-      <reg name="f12" bitsize="64" type="ieee_double"/>
-      <reg name="f13" bitsize="64" type="ieee_double"/>
-      <reg name="f14" bitsize="64" type="ieee_double"/>
-      <reg name="f15" bitsize="64" type="ieee_double"/>
-      <reg name="f16" bitsize="64" type="ieee_double"/>
-      <reg name="f17" bitsize="64" type="ieee_double"/>
-      <reg name="f18" bitsize="64" type="ieee_double"/>
-      <reg name="f19" bitsize="64" type="ieee_double"/>
-      <reg name="f20" bitsize="64" type="ieee_double"/>
-      <reg name="f21" bitsize="64" type="ieee_double"/>
-      <reg name="f22" bitsize="64" type="ieee_double"/>
-      <reg name="f23" bitsize="64" type="ieee_double"/>
-      <reg name="f24" bitsize="64" type="ieee_double"/>
-      <reg name="f25" bitsize="64" type="ieee_double"/>
-      <reg name="f26" bitsize="64" type="ieee_double"/>
-      <reg name="f27" bitsize="64" type="ieee_double"/>
-      <reg name="f28" bitsize="64" type="ieee_double"/>
-      <reg name="f29" bitsize="64" type="ieee_double"/>
-      <reg name="f30" bitsize="64" type="ieee_double"/>
-      <reg name="f31" bitsize="64" type="ieee_double"/>
-    </feature>
+  <feature name="org.gnu.gdb.riscv.cpu">
+    <reg name="zero" bitsize="64" type="int" regnum="0"/>
+    <reg name="ra" bitsize="64" type="code_ptr" regnum="1"/>
+    <reg name="sp" bitsize="64" type="data_ptr" regnum="2"/>
+    <reg name="gp" bitsize="64" type="data_ptr" regnum="3"/>
+    <reg name="tp" bitsize="64" type="data_ptr" regnum="4"/>
+    <reg name="t0" bitsize="64" type="int" regnum="5"/>
+    <reg name="t1" bitsize="64" type="int" regnum="6"/>
+    <reg name="t2" bitsize="64" type="int" regnum="7"/>
+    <reg name="fp" bitsize="64" type="data_ptr" regnum="8"/>
+    <reg name="s1" bitsize="64" type="int" regnum="9"/>
+    <reg name="a0" bitsize="64" type="int" regnum="10"/>
+    <reg name="a1" bitsize="64" type="int" regnum="11"/>
+    <reg name="a2" bitsize="64" type="int" regnum="12"/>
+    <reg name="a3" bitsize="64" type="int" regnum="13"/>
+    <reg name="a4" bitsize="64" type="int" regnum="14"/>
+    <reg name="a5" bitsize="64" type="int" regnum="15"/>
+    <reg name="a6" bitsize="64" type="int" regnum="16"/>
+    <reg name="a7" bitsize="64" type="int" regnum="17"/>
+    <reg name="s2" bitsize="64" type="int" regnum="18"/>
+    <reg name="s3" bitsize="64" type="int" regnum="19"/>
+    <reg name="s4" bitsize="64" type="int" regnum="20"/>
+    <reg name="s5" bitsize="64" type="int" regnum="21"/>
+    <reg name="s6" bitsize="64" type="int" regnum="22"/>
+    <reg name="s7" bitsize="64" type="int" regnum="23"/>
+    <reg name="s8" bitsize="64" type="int" regnum="24"/>
+    <reg name="s9" bitsize="64" type="int" regnum="25"/>
+    <reg name="s10" bitsize="64" type="int" regnum="26"/>
+    <reg name="s11" bitsize="64" type="int" regnum="27"/>
+    <reg name="t3" bitsize="64" type="int" regnum="28"/>
+    <reg name="t4" bitsize="64" type="int" regnum="29"/>
+    <reg name="t5" bitsize="64" type="int" regnum="30"/>
+    <reg name="t6" bitsize="64" type="int" regnum="31"/>
+    <reg name="pc" bitsize="64" type="code_ptr" regnum="32"/>
+  </feature>
+  <feature name="org.gnu.gdb.riscv.fpu">
+    <reg name="f0" bitsize="64" type="ieee_double" regnum="33"/>
+    <reg name="f1" bitsize="64" type="ieee_double" regnum="34"/>
+    <reg name="f2" bitsize="64" type="ieee_double" regnum="35"/>
+    <reg name="f3" bitsize="64" type="ieee_double" regnum="36"/>
+    <reg name="f4" bitsize="64" type="ieee_double" regnum="37"/>
+    <reg name="f5" bitsize="64" type="ieee_double" regnum="38"/>
+    <reg name="f6" bitsize="64" type="ieee_double" regnum="39"/>
+    <reg name="f7" bitsize="64" type="ieee_double" regnum="40"/>
+    <reg name="f8" bitsize="64" type="ieee_double" regnum="41"/>
+    <reg name="f9" bitsize="64" type="ieee_double" regnum="42"/>
+    <reg name="f10" bitsize="64" type="ieee_double" regnum="43"/>
+    <reg name="f11" bitsize="64" type="ieee_double" regnum="44"/>
+    <reg name="f12" bitsize="64" type="ieee_double" regnum="45"/>
+    <reg name="f13" bitsize="64" type="ieee_double" regnum="46"/>
+    <reg name="f14" bitsize="64" type="ieee_double" regnum="47"/>
+    <reg name="f15" bitsize="64" type="ieee_double" regnum="48"/>
+    <reg name="f16" bitsize="64" type="ieee_double" regnum="49"/>
+    <reg name="f17" bitsize="64" type="ieee_double" regnum="50"/>
+    <reg name="f18" bitsize="64" type="ieee_double" regnum="51"/>
+    <reg name="f19" bitsize="64" type="ieee_double" regnum="52"/>
+    <reg name="f20" bitsize="64" type="ieee_double" regnum="53"/>
+    <reg name="f21" bitsize="64" type="ieee_double" regnum="54"/>
+    <reg name="f22" bitsize="64" type="ieee_double" regnum="55"/>
+    <reg name="f23" bitsize="64" type="ieee_double" regnum="56"/>
+    <reg name="f24" bitsize="64" type="ieee_double" regnum="57"/>
+    <reg name="f25" bitsize="64" type="ieee_double" regnum="58"/>
+    <reg name="f26" bitsize="64" type="ieee_double" regnum="59"/>
+    <reg name="f27" bitsize="64" type="ieee_double" regnum="60"/>
+    <reg name="f28" bitsize="64" type="ieee_double" regnum="61"/>
+    <reg name="f29" bitsize="64" type="ieee_double" regnum="62"/>
+    <reg name="f30" bitsize="64" type="ieee_double" regnum="63"/>
+    <reg name="f31" bitsize="64" type="ieee_double" regnum="64"/>
+  </feature>
+  <feature name="org.gnu.gdb.riscv.csr">
+    <reg name="fflags" bitsize="64" regnum="66"/>
+    <reg name="frm" bitsize="64" regnum="67"/>
+    <reg name="fcsr" bitsize="64" regnum="68"/>
+    <reg name="sstatus" bitsize="64" regnum="321"/>
+    <reg name="sie" bitsize="64" regnum="325"/>
+    <reg name="stvec" bitsize="64" regnum="326"/>
+    <reg name="sscratch" bitsize="64" regnum="385"/>
+    <reg name="sepc" bitsize="64" regnum="386"/>
+    <reg name="scause" bitsize="64" regnum="387"/>
+    <reg name="stval" bitsize="64" regnum="388"/>
+    <reg name="sip" bitsize="64" regnum="389"/>
+    <reg name="satp" bitsize="64" regnum="449"/>
+    <reg name="mstatus" bitsize="64" regnum="833"/>
+    <reg name="misa" bitsize="64" regnum="834"/>
+    <reg name="medeleg" bitsize="64" regnum="835"/>
+    <reg name="mideleg" bitsize="64" regnum="836"/>
+    <reg name="mie" bitsize="64" regnum="837"/>
+    <reg name="mtvec" bitsize="64" regnum="838"/>
+    <reg name="mscratch" bitsize="64" regnum="897"/>
+    <reg name="mepc" bitsize="64" regnum="898"/>
+    <reg name="mcause" bitsize="64" regnum="899"/>
+    <reg name="mtval" bitsize="64" regnum="900"/>
+    <reg name="mip" bitsize="64" regnum="901"/>
+    <reg name="pmpcfg0" bitsize="64" regnum="993"/>
+    <reg name="pmpcfg2" bitsize="64" regnum="995"/>
+    <reg name="pmpcfg4" bitsize="64" regnum="997"/>
+    <reg name="pmpcfg6" bitsize="64" regnum="999"/>
+    <reg name="pmpcfg8" bitsize="64" regnum="1001"/>
+    <reg name="pmpcfg10" bitsize="64" regnum="1003"/>
+    <reg name="pmpcfg12" bitsize="64" regnum="1005"/>
+    <reg name="pmpcfg14" bitsize="64" regnum="1007"/>
+    <reg name="pmpaddr0" bitsize="64" regnum="1009"/>
+    <reg name="pmpaddr1" bitsize="64" regnum="1010"/>
+    <reg name="pmpaddr2" bitsize="64" regnum="1011"/>
+    <reg name="pmpaddr3" bitsize="64" regnum="1012"/>
+    <reg name="pmpaddr4" bitsize="64" regnum="1013"/>
+    <reg name="pmpaddr5" bitsize="64" regnum="1014"/>
+    <reg name="pmpaddr6" bitsize="64" regnum="1015"/>
+    <reg name="pmpaddr7" bitsize="64" regnum="1016"/>
+    <reg name="pmpaddr8" bitsize="64" regnum="1017"/>
+    <reg name="pmpaddr9" bitsize="64" regnum="1018"/>
+    <reg name="pmpaddr10" bitsize="64" regnum="1019"/>
+    <reg name="pmpaddr11" bitsize="64" regnum="1020"/>
+    <reg name="pmpaddr12" bitsize="64" regnum="1021"/>
+    <reg name="pmpaddr13" bitsize="64" regnum="1022"/>
+    <reg name="pmpaddr14" bitsize="64" regnum="1023"/>
+    <reg name="pmpaddr15" bitsize="64" regnum="1024"/>
+    <reg name="pmpaddr16" bitsize="64" regnum="1025"/>
+    <reg name="pmpaddr17" bitsize="64" regnum="1026"/>
+    <reg name="pmpaddr18" bitsize="64" regnum="1027"/>
+    <reg name="pmpaddr19" bitsize="64" regnum="1028"/>
+    <reg name="pmpaddr20" bitsize="64" regnum="1029"/>
+    <reg name="pmpaddr21" bitsize="64" regnum="1030"/>
+    <reg name="pmpaddr22" bitsize="64" regnum="1031"/>
+    <reg name="pmpaddr23" bitsize="64" regnum="1032"/>
+    <reg name="pmpaddr24" bitsize="64" regnum="1033"/>
+    <reg name="pmpaddr25" bitsize="64" regnum="1034"/>
+    <reg name="pmpaddr26" bitsize="64" regnum="1035"/>
+    <reg name="pmpaddr27" bitsize="64" regnum="1036"/>
+    <reg name="pmpaddr28" bitsize="64" regnum="1037"/>
+    <reg name="pmpaddr29" bitsize="64" regnum="1038"/>
+    <reg name="pmpaddr30" bitsize="64" regnum="1039"/>
+    <reg name="pmpaddr31" bitsize="64" regnum="1040"/>
+    <reg name="pmpaddr32" bitsize="64" regnum="1041"/>
+    <reg name="pmpaddr33" bitsize="64" regnum="1042"/>
+    <reg name="pmpaddr34" bitsize="64" regnum="1043"/>
+    <reg name="pmpaddr35" bitsize="64" regnum="1044"/>
+    <reg name="pmpaddr36" bitsize="64" regnum="1045"/>
+    <reg name="pmpaddr37" bitsize="64" regnum="1046"/>
+    <reg name="pmpaddr38" bitsize="64" regnum="1047"/>
+    <reg name="pmpaddr39" bitsize="64" regnum="1048"/>
+    <reg name="pmpaddr40" bitsize="64" regnum="1049"/>
+    <reg name="pmpaddr41" bitsize="64" regnum="1050"/>
+    <reg name="pmpaddr42" bitsize="64" regnum="1051"/>
+    <reg name="pmpaddr43" bitsize="64" regnum="1052"/>
+    <reg name="pmpaddr44" bitsize="64" regnum="1053"/>
+    <reg name="pmpaddr45" bitsize="64" regnum="1054"/>
+    <reg name="pmpaddr46" bitsize="64" regnum="1055"/>
+    <reg name="pmpaddr47" bitsize="64" regnum="1056"/>
+    <reg name="pmpaddr48" bitsize="64" regnum="1057"/>
+    <reg name="pmpaddr49" bitsize="64" regnum="1058"/>
+    <reg name="pmpaddr50" bitsize="64" regnum="1059"/>
+    <reg name="pmpaddr51" bitsize="64" regnum="1060"/>
+    <reg name="pmpaddr52" bitsize="64" regnum="1061"/>
+    <reg name="pmpaddr53" bitsize="64" regnum="1062"/>
+    <reg name="pmpaddr54" bitsize="64" regnum="1063"/>
+    <reg name="pmpaddr55" bitsize="64" regnum="1064"/>
+    <reg name="pmpaddr56" bitsize="64" regnum="1065"/>
+    <reg name="pmpaddr57" bitsize="64" regnum="1066"/>
+    <reg name="pmpaddr58" bitsize="64" regnum="1067"/>
+    <reg name="pmpaddr59" bitsize="64" regnum="1068"/>
+    <reg name="pmpaddr60" bitsize="64" regnum="1069"/>
+    <reg name="pmpaddr61" bitsize="64" regnum="1070"/>
+    <reg name="pmpaddr62" bitsize="64" regnum="1071"/>
+    <reg name="pmpaddr63" bitsize="64" regnum="1072"/>
+    <reg name="mvendorid" bitsize="64" regnum="3922"/>
+    <reg name="marchid" bitsize="64" regnum="3923"/>
+    <reg name="mimpid" bitsize="64" regnum="3924"/>
+    <reg name="mhartid" bitsize="64" regnum="3925"/>
+    <reg name="mconfigptr" bitsize="64" regnum="3926"/>
+  </feature>
 </target>

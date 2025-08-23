@@ -15,37 +15,35 @@ const NUM_CSRS: u16 = 4096;
 type CSRReadFn = fn(&mut WhiskerHart) -> u64;
 type CSRWriteFn = fn(&mut WhiskerHart, val: u64);
 
-macro_rules! read_only_constant {
-	($val:expr) => {
-		CSRInfo::new_read_only(|_| $val)
-	};
-}
-
-macro_rules! warl_constant {
-	($val:expr) => {
-		CSRInfo::new_read_write(|_| $val, |_, _| {})
-	};
-}
-
 macro_rules! read_write_trivial {
 	($field:ident) => {
-		CSRInfo::new_read_write(|hart| hart.$field, |hart, val| hart.$field = val)
+		(
+			(|hart: &mut WhiskerHart| hart.$field) as CSRReadFn,
+			(|hart: &mut WhiskerHart, val: u64| hart.$field = val) as CSRWriteFn,
+		)
 	};
 }
 
 macro_rules! impl_csrs {
-	($($name:ident, $addr:expr, $info:expr),*$(,)*) => {{
-		paste::paste!{$(
-			#[allow(dead_code)]
-			const [< $name:snake:upper >]: CSRIndex = CSRIndex($addr);
-		)*}
-		let mut reg_info = BTreeMap::default();
-		paste::paste!{
-			reg_info.extend([$(
-				([< $name:snake:upper >], $info),
-			)*]);
-		}
-		reg_info
+	() => {};
+	($reg_info:expr, $name:ident, $addr:expr, rw $readwrite:expr; $($tail:tt)*) => {{
+		let (read, write): (CSRReadFn, CSRWriteFn) = $readwrite;
+		($reg_info).insert(
+			CSRIndex($addr), CSRInfo::new_read_write(stringify!($name), read, write)
+		);
+		impl_csrs!($($tail)*);
+	}};
+	($reg_info:expr, $name:ident, $addr:expr, const $val:literal; $($tail:tt)*) => {{
+		($reg_info).insert(
+			CSRIndex($addr), CSRInfo::new_read_only(stringify!($name), |_| $val),
+		);
+		impl_csrs!($($tail)*);
+	}};
+	($reg_info:expr, $name:ident, $addr:expr, ro $read:expr; $($tail:tt)*) => {{
+		($reg_info).insert(
+			CSRIndex($addr), CSRInfo::new_read_only(stringify!($name), $read),
+		);
+		impl_csrs!($($tail)*);
 	}};
 }
 
@@ -53,12 +51,10 @@ macro_rules! define_pmp_cfg_regs {
 	($reg_info:expr, $($id:literal)*) => {
 		paste::paste!{$(
 			const _: () = assert!($id % 2 == 0, "RV64 only uses pmpcfg 0,2,...");
-			#[allow(dead_code)]
-			const [< PMPCFG $id:snake:upper >]: CSRIndex = CSRIndex({0x3A0 + $id});
 		)*}
 		paste::paste!{
 			($reg_info).extend([$(
-				([< PMPCFG $id:snake:upper >], warl_constant!(0)),
+				(CSRIndex({0x3A0 + $id}), CSRInfo::new_read_write(stringify!([< pmpcfg $id:snake:lower >]), |_| 0, |_, _| {})),
 			)*]);
 		}
 	};
@@ -66,72 +62,84 @@ macro_rules! define_pmp_cfg_regs {
 
 macro_rules! define_pmp_addr_regs {
 	($reg_info:expr, $($id:literal)*) => {
-		paste::paste!{$(
-			#[allow(dead_code)]
-			const [< PMPADDR $id:snake:upper >]: CSRIndex = CSRIndex({0x3B0 + $id});
-		)*}
 		paste::paste!{
 			($reg_info).extend([$(
-				([< PMPADDR $id:snake:upper >], warl_constant!(0)),
+				(CSRIndex({0x3B0 + $id}), CSRInfo::new_read_write(stringify!([< pmpaddr $id:snake:lower >]), |_| 0, |_, _| {})),
 			)*]);
 		}
 	};
 }
 
 pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
+	let mut csrs = BTreeMap::default();
 	#[rustfmt::skip]
-	let mut reg_info = impl_csrs!(
+	impl_csrs!(
 		// machine information registers
 		// TODO: actually impl these maybe?
-		mvendorid,  0xF11, read_only_constant!(0),
-		marchid,    0xF12, read_only_constant!(0),
-		mimpid,     0xF13, read_only_constant!(0),
-		mhartid,    0xF14, CSRInfo::new_read_only(read_mhartid),
-		mconfigptr, 0xF15, read_only_constant!(0),
+		csrs, mvendorid,  0xF11, const 0;
+		csrs, marchid,    0xF12, const 0;
+		csrs, mimpid,     0xF13, const 0;
+		csrs, mhartid,    0xF14, ro read_mhartid;
+		csrs, mconfigptr, 0xF15, const 0;
 
 		// machine trap setup
-		mstatus, 0x300, CSRInfo::new_read_write(read_mstatus, write_mstatus),
-		misa,    0x301, CSRInfo::new_read_write(read_misa, noop_writer),
-		medeleg, 0x302, CSRInfo::new_read_write(read_medeleg, write_medeleg),
-		mideleg, 0x303, CSRInfo::new_read_write(read_mideleg, write_mideleg),
-		mie,     0x304, CSRInfo::new_read_write(read_mie, write_mie),
-		mtvec,   0x305, CSRInfo::new_read_write(read_mtvec, write_mtvec),
+		csrs, mstatus, 0x300, rw (read_mstatus, write_mstatus);
+		csrs, misa,    0x301, rw (read_misa, noop_writer);
+		csrs, medeleg, 0x302, rw (read_medeleg, write_medeleg);
+		csrs, mideleg, 0x303, rw (read_mideleg, write_mideleg);
+		csrs, mie,     0x304, rw (read_mie, write_mie);
+		csrs, mtvec,   0x305, rw (read_mtvec, write_mtvec);
 
 		// machine trap handling
-		mscratch, 0x340, read_write_trivial!(mscratch),
-		mepc,     0x341, read_write_trivial!(mepc),
-		mcause,   0x342, CSRInfo::new_read_write(read_mcause, write_mcause),
-		mtval,    0x343, read_write_trivial!(mtval),
-		mip,      0x344, CSRInfo::new_read_write(read_mip, write_mip),
+		csrs, mscratch, 0x340, rw read_write_trivial!(mscratch);
+		csrs, mepc,     0x341, rw read_write_trivial!(mepc);
+
+		csrs, mcause,   0x342, rw (read_mcause, write_mcause);
+		csrs, mtval,    0x343, rw read_write_trivial!(mtval);
+		csrs, mip,      0x344, rw (read_mip, write_mip);
 
 		// supervisor trap setup
-		sstatus, 0x100, CSRInfo::new_read_write(read_sstatus, write_sstatus),
-		sie,     0x104, CSRInfo::new_read_write(read_sie, write_sie),
-		stvec,   0x105, CSRInfo::new_read_write(read_stvec, write_stvec),
+		csrs, sstatus, 0x100, rw (read_sstatus, write_sstatus);
+		csrs, sie,     0x104, rw (read_sie, write_sie);
+		csrs, stvec,   0x105, rw (read_stvec, write_stvec);
 
 		// supervisor trap handling
-		sscratch, 0x140, read_write_trivial!(sscratch),
-		sepc,     0x141, read_write_trivial!(sepc),
-		scause,   0x142, CSRInfo::new_read_write(read_scause, write_scause),
-		stval,    0x143, read_write_trivial!(stval),
-		sip,      0x144, CSRInfo::new_read_write(read_sip, write_sip),
+		csrs, sscratch, 0x140, rw read_write_trivial!(sscratch);
+		csrs, sepc,     0x141, rw read_write_trivial!(sepc);
+		csrs, scause,   0x142, rw (read_scause, write_scause);
+		csrs, stval,    0x143, rw read_write_trivial!(stval);
+		csrs, sip,      0x144, rw (read_sip, write_sip);
 
 		// supervisor protection and translation
-		satp, 0x180, CSRInfo::new_read_write(read_satp, write_satp),
+		csrs, satp, 0x180, rw (read_satp, write_satp);
 
 		// float status
-		fflags, 0x001, CSRInfo::new_read_write(
-								|hart| read_fcsr(hart) & 0b11111,
-								|hart, val| write_fcsr(hart, val & 0b11111)
-						),
-		frm,    0x002, CSRInfo::new_read_write(|hart| read_fcsr(hart) >> 5, |hart, val| write_fcsr(hart, val >> 5)),
-		fcsr,   0x003, CSRInfo::new_read_write(read_fcsr, write_fcsr),
+		csrs, fflags, 0x001, rw (
+									|hart| read_fcsr(hart) & 0b11111,
+									|hart, val| write_fcsr(hart, val & 0b11111)
+								);
+		csrs, frm,    0x002, rw (|hart| read_fcsr(hart) >> 5, |hart, val| write_fcsr(hart, val >> 5));
+		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
 	);
 
-	define_pmp_cfg_regs!(&mut reg_info, 0 2 4 6 8 10 12 14);
-	define_pmp_addr_regs!(&mut reg_info, 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63);
+	define_pmp_cfg_regs!(&mut csrs, 0 2 4 6 8 10 12 14);
+	define_pmp_addr_regs!(&mut csrs, 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63);
 
-	reg_info
+	csrs
+}
+
+pub fn generate_csr_xml(info: &BTreeMap<CSRIndex, CSRInfo>) -> String {
+	let mut xml = String::from("  <feature name=\"org.gnu.gdb.riscv.csr\">\n");
+	const GDB_CSR_BASE: u16 = 65;
+	for (idx, info) in info.iter() {
+		xml.push_str(&format!(
+			"    <reg name=\"{}\" bitsize=\"64\" regnum=\"{}\"/>\n",
+			info.name,
+			idx.0 + GDB_CSR_BASE,
+		));
+	}
+	xml.push_str("  </feature>\n");
+	xml
 }
 
 // NOTE: this is on the hart not on the CSR struct because operations on CSRs may affect state
@@ -358,6 +366,7 @@ impl Debug for CSRIndex {
 pub struct CSRInfo {
 	required_extensions: RiscvExtensions,
 	ops: CSROps,
+	name: &'static str,
 }
 
 #[derive(Debug)]
@@ -367,17 +376,19 @@ enum CSROps {
 }
 
 impl CSRInfo {
-	fn new_read_only(read: CSRReadFn) -> Self {
+	fn new_read_only(name: &'static str, read: CSRReadFn) -> Self {
 		Self {
 			required_extensions: RiscvExtensions::empty(),
 			ops: CSROps::Read(read),
+			name,
 		}
 	}
 
-	fn new_read_write(read: CSRReadFn, write: CSRWriteFn) -> Self {
+	fn new_read_write(name: &'static str, read: CSRReadFn, write: CSRWriteFn) -> Self {
 		Self {
 			required_extensions: RiscvExtensions::empty(),
 			ops: CSROps::ReadWrite(read, write),
+			name,
 		}
 	}
 

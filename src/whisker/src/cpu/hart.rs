@@ -29,6 +29,9 @@ pub struct WhiskerHart {
 	extensions: RiscvExtensions,
 
 	mode: HartMode,
+	/// whether this hart is in debug mode, which prevents certain things from trapping or erroring
+	/// like memory accesses.
+	pub debug: bool,
 
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
@@ -116,6 +119,7 @@ impl WhiskerHart {
 			extensions,
 
 			mode: HartMode::Machine,
+			debug: false,
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),
 			pc: initial_pc,
@@ -219,6 +223,10 @@ impl WhiskerHart {
 	/// requests the specified trap to happen
 	/// sets `next_pc` to the appropriate handler for the trap
 	pub fn request_trap(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
+		if self.debug {
+			return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
+		}
+
 		// FIXME: all the modes?
 		warn!(
 			"requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X}",

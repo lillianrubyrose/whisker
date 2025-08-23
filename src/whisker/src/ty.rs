@@ -65,12 +65,44 @@ impl<T> RegisterIndex<T> {
 	pub const ZERO: RegisterIndex<T> = RegisterIndex(0, PhantomData);
 }
 
-#[allow(unused)]
 impl GPRegisterIndex {
 	pub const LINK_REG: GPRegisterIndex = RegisterIndex(1, PhantomData);
 	pub const SP: GPRegisterIndex = RegisterIndex(2, PhantomData);
-	pub const GLOBAL_PTR: GPRegisterIndex = RegisterIndex(3, PhantomData);
-	pub const THREAD_PTR: GPRegisterIndex = RegisterIndex(4, PhantomData);
+
+	pub const ALL_REGS: [GPRegisterIndex; 32] = [
+		Self(0, PhantomData),
+		Self(1, PhantomData),
+		Self(2, PhantomData),
+		Self(3, PhantomData),
+		Self(4, PhantomData),
+		Self(5, PhantomData),
+		Self(6, PhantomData),
+		Self(7, PhantomData),
+		Self(8, PhantomData),
+		Self(9, PhantomData),
+		Self(10, PhantomData),
+		Self(11, PhantomData),
+		Self(12, PhantomData),
+		Self(13, PhantomData),
+		Self(14, PhantomData),
+		Self(15, PhantomData),
+		Self(16, PhantomData),
+		Self(17, PhantomData),
+		Self(18, PhantomData),
+		Self(19, PhantomData),
+		Self(20, PhantomData),
+		Self(21, PhantomData),
+		Self(22, PhantomData),
+		Self(23, PhantomData),
+		Self(24, PhantomData),
+		Self(25, PhantomData),
+		Self(26, PhantomData),
+		Self(27, PhantomData),
+		Self(28, PhantomData),
+		Self(29, PhantomData),
+		Self(30, PhantomData),
+		Self(31, PhantomData),
+	];
 
 	pub fn display(&self) -> &'static str {
 		match self.0 {
@@ -82,7 +114,7 @@ impl GPRegisterIndex {
 			5 => "t0",
 			6 => "t1",
 			7 => "t2",
-			8 => "s0",
+			8 => "fp",
 			9 => "s1",
 			10 => "a0",
 			11 => "a1",
@@ -109,61 +141,106 @@ impl GPRegisterIndex {
 			_ => unreachable!(),
 		}
 	}
+
+	pub fn abi_kind(&self) -> &'static str {
+		match self.0 {
+			1 => "code_ptr",
+			2 | 3 | 4 | 8 => "data_ptr",
+			_ => "int",
+		}
+	}
+}
+
+impl FPRegisterIndex {
+	pub const ALL_REGS: [FPRegisterIndex; 32] = [
+		Self(0, PhantomData),
+		Self(1, PhantomData),
+		Self(2, PhantomData),
+		Self(3, PhantomData),
+		Self(4, PhantomData),
+		Self(5, PhantomData),
+		Self(6, PhantomData),
+		Self(7, PhantomData),
+		Self(8, PhantomData),
+		Self(9, PhantomData),
+		Self(10, PhantomData),
+		Self(11, PhantomData),
+		Self(12, PhantomData),
+		Self(13, PhantomData),
+		Self(14, PhantomData),
+		Self(15, PhantomData),
+		Self(16, PhantomData),
+		Self(17, PhantomData),
+		Self(18, PhantomData),
+		Self(19, PhantomData),
+		Self(20, PhantomData),
+		Self(21, PhantomData),
+		Self(22, PhantomData),
+		Self(23, PhantomData),
+		Self(24, PhantomData),
+		Self(25, PhantomData),
+		Self(26, PhantomData),
+		Self(27, PhantomData),
+		Self(28, PhantomData),
+		Self(29, PhantomData),
+		Self(30, PhantomData),
+		Self(31, PhantomData),
+	];
+
+	pub fn display(&self) -> &'static str {
+		match self.0 {
+			0 => "f0",
+			1 => "f1",
+			2 => "f2",
+			3 => "f3",
+			4 => "f4",
+			5 => "f5",
+			6 => "f6",
+			7 => "f7",
+			8 => "f8",
+			9 => "f9",
+			10 => "f10",
+			11 => "f11",
+			12 => "f12",
+			13 => "f13",
+			14 => "f14",
+			15 => "f15",
+			16 => "f16",
+			17 => "f17",
+			18 => "f18",
+			19 => "f19",
+			20 => "f20",
+			21 => "f21",
+			22 => "f22",
+			23 => "f23",
+			24 => "f24",
+			25 => "f25",
+			26 => "f26",
+			27 => "f27",
+			28 => "f28",
+			29 => "f29",
+			30 => "f30",
+			31 => "f31",
+			_ => unreachable!(),
+		}
+	}
 }
 
 impl Debug for UnknownRegisterIndex {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Reg(")?;
-		write!(f, "{})", self.0.to_string())
+		write!(f, "UnkReg({})", self.0.to_string())
 	}
 }
 
 impl Debug for GPRegisterIndex {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Reg(")?;
-		let r = match self.0 {
-			0 => "zero",
-			1 => "ra",
-			2 => "sp",
-			3 => "gp",
-			4 => "tp",
-			5 => "t0",
-			6 => "t1",
-			7 => "t2",
-			8 => "s0",
-			9 => "s1",
-			10 => "a0",
-			11 => "a1",
-			12 => "a2",
-			13 => "a3",
-			14 => "a4",
-			15 => "a5",
-			16 => "a6",
-			17 => "a7",
-			18 => "s2",
-			19 => "s3",
-			20 => "s4",
-			21 => "s5",
-			22 => "s6",
-			23 => "s7",
-			24 => "s8",
-			25 => "s9",
-			26 => "s10",
-			27 => "s11",
-			28 => "t3",
-			29 => "t4",
-			30 => "t5",
-			31 => "t6",
-			_ => unreachable!(),
-		};
-		write!(f, "{})", r)
+		write!(f, "Reg({})", self.display())
 	}
 }
 
 impl Debug for FPRegisterIndex {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Reg(")?;
-		write!(f, "f{})", self.0.to_string())
+		write!(f, "FPReg({})", self.display())
 	}
 }
 
@@ -423,6 +500,8 @@ pub struct HartId(u16);
 
 impl HartId {
 	pub const MAX_NUM_HARTS: u16 = 64;
+
+	pub const DEBUG_HARTID: Self = Self(Self::MAX_NUM_HARTS - 1);
 
 	pub fn new(id: u16) -> Self {
 		assert!(

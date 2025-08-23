@@ -1,6 +1,10 @@
 use std::net::{TcpListener, TcpStream};
+use std::sync::LazyLock;
 
-use crate::tracing::info;
+use crate::cpu::hart::WhiskerHart;
+use crate::mem::{ReadKind, WriteKind};
+use crate::tracing::*;
+use crate::ty::{HartId, RiscvExtensions};
 use gdbstub::arch::{Arch, Registers};
 use gdbstub::target::TargetError;
 use gdbstub::{
@@ -19,8 +23,9 @@ use gdbstub::{
 	},
 };
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
+use spin::mutex::Mutex;
 
-use crate::cpu::{WhiskerExecState, WhiskerExecStatus};
+use crate::cpu::{WhiskerExecState, WhiskerExecStatus, MEMORY};
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
@@ -139,6 +144,21 @@ impl Target for WhiskerCpu {
 	}
 }
 
+static GDB_FAKE_HART: LazyLock<Mutex<WhiskerHart>> = LazyLock::new(|| {
+	let mut hart = WhiskerHart::new(
+		HartId::DEBUG_HARTID,
+		RiscvExtensions::INTEGER
+			| RiscvExtensions::FLOAT
+			| RiscvExtensions::COMPRESSED
+			| RiscvExtensions::ATOMIC
+			| RiscvExtensions::MULTIPLY,
+		0x1000,
+	);
+	hart.debug = true;
+
+	Mutex::new(hart)
+});
+
 // FIXME: multi-hart
 impl SingleThreadBase for WhiskerCpu {
 	fn read_registers(
@@ -156,7 +176,6 @@ impl SingleThreadBase for WhiskerCpu {
 		&mut self,
 		regs: &<Self::Arch as gdbstub::arch::Arch>::Registers,
 	) -> gdbstub::target::TargetResult<(), Self> {
-		assert_eq!(regs.x[0], 0, "tried to write non-zero to x0(zero) register");
 		let hart = &mut self.harts[0];
 		hart.registers.set_all(&regs.x);
 		hart.fp_registers.set_all_raw(&regs.f.map(f64::to_bits));
@@ -166,31 +185,50 @@ impl SingleThreadBase for WhiskerCpu {
 
 	fn read_addrs(
 		&mut self,
-		_start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		_data: &mut [u8],
+		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		data: &mut [u8],
 	) -> gdbstub::target::TargetResult<usize, Self> {
-		// FIXME: poking mem directly with GDB is not yet implemented for new mem - there should be a function for this
-		return Err(TargetError::Errno(121));
-		/*match self.read_slice(start_addr, data) {
-			Ok(()) => Ok(data.len()),
-			// FIXME: does this do what we want
-			Err(addr) => Ok((addr - start_addr) as usize),
-		}*/
+		let mut mem = MEMORY.wait().lock();
+		let mut hart = GDB_FAKE_HART.lock();
+
+		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
+			match mem.read_u8(&mut hart, addr, ReadKind::Normal) {
+				Ok(val) => data[idx] = val,
+				Err(_) => {
+					if idx == 0 {
+						// if no bytes were read, report a fault error
+						return Err(TargetError::Errno(0x0E));
+					} else {
+						// if an access errors, return the length that has been sucessfully read so far
+						return Ok(idx);
+					}
+				}
+			}
+		}
+
+		Ok(data.len())
 	}
 
 	fn write_addrs(
 		&mut self,
-		_start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		_data: &[u8],
+		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		data: &[u8],
 	) -> gdbstub::target::TargetResult<(), Self> {
-		// FIXME: poking mem directly with GDB is not yet implemented for new mem - there should be a function for this
-		return Err(TargetError::Errno(121));
-		/*
-		match self.write_slice(HartId::HART0, start_addr, data) {
-			Ok(()) => Ok(()),
-			// EREMOTEIO - causes gdb to report "cannot access memory at <start_addr>"
-			Err(_addr) => Err(TargetError::Errno(121)),
-		}*/
+		let mut mem = MEMORY.wait().lock();
+		let mut hart = GDB_FAKE_HART.lock();
+
+		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
+			let val = data[idx];
+			match mem.write_u8(&mut hart, addr, WriteKind::Normal, val) {
+				Ok(()) => {}
+				Err(_) => {
+					// if writing failed for any reason, return an error
+					return Err(TargetError::Errno(0x0E));
+				}
+			}
+		}
+
+		Ok(())
 	}
 
 	fn support_resume(&mut self) -> Option<gdbstub::target::ext::base::singlethread::SingleThreadResumeOps<'_, Self>> {

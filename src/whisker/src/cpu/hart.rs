@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 use crate::tracing::*;
 use bitfield::bitfields;
 use num_conv::prelude::*;
-use rustc_hash::FxHashMap;
 
 use bitfield::prelude::*;
 
@@ -1951,6 +1950,7 @@ impl WhiskerHart {
 		}
 
 		writeln!(&mut out).unwrap();
+		/*
 		let fpregs = self.fp_registers.get_all_raw();
 		for idx in 0..32 {
 			let val = u64::from_le_bytes(fpregs[idx].to_le_bytes());
@@ -1964,6 +1964,7 @@ impl WhiskerHart {
 			)
 			.unwrap();
 		}
+		*/
 		out.push_str("\n\n");
 
 		out

@@ -54,6 +54,9 @@ enum Commands {
 		fs_img: Option<PathBuf>,
 		#[arg(short = 'g', long)]
 		use_gdb: bool,
+		#[arg(long)]
+		/// set to true to just load the passed file into memory at DRAM_BASE
+		raw_kernel: bool,
 		#[arg()]
 		bootrom: PathBuf,
 		#[arg()]
@@ -133,12 +136,13 @@ fn main() {
 			use_gdb: gdb,
 			bootrom,
 			kernel,
+			raw_kernel,
 			logfile,
 			fs_img,
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
-			let cpu = init_cpu(bootrom, kernel, logfile, NUM_HARTS, fs_img.as_deref());
+			let cpu = init_cpu(bootrom, kernel, raw_kernel, logfile, NUM_HARTS, fs_img.as_deref());
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -156,6 +160,7 @@ const DRAM_SIZE: u64 = 0x1000_0000;
 fn init_cpu(
 	bootrom: PathBuf,
 	kernel: PathBuf,
+	raw_kernel: bool,
 	logfile: Option<PathBuf>,
 	num_harts: u16,
 	fs_img: Option<&Path>,
@@ -165,19 +170,6 @@ fn init_cpu(
 	bootrom_data.resize(0x1000, 0);
 
 	let kernel_data = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
-
-	let elf = ElfFile::parse(Cursor::new(&kernel_data))
-		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", kernel.display()));
-
-	if elf.isa != ISA::RiscV {
-		panic!("ELF file is not for RISC-V architecture");
-	}
-	if elf.class != Class::X64 {
-		panic!("ELF file is not 64-bit");
-	}
-	if elf.endianness != Endianness::Little {
-		panic!("ELF file is not little-endian");
-	}
 
 	let supported = RiscvExtensions::INTEGER
 		| RiscvExtensions::FLOAT
@@ -221,29 +213,18 @@ fn init_cpu(
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		));
 
-	// load the ELF into main memory
-	let mut main_mem_backing = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
-	for program_header in &elf.program_headers {
-		if program_header.ty == ProgramHeaderType::PT_LOAD {
-			let file_offset = program_header.offset as usize;
-			let mem_offset = (program_header.physical_address - DRAM_BASE) as usize;
-			let len = program_header.size_in_file as usize;
+	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
 
-			let file_data = &kernel_data[file_offset..(file_offset + program_header.size_in_file as usize)];
-
-			main_mem_backing[mem_offset..][..len].copy_from_slice(file_data);
-
-			info!(
-				"Loaded ELF segment: paddr={:#x}, size={:#x}, file_size={:#x}",
-				program_header.physical_address, program_header.size_in_memory, program_header.size_in_file
-			);
-		}
+	if raw_kernel {
+		main_mem[..kernel_data.len()].copy_from_slice(kernel_data.as_slice());
+	} else {
+		load_elf(kernel.as_path(), kernel_data.as_slice(), &mut main_mem);
 	}
 
 	mem_builder = mem_builder.add_region(MemoryRegion::new_main_mem(
 		DRAM_BASE,
 		DRAM_SIZE,
-		main_mem_backing,
+		main_mem,
 		AccessAttrs::new(
 			ACCESS_MAX_U64,
 			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
@@ -252,6 +233,38 @@ fn init_cpu(
 	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
 
 	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img)
+}
+
+fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) {
+	let elf = ElfFile::parse(Cursor::new(&kernel_data))
+		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", kernel_path.display()));
+
+	if elf.isa != ISA::RiscV {
+		panic!("ELF file is not for RISC-V architecture");
+	}
+	if elf.class != Class::X64 {
+		panic!("ELF file is not 64-bit");
+	}
+	if elf.endianness != Endianness::Little {
+		panic!("ELF file is not little-endian");
+	}
+
+	for program_header in &elf.program_headers {
+		if program_header.ty == ProgramHeaderType::PT_LOAD {
+			let file_offset = program_header.offset as usize;
+			let mem_offset = (program_header.physical_address - DRAM_BASE) as usize;
+			let len = program_header.size_in_file as usize;
+
+			let file_data = &kernel_data[file_offset..(file_offset + program_header.size_in_file as usize)];
+
+			main_mem[mem_offset..][..len].copy_from_slice(file_data);
+
+			info!(
+				"Loaded ELF segment: paddr={:#x}, size={:#x}, file_size={:#x}",
+				program_header.physical_address, program_header.size_in_memory, program_header.size_in_file
+			);
+		}
+	}
 }
 
 fn run_gdb(mut cpu: WhiskerCpu) {

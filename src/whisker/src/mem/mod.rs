@@ -48,22 +48,23 @@ macro_rules! impl_mem_read_write {
 	($($ty:ty),*$(,)*) => {
 		impl Memory {
 			paste::paste! {
-			    $(
-			    #[allow(dead_code)]
+				$(
+				#[allow(dead_code)]
 				pub fn [<read_ $ty:snake>](
 					&mut self,
 					hart: &mut WhiskerHart,
 					effective_addr: u64,
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
-				    let phys_addr = self.translate_addr(hart, effective_addr, kind.as_mem_op())?;
+					let phys_addr = self.translate_addr(hart, effective_addr, kind.as_mem_op())?;
 
 					let Some(region) = self.region_for_addr_mut(phys_addr) else {
 						let e = match kind {
-                            ReadKind::Normal | ReadKind::Atomic => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
-                            ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
-                        };
-                        return Err(e);
+							ReadKind::Normal | ReadKind::LoadReserved => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
+							ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
+							ReadKind::AMO => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+						};
+						return Err(e);
 					};
 					check_read_access(hart, region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
 
@@ -136,7 +137,7 @@ impl Memory {
 			hart,
 			region,
 			phys_addr,
-			ReadKind::Atomic,
+			ReadKind::LoadReserved,
 			core::mem::size_of::<u32>() as u8,
 		)?;
 
@@ -170,7 +171,7 @@ impl Memory {
 			hart,
 			region,
 			phys_addr,
-			ReadKind::Atomic,
+			ReadKind::LoadReserved,
 			core::mem::size_of::<u64>() as u8,
 		)?;
 
@@ -280,6 +281,34 @@ impl Memory {
 		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 		self.reservations.unreserve_hart(hart.hart_id());
 		ret
+	}
+
+	pub fn atomic_op_word<F: FnOnce(&mut WhiskerHart, u32) -> Option<u32>>(
+		&mut self,
+		hart: &mut WhiskerHart,
+		virt_addr: u64,
+		op: F,
+	) -> Result<u32, TrapRequestGuaranteed> {
+		// FIXME: maybe actually do atomics here
+		let word = self.read_u32(hart, virt_addr, ReadKind::AMO)?;
+		if let Some(replacement) = op(hart, word) {
+			self.write_u32(hart, virt_addr, WriteKind::Atomic, replacement)?;
+		}
+		Ok(word)
+	}
+
+	pub fn atomic_op_dword<F: FnOnce(&mut WhiskerHart, u64) -> Option<u64>>(
+		&mut self,
+		hart: &mut WhiskerHart,
+		virt_addr: u64,
+		op: F,
+	) -> Result<u64, TrapRequestGuaranteed> {
+		// FIXME: maybe actually do atomics here
+		let dword = self.read_u64(hart, virt_addr, ReadKind::AMO)?;
+		if let Some(replacement) = op(hart, dword) {
+			self.write_u64(hart, virt_addr, WriteKind::Atomic, replacement)?;
+		}
+		Ok(dword)
 	}
 }
 
@@ -443,7 +472,7 @@ macro_rules! impl_hw_read_write {
 
 impl_hw_read_write!(u8, u16, u32, u64);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct MemoryReservations {
 	/// map of hart ID to reservation base address
 	/// reservation base addresses are aligned to [`MemoryReservations::RESERVATION_SET_SIZE`]
@@ -453,6 +482,12 @@ struct MemoryReservations {
 impl MemoryReservations {
 	// MUST be a power of 2
 	const RESERVATION_SET_SIZE: u64 = 64;
+
+	pub fn new() -> Self {
+		Self {
+			reservations: vec![None; HartId::MAX_NUM_HARTS.extend::<usize>()],
+		}
+	}
 
 	/// sets the reservation for the the hart specified by `hart_id` to be `phys_addr`
 	fn reserve(&mut self, hart_id: HartId, phys_addr: u64) {
@@ -517,12 +552,20 @@ fn check_read_access(
 				"tried to fetch misaligned instruction (THIS SHOULD NEVER HAPPEN)"
 			);
 		}
-		ReadKind::Atomic => {
+		ReadKind::LoadReserved => {
 			if !access_kinds.contains(AccessKind::READ | AccessKind::ATOMIC) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 			}
 			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
 				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
+			}
+		}
+		ReadKind::AMO => {
+			if !access_kinds.contains(AccessKind::READ | AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+			}
+			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
 			}
 		}
 	}
@@ -582,15 +625,18 @@ pub enum ReadKind {
 	Normal,
 	/// reading memory as part of instructon fetching
 	Instruction,
-	/// reads for LR (note: not AMOs, those go through writes)
-	Atomic,
+	/// reads for LR
+	LoadReserved,
+	/// reads that are part of an AMO (which should also be considered to be a write)
+	AMO,
 }
 
 impl ReadKind {
 	pub fn as_mem_op(&self) -> MemoryOpKind {
 		match self {
-			ReadKind::Normal | ReadKind::Atomic => MemoryOpKind::Load,
+			ReadKind::Normal | ReadKind::LoadReserved => MemoryOpKind::Load,
 			ReadKind::Instruction => MemoryOpKind::Instruction,
+			ReadKind::AMO => MemoryOpKind::Store,
 		}
 	}
 }
@@ -727,7 +773,7 @@ impl MemoryBuilder {
 	pub fn build(self) -> Memory {
 		Memory {
 			regions: self.regions,
-			reservations: MemoryReservations::default(),
+			reservations: MemoryReservations::new(),
 			page_table_cache: BTreeMap::default(),
 		}
 	}

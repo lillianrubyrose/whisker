@@ -3,8 +3,6 @@ use crate::ty::GPRegisterIndex;
 use super::Instruction;
 
 #[derive(Debug, Clone)]
-// FIXME: reimpl atomics with new mem
-#[expect(unused)]
 pub enum AtomicInstruction {
 	LoadReservedWord {
 		src: GPRegisterIndex,

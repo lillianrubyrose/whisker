@@ -8,7 +8,7 @@ use std::thread;
 use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::prelude::*;
-use parking_lot::Mutex;
+use spin::Mutex;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::cpu::MEMORY;

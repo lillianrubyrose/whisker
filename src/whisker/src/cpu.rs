@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use parking_lot::Mutex;
+use spin::Mutex;
 
 use crate::tracing::*;
 

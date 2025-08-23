@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
-use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
+use spin::Mutex;
 
 pub mod uart;
 pub mod virtio_block;

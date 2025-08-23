@@ -28,6 +28,7 @@ command-fds = "0.3.2"
 bytemuck = { version = "1.23.1", features = ["derive"] }
 
 bitfield = { path = "../bitfield" }
+spin = "0.10.0"
 
 [features]
 tracing = []

@@ -9,8 +9,8 @@ use std::{env, thread};
 use bitfield::prelude::*;
 use command_fds::{CommandFdExt as _, FdMapping};
 use num_conv::Truncate;
-use parking_lot::Mutex;
 use socketpair::socketpair_stream;
+use spin::Mutex;
 
 use crate::tracing::*;
 

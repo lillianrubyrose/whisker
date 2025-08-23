@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::tracing::*;
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
-use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
+use spin::Mutex;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::mem::mmio::MMIODevice;

@@ -1,10 +1,10 @@
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::ops::Deref;
 
 use crate::tracing::*;
 use bitfield::{prelude::*, BitField};
 use num_conv::prelude::*;
-use rustc_hash::FxHashMap;
 
 use crate::cpu::hart::{MStatus, WhiskerHart};
 use crate::ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
@@ -83,8 +83,8 @@ macro_rules! read_write_trivial {
 	};
 }
 
-pub fn create_info() -> FxHashMap<CSRIndex, CSRInfo> {
-	let mut reg_info = FxHashMap::default();
+pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
+	let mut reg_info = BTreeMap::default();
 	reg_info.extend([
 		// machine information registers
 		// TODO: actually impl these maybe?

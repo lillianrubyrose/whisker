@@ -1,5 +1,6 @@
 use std::assert_matches::assert_matches;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::tracing::*;
@@ -39,7 +40,7 @@ pub struct WhiskerHart {
 
 	pub cycles: u64,
 
-	pub csr_info: FxHashMap<CSRIndex, CSRInfo>,
+	pub csr_info: BTreeMap<CSRIndex, CSRInfo>,
 
 	/// scratch register for trap handlers
 	pub mscratch: u64,

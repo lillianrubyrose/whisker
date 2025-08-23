@@ -252,6 +252,7 @@ pub enum IntInstruction {
 	Fence {
 		// FIXME: implemnt fence maybe?
 	},
+	InstructionFence,
 
 	// =========
 	// SYSTEM

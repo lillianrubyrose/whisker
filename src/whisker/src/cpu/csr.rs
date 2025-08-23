@@ -63,6 +63,8 @@ define_csrs!(
     // supervisor protection and translation
     satp,       0x180,
 
+    fflags,     0x001,
+    frm,        0x002,
     fcsr,       0x003,
 );
 
@@ -118,6 +120,18 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		(SIP, CSRInfo::new_read_write(read_sip, write_sip)),
 		// supervisor protection and translation
 		(SATP, CSRInfo::new_read_write(read_satp, write_satp)),
+		(
+			FFLAGS,
+			CSRInfo::new_read_write(
+				|hart| read_fcsr(hart) & 0b11111,
+				|hart, val| write_fcsr(hart, val & 0b11111),
+			),
+		),
+		(
+			FRM,
+			CSRInfo::new_read_write(|hart| read_fcsr(hart) >> 5, |hart, val| write_fcsr(hart, val >> 5)),
+		),
+		(FCSR, CSRInfo::new_read_write(read_fcsr, write_fcsr)),
 	]);
 	reg_info
 }
@@ -166,23 +180,6 @@ impl WhiskerHart {
 			CSROps::ReadWrite(read, _) => read,
 		};
 		read(self)
-
-		/*
-		match idx {
-			// MISA must always match the current cpu extension state
-			MISA => self.read_misa(),
-			MHARTID => self.hart_id().inner().extend(),
-
-			// =========================================
-			// supervisor level CSRs
-			// most of these need to be restricted views
-			// =========================================
-			SSTATUS => self.read_sstatus(),
-
-			// registers that need no special handling
-			_ => self.csrs.0[idx.as_idx()].val,
-		}
-		*/
 	}
 
 	pub fn write_csr(&mut self, token: &CSRReadWriteToken, val: u64) {
@@ -192,18 +189,6 @@ impl WhiskerHart {
 			CSROps::ReadWrite(_, write) => write,
 		};
 		write(self, val);
-
-		/*
-		match idx {
-			MSTATUS => self.write_mstatus(val),
-			// we do not support modifying MISA so writes must be ignored
-			MISA => (),
-			MIE => self.write_mie(val),
-			MIP => self.write_mip(val),
-			// registers that need no special handling, or missing registers
-			_ => self.csrs.0[idx.as_idx()].val = val,
-		}
-		*/
 	}
 
 	/// reads a csr without checks for existence or permissions
@@ -354,6 +339,14 @@ fn write_satp(hart: &mut WhiskerHart, val: u64) {
 	}
 
 	hart.translation_config.set_inner(val.to_le_bytes());
+}
+
+fn read_fcsr(hart: &mut WhiskerHart) -> u64 {
+	u8::from_le_bytes(hart.float_status_control.inner()).extend::<u64>()
+}
+fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
+	let val = val.truncate::<u8>();
+	hart.float_status_control.set_inner([val]);
 }
 
 /// INVARIANT: holds a valid CSR index (0..NUM_CSRS)

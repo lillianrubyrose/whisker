@@ -6,6 +6,7 @@ pub fn parse_misc_mem(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction
 	let itype = IType::parse(parcel);
 	match itype.func() {
 		FENCE => parse_fence(hart, itype),
+		FENCE_I => Some(IntInstruction::InstructionFence.into()),
 		// FIXME: are there any other MISC-MEM instructions?
 		_ => unreachable!("MISC-MEM func={:#05b}", itype.func()),
 	}
@@ -24,4 +25,5 @@ fn parse_fence(_: &mut WhiskerHart, _itype: IType) -> Option<Instruction> {
 
 pub mod consts {
 	pub const FENCE: u8 = 0b000;
+	pub const FENCE_I: u8 = 0b001;
 }

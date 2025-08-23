@@ -121,6 +121,62 @@ pub enum FloatInstruction {
 		sub: FPRegisterIndex,
 		rm: RoundingMode,
 	},
+
+	ConvertSingleToWord {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertSingleToWordUnsigned {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertSingleToDoubleWord {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertSingleToDoubleWordUnsigned {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+		rm: RoundingMode,
+	},
+
+	ConvertWordToSingle {
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertWordUnsignedToSingle {
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertDoubleWordToSingle {
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
+		rm: RoundingMode,
+	},
+	ConvertDoubleWordUnsignedToSingle {
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
+		rm: RoundingMode,
+	},
+
+	MoveSingleToInteger {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+	},
+	MoveIntegerToSingle {
+		dst: FPRegisterIndex,
+		src: GPRegisterIndex,
+	},
+
+	Class {
+		dst: GPRegisterIndex,
+		src: FPRegisterIndex,
+	},
 }
 
 impl Into<Instruction> for FloatInstruction {

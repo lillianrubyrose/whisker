@@ -1,8 +1,21 @@
+use bitfield::prelude::*;
+
 use crate::cpu::csr;
 use crate::cpu::hart::WhiskerHart;
 
 pub mod double;
 pub mod float;
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct FloatStatusControl {
+	inexact: bool,
+	underflow: bool,
+	overflow: bool,
+	div_by_zero: bool,
+	invalid_operation: bool,
+	rounding_mode: RoundingMode,
+}
 
 /// Defined on unpriv isa page 119
 #[derive(Debug, Clone, Copy)]
@@ -41,7 +54,7 @@ impl FClass {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, BitFieldRepr)]
 pub enum RoundingMode {
 	/// Round to Nearest, ties to Even
 	///
@@ -82,7 +95,7 @@ impl RoundingMode {
 		}
 	}
 
-	pub const fn to_u8(self) -> u8 {
+	pub const fn as_u8(self) -> u8 {
 		match self {
 			RoundingMode::RoundToNearestTieEven => 0b000,
 			RoundingMode::RoundTowardsZero => 0b001,

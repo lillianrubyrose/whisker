@@ -32,6 +32,11 @@ impl<T> RegisterIndex<T> {
 		debug_assert!(self.0 <= 31);
 		usize::from(self.0 & 0b11111)
 	}
+
+	pub fn as_u8(&self) -> u8 {
+		debug_assert!(self.0 <= 31);
+		self.0 & 0b11111
+	}
 }
 
 impl UnknownRegisterIndex {

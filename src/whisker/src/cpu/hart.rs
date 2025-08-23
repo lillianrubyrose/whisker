@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use crate::soft::float::SoftFloat;
 use crate::tracing::*;
 use bitfield::bitfields;
 use num_conv::prelude::*;
@@ -13,7 +14,7 @@ use crate::cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, Interru
 use crate::insn::*;
 use crate::mem::{ReadKind, WriteKind};
 use crate::regs::{FPRegisters, GPRegisters};
-use crate::soft::ExceptionFlags;
+use crate::soft::{ExceptionFlags, FloatStatusControl};
 use crate::ty::{
 	ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed,
 };
@@ -60,6 +61,8 @@ pub struct WhiskerHart {
 	pub sepc: u64,
 	pub scause: TrapIdx,
 	pub stval: u64,
+
+	pub float_status_control: FloatStatusControl,
 
 	pub translation_config: AddressTranslationConfig,
 
@@ -143,6 +146,8 @@ impl WhiskerHart {
 			// FIXME: better sentinel?
 			scause: TrapIdx::exception(0),
 			stval: 0,
+
+			float_status_control: FloatStatusControl::new(),
 
 			translation_config: AddressTranslationConfig::new(),
 			last_instruction: None,
@@ -834,9 +839,9 @@ impl WhiskerHart {
 				self.registers.set(dst, result as i64 as u64);
 			}
 
-			IntInstruction::Fence { .. } => {
-				// we don't do reordering, fence is a no-op
-			}
+			// we don't do reordering, fence is a no-op
+			IntInstruction::Fence { .. } => {}
+			IntInstruction::InstructionFence => {}
 
 			// =========
 			// SYSTEM
@@ -1011,8 +1016,6 @@ impl WhiskerHart {
 					}
 				}
 			}
-			//FLT.S and FLE.S perform what the IEEE 754-2008 standard refers to as signaling comparisons: that is,
-			//they set the invalid operation exception flag if either input is NaN.
 			FloatInstruction::LessThanSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
@@ -1042,6 +1045,38 @@ impl WhiskerHart {
 						self.write_csr_unchecked(csr::FCSR, val | u64::from(ExceptionFlags::FLAG_INVALID));
 					}
 				}
+			}
+			FloatInstruction::ConvertSingleToWord { dst, src, rm } => todo!("convert single to word"),
+			FloatInstruction::ConvertSingleToWordUnsigned { dst, src, rm } => todo!("convert single to word unsigned"),
+			FloatInstruction::ConvertSingleToDoubleWord { dst, src, rm } => todo!("convert single to double word"),
+			FloatInstruction::ConvertSingleToDoubleWordUnsigned { dst, src, rm } => {
+				todo!("convert single to double word unsigned")
+			}
+			FloatInstruction::ConvertWordToSingle { dst, src, rm } => todo!("convert word to single"),
+			FloatInstruction::ConvertWordUnsignedToSingle { dst, src, rm } => todo!("convert word unsigned to single"),
+			FloatInstruction::ConvertDoubleWordToSingle { dst, src, rm } => todo!("convert double word to single"),
+			FloatInstruction::ConvertDoubleWordUnsignedToSingle { dst, src, rm } => {
+				todo!("convert double word unsigned to single")
+			}
+			FloatInstruction::MoveSingleToInteger { dst, src } => {
+				// the high 32 bits of the destination register are filled with copies of the float's sign bit
+				let val = self
+					.fp_registers
+					.get_raw(src)
+					.truncate::<u32>()
+					.cast_signed()
+					.extend::<i64>()
+					.cast_unsigned();
+				self.registers.set(dst, val);
+			}
+			FloatInstruction::MoveIntegerToSingle { dst, src } => {
+				let val = self.registers.get(src).truncate::<u32>();
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(val));
+			}
+			FloatInstruction::Class { dst, src } => {
+				let val = self.fp_registers.get_float(src);
+				let class = val.fclass();
+				self.registers.set(dst, class.to_shift().extend::<u64>());
 			}
 		}
 		Ok(())

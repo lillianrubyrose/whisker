@@ -4,12 +4,11 @@ use std::sync::Arc;
 use crate::tracing::*;
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
-use rustc_hash::FxHashMap;
 use spin::Mutex;
 
 use crate::cpu::hart::WhiskerHart;
 use crate::mem::mmio::MMIODevice;
-use crate::ty::{HartId, HartMode, TrapIdx};
+use crate::ty::{HartId, TrapIdx};
 
 /// INVARIANT: a valid interrupt source in range 1..=1023
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -44,7 +43,8 @@ pub struct PlatformInterruptController {
 	/// which interrupt sources have been claimed
 	claimed: [u32; MAX_IRQ_SOURCES / 32],
 
-	context_info: FxHashMap<ContextId, ContextInfo>,
+	/// map of context id to info
+	context_info: Vec<ContextInfo>,
 }
 
 /// turns an IRQ number into an index and bit index
@@ -56,15 +56,7 @@ impl PlatformInterruptController {
 	pub fn new(num_harts: u16) -> (Sender<InterruptMessage>, Arc<Mutex<Self>>) {
 		let (tx, rx) = mpsc::channel();
 
-		let context_info = (0..num_harts)
-			.flat_map(|hart_id| {
-				let hart_id = HartId::new(hart_id);
-				let m_context = ContextId::new_m_mode(hart_id);
-				let s_context = ContextId::new_s_mode(hart_id);
-
-				[(m_context, ContextInfo::default()), (s_context, ContextInfo::default())]
-			})
-			.collect();
+		let context_info = vec![ContextInfo::default(); num_harts.extend::<usize>() * 2];
 
 		let this = Arc::new(Mutex::new(Self {
 			interrupt_rx: rx,
@@ -89,10 +81,10 @@ impl PlatformInterruptController {
 			}
 		}
 
-		for context in self.context_info.keys().copied() {
-			let hart = &mut harts[context.hart_id().inner() as usize];
-			let is_irq_avail = self.best_irq_for_context(context).is_some();
-			hart.set_interrupt_pending(context.external_interrupt_trap_idx(), is_irq_avail);
+		for context_id in 0..self.context_info.len() {
+			let hart = &mut harts[context_as_hart_idx(context_id)];
+			let is_irq_avail = self.best_irq_for_context(context_id).is_some();
+			hart.set_interrupt_pending(context_external_interrupt_trap_idx(context_id), is_irq_avail);
 		}
 	}
 }
@@ -116,15 +108,15 @@ impl MMIODevice for PlatformInterruptController {
 				*out = self.pending[source_idx];
 			}
 			ENABLE_REG_MIN..ENABLE_REG_MAX => {
-				let offset = offset - ENABLE_REG_MIN;
-				let context = ContextId::new((offset / 0x80) as u16);
-				let idx = (offset % 80) as usize;
-				*out = self.context_info.get_mut(&context).unwrap().enabled[idx];
+				let offset = (offset - ENABLE_REG_MIN) as usize;
+				let context = offset / 0x80;
+				let idx = offset % 80;
+				*out = self.context_info.get(context).unwrap().enabled[idx];
 			}
 			CONTEXT_REG_MIN..CONTEXT_REG_MAX => {
-				let offset = offset - CONTEXT_REG_MIN;
-				let context_id = ContextId::new((offset / 0x1000) as u16);
-				let context = self.context_info.get_mut(&context_id).unwrap();
+				let offset = (offset - CONTEXT_REG_MIN) as usize;
+				let context_id = offset / 0x1000;
+				let context = self.context_info.get_mut(context_id).unwrap();
 				match offset % 0x1000 {
 					0 => *out = context.priority,
 					4 => *out = self.do_claim(context_id),
@@ -155,9 +147,9 @@ impl MMIODevice for PlatformInterruptController {
 			// interrupt pending bits are not writeable
 			PENDING_REG_MIN..PENDING_REG_MAX => todo!("should we trap on trying to write to IP bits?"),
 			ENABLE_REG_MIN..ENABLE_REG_MAX => {
-				let offset = offset - ENABLE_REG_MIN;
-				let context = ContextId::new((offset / 0x80) as u16);
-				let idx = (offset % 0x80) as usize;
+				let offset = (offset - ENABLE_REG_MIN) as usize;
+				let context = offset / 0x80;
+				let idx = offset % 0x80;
 
 				trace!(
 					"setting context {:?} enabled idx {:#04X} to {:#032b}",
@@ -166,12 +158,12 @@ impl MMIODevice for PlatformInterruptController {
 					val
 				);
 
-				self.context_info.get_mut(&context).unwrap().enabled[idx] = val;
+				self.context_info.get_mut(context).unwrap().enabled[idx] = val;
 			}
 			CONTEXT_REG_MIN..CONTEXT_REG_MAX => {
-				let offset = offset - CONTEXT_REG_MIN;
-				let context_id = ContextId::new((offset / 0x1000) as u16);
-				let context = self.context_info.get_mut(&context_id).unwrap();
+				let offset = (offset - CONTEXT_REG_MIN) as usize;
+				let context_id = offset / 0x1000;
+				let context = self.context_info.get_mut(context_id).unwrap();
 				match offset % 0x1000 {
 					0 => {
 						trace!("setting context {:?} priority threshold to {}", context_id, val);
@@ -189,8 +181,8 @@ impl MMIODevice for PlatformInterruptController {
 }
 
 impl PlatformInterruptController {
-	fn best_irq_for_context(&self, context: ContextId) -> Option<InterruptSource> {
-		let info = &self.context_info[&context];
+	fn best_irq_for_context(&self, context: usize) -> Option<InterruptSource> {
+		let info = &self.context_info[context];
 
 		let mut best_irq = None;
 		let mut best_prio = info.priority;
@@ -241,7 +233,7 @@ impl PlatformInterruptController {
 		best_irq
 	}
 
-	fn do_claim(&mut self, context: ContextId) -> u32 {
+	fn do_claim(&mut self, context: usize) -> u32 {
 		match self.best_irq_for_context(context) {
 			Some(irq) => {
 				trace!("context {:?} claimed irq {:?}", context, irq);
@@ -258,7 +250,7 @@ impl PlatformInterruptController {
 		}
 	}
 
-	fn do_complete(&mut self, context: ContextId, irq: u16) {
+	fn do_complete(&mut self, context: usize, irq: u16) {
 		trace!("context {:?} completed irq {}", context, irq);
 		let (idx, bit_idx) = irq_to_idx(irq);
 		let mask = 1 << bit_idx;
@@ -295,49 +287,21 @@ impl InterruptMessage {
 	}
 }
 
-/// an interrupt "context", which defines a hart and mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct ContextId(u16);
+pub const MAX_NUM_CONTEXTS: u64 = HartId::MAX_NUM_HARTS as u64 * 2;
 
-impl ContextId {
-	pub const MAX_NUM_CONTEXTS: u64 = HartId::MAX_NUM_HARTS as u64 * 2;
+fn context_as_hart_idx(context_id: usize) -> usize {
+	context_id >> 1
+}
 
-	pub fn new_m_mode(hart_id: HartId) -> Self {
-		Self(hart_id.inner() << 1)
-	}
-
-	pub fn new_s_mode(hart_id: HartId) -> Self {
-		Self((hart_id.inner() << 1) + 1)
-	}
-
-	pub fn new(context: u16) -> Self {
-		debug_assert!(context.extend::<u64>() < Self::MAX_NUM_CONTEXTS);
-		Self(context)
-	}
-
-	pub fn hart_id(self) -> HartId {
-		HartId::new(self.0 >> 1)
-	}
-
-	/// get the appropriate [`TrapIdx`] for this context to signal an external interrupt
-	pub fn external_interrupt_trap_idx(self) -> TrapIdx {
-		match self.mode() {
-			HartMode::Supervisor => TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT,
-			HartMode::Machine => TrapIdx::MACHINE_EXTERNAL_INTERRUPT,
-			_ => unreachable!("only M and S mode contexts supported"),
-		}
-	}
-
-	fn mode(self) -> HartMode {
-		if self.0 & 1 == 0 {
-			HartMode::Machine
-		} else {
-			HartMode::Supervisor
-		}
+fn context_external_interrupt_trap_idx(context_id: usize) -> TrapIdx {
+	match context_id & 1 {
+		0 => TrapIdx::MACHINE_EXTERNAL_INTERRUPT,
+		1 => TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT,
+		_ => unreachable!("only M and S mode contexts supported"),
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct ContextInfo {
 	/// which sources are enabled for this context
 	/// each source has one bit at index `source/32`, bit `source%32`
@@ -358,5 +322,5 @@ mod addrs {
 	pub const ENABLE_REG_MIN: u64 = 0x2000;
 	pub const ENABLE_REG_MAX: u64 = ENABLE_REG_MIN + 0x1F0000;
 	pub const CONTEXT_REG_MIN: u64 = 0x200000;
-	pub const CONTEXT_REG_MAX: u64 = CONTEXT_REG_MIN + 0x1000 * ContextId::MAX_NUM_CONTEXTS;
+	pub const CONTEXT_REG_MAX: u64 = CONTEXT_REG_MIN + 0x1000 * MAX_NUM_CONTEXTS;
 }

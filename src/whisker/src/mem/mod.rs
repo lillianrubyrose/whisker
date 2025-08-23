@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use crate::tracing::*;
 use bitflags::bitflags;
-use rustc_hash::FxHashMap;
+use num_conv::Extend;
 
 pub mod mmio;
 
@@ -18,13 +19,13 @@ pub const MEM_PAGE_SIZE: u64 = 4096;
 
 #[derive(Debug)]
 pub struct Memory {
+	/// cache of page base addresses to physical addresses
+	page_table_cache: BTreeMap<u64, u64>,
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
 	regions: Vec<MemoryRegion>,
 
 	reservations: MemoryReservations,
-	/// cache of page base addresses to physical addresses
-	page_table_cache: FxHashMap<u64, u64>,
 }
 
 impl Memory {
@@ -446,7 +447,7 @@ impl_hw_read_write!(u8, u16, u32, u64);
 struct MemoryReservations {
 	/// map of hart ID to reservation base address
 	/// reservation base addresses are aligned to [`MemoryReservations::RESERVATION_SET_SIZE`]
-	reservations: FxHashMap<HartId, u64>,
+	reservations: Vec<Option<u64>>,
 }
 
 impl MemoryReservations {
@@ -456,26 +457,27 @@ impl MemoryReservations {
 	/// sets the reservation for the the hart specified by `hart_id` to be `phys_addr`
 	fn reserve(&mut self, hart_id: HartId, phys_addr: u64) {
 		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
-		self.reservations.insert(hart_id, aligned_addr);
+		self.reservations[hart_id.inner().extend::<usize>()] = Some(aligned_addr);
 	}
 
 	/// unreserves `phys_addr` for all harts *other* than the hart specified by `hart_id`
 	fn unreserve_addr_other_harts(&mut self, hart_id: HartId, phys_addr: u64) {
 		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
-		self.reservations
-			.retain(|hart, addr| *hart == hart_id || *addr != aligned_addr);
+		self.reservations.iter_mut().enumerate().for_each(|(idx, addr)| {
+			if idx != hart_id.inner().extend() && addr.is_some_and(|a| a == aligned_addr) {
+				*addr = None;
+			}
+		});
 	}
 
 	/// removes the reservation from the hart specified by `hart_id`, if any exist
 	fn unreserve_hart(&mut self, hart_id: HartId) {
-		self.reservations.remove(&hart_id);
+		self.reservations[hart_id.inner().extend::<usize>()] = None;
 	}
 
 	fn is_reserved_by_hart(&self, phys_addr: u64, hart_id: HartId) -> bool {
 		let aligned_addr = phys_addr & !(Self::RESERVATION_SET_SIZE - 1);
-		self.reservations
-			.get(&hart_id)
-			.is_some_and(|addr| *addr == aligned_addr)
+		self.reservations[hart_id.inner().extend::<usize>()].is_some_and(|addr| addr == aligned_addr)
 	}
 }
 
@@ -726,7 +728,7 @@ impl MemoryBuilder {
 		Memory {
 			regions: self.regions,
 			reservations: MemoryReservations::default(),
-			page_table_cache: FxHashMap::default(),
+			page_table_cache: BTreeMap::default(),
 		}
 	}
 }

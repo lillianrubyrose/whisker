@@ -1,4 +1,5 @@
 #![feature(assert_matches)]
+#![feature(cold_path)]
 
 mod cpu;
 mod gdb;

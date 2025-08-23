@@ -27,6 +27,7 @@ impl Memory {
 		let phys_addr = if let Some(virt_base) = self.page_table_cache.get(&page) {
 			virt_base + (addr & (PAGE_SIZE - 1))
 		} else {
+			core::hint::cold_path();
 			let phys_addr = match hart.translation_config.get_mode() {
 				AddressTranslationMode::Bare => addr,
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,

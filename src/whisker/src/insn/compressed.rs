@@ -1,6 +1,6 @@
 use super::Instruction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CompressedInstruction {
 	Nop,
 }

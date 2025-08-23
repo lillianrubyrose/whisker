@@ -2,7 +2,7 @@ use crate::ty::GPRegisterIndex;
 
 use super::Instruction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 // FIXME: reimpl atomics with new mem
 #[expect(unused)]
 pub enum AtomicInstruction {

@@ -2,7 +2,7 @@ use crate::ty::GPRegisterIndex;
 
 use super::Instruction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MultiplyInstruction {
 	Multiply {
 		lhs: GPRegisterIndex,

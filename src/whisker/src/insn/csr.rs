@@ -2,7 +2,7 @@ use crate::cpu::csr::CSRIndex;
 use crate::insn::Instruction;
 use crate::ty::GPRegisterIndex;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CSRInstruction {
 	CSRReadWrite {
 		dst: GPRegisterIndex,

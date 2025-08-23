@@ -1,4 +1,5 @@
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -48,6 +49,8 @@ pub struct WhiskerCpu {
 	pub breakpoints: FxHashSet<u64>,
 
 	pub interrupt_controller: Arc<Mutex<PlatformInterruptController>>,
+
+	logfile: Option<File>,
 }
 
 impl WhiskerCpu {
@@ -60,8 +63,6 @@ impl WhiskerCpu {
 	) -> Self {
 		assert!(0 < num_harts && num_harts <= HartId::MAX_NUM_HARTS);
 
-		// FIXME: logfile
-		#[expect(unused)]
 		let logfile = logfile.map(|path| {
 			OpenOptions::new()
 				.write(true)
@@ -98,6 +99,7 @@ impl WhiskerCpu {
 			harts,
 
 			interrupt_controller,
+			logfile,
 		}
 	}
 
@@ -117,6 +119,11 @@ impl WhiskerCpu {
 		}
 
 		hart.step();
+
+		if let Some(f) = &mut self.logfile {
+			let dump = hart.dump();
+			f.write_all(dump.as_bytes()).unwrap();
+		}
 
 		Ok(())
 	}

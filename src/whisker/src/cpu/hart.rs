@@ -63,6 +63,9 @@ pub struct WhiskerHart {
 	pub stval: u64,
 
 	pub translation_config: AddressTranslationConfig,
+
+	/// for debugging
+	last_instruction: Option<Instruction>,
 }
 
 #[bitfields]
@@ -143,6 +146,7 @@ impl WhiskerHart {
 			stval: 0,
 
 			translation_config: AddressTranslationConfig::new(),
+			last_instruction: None,
 		};
 		this
 	}
@@ -198,6 +202,7 @@ impl WhiskerHart {
 			Ok((inst, size)) => {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
+				self.last_instruction = Some(inst.clone());
 				self.execute_instruction(inst);
 			}
 			// trap was requested during decoding
@@ -205,7 +210,6 @@ impl WhiskerHart {
 		}
 
 		self.pc = self.next_pc;
-		self.dump();
 	}
 
 	/// requests the specified trap to happen
@@ -1930,10 +1934,13 @@ impl WhiskerHart {
 		self.pc = pc;
 	}
 
-	fn dump(&mut self) {
-		// FIXME: uhhhhhh do this better
-		return;
-		let mut out = format!("state after cycle {}\n", self.cycles);
+	pub fn dump(&mut self) -> String {
+		let mut out = format!("{:?} cycle {}\n", self.hart_id, self.cycles);
+		if let Some(i) = &self.last_instruction {
+			writeln!(&mut out, "  executed {:?}\n\n", i).unwrap();
+		}
+
+		writeln!(&mut out, "  state after cycle:\n").unwrap();
 		writeln!(&mut out, "    pc: {:#018X}\n", self.pc).unwrap();
 		let regs = self.registers.regs();
 		for idx in 0..32 {
@@ -1959,6 +1966,6 @@ impl WhiskerHart {
 		}
 		out.push_str("\n\n");
 
-		trace!("{}", out);
+		out
 	}
 }

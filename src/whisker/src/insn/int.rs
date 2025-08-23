@@ -2,7 +2,7 @@ use crate::ty::GPRegisterIndex;
 
 use super::Instruction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntInstruction {
 	LoadUpperImmediate {
 		dst: GPRegisterIndex,

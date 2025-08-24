@@ -1224,11 +1224,11 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |hart, word| {
-					// put (src1) value into rd
-					hart.registers.set(dst, u64::from(word));
-
 					// swap src2 to (src1)
 					let src2_val = hart.registers.get(src2);
+
+					// put (src1) value into rd
+					hart.registers.set(dst, u64::from(word));
 					Some(src2_val as u32)
 				})?;
 			}
@@ -1243,12 +1243,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// add src2 value to (src1)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word.wrapping_add(src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1264,12 +1264,12 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// xor src2 value with (src1)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word ^ src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1284,12 +1284,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// and src2 value with (src1)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word & src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1304,12 +1304,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// or src2 value with (src1)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = word | src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1324,12 +1324,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// min of src2 value and (src1) (signed)
 					let src2_val = this.registers.get(src2) as i32;
 					let new_val = std::cmp::min(word as i32, src2_val) as u32;
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1344,12 +1344,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// max of src2 value and (src1) (signed)
 					let src2_val = this.registers.get(src2) as i32;
 					let new_val = std::cmp::max(word as i32, src2_val) as u32;
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1364,12 +1364,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// min of src2 value and (src1) (unsigned)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = std::cmp::min(word, src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1384,12 +1384,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
-					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
-
 					// max of src2 value and (src1) (unsigned)
 					let src2_val = this.registers.get(src2) as u32;
 					let new_val = std::cmp::max(word, src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, u64::from(word));
 					Some(new_val)
 				})?;
 			}
@@ -1425,11 +1425,11 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// swap src2 to (src1)
 					let src2_val = this.registers.get(src2);
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(src2_val)
 				})?;
 			}
@@ -1444,12 +1444,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// add src2 value to (src1)
 					let src2_val = this.registers.get(src2);
 					let new_val = dword.wrapping_add(src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1464,12 +1464,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// xor src2 value with (src1)
 					let src2_val = this.registers.get(src2);
 					let new_val = dword ^ src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1484,12 +1484,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// and src2 value with (src1)
 					let src2_val = this.registers.get(src2);
 					let new_val = dword & src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1504,12 +1504,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// or src2 value with (src1)
 					let src2_val = this.registers.get(src2);
 					let new_val = dword | src2_val;
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1524,12 +1524,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// min of src2 value and (src1) (signed)
 					let src2_val = this.registers.get(src2) as i64;
 					let new_val = std::cmp::min(dword as i64, src2_val) as u64;
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1544,12 +1544,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// max of src2 value and (src1) (signed)
 					let src2_val = this.registers.get(src2) as i64;
 					let new_val = std::cmp::max(dword as i64, src2_val) as u64;
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1564,12 +1564,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// min of src2 value and (src1) (unsigned)
 					let src2_val = this.registers.get(src2);
 					let new_val = std::cmp::min(dword, src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}
@@ -1584,12 +1584,12 @@ impl WhiskerHart {
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
-					// put (src1) value into rd
-					this.registers.set(dst, dword);
-
 					// max of src2 value and (src1) (unsigned)
 					let src2_val = this.registers.get(src2);
 					let new_val = std::cmp::max(dword, src2_val);
+
+					// put (src1) value into rd
+					this.registers.set(dst, dword);
 					Some(new_val)
 				})?;
 			}

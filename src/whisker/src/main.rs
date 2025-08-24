@@ -297,15 +297,12 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 		Err(err) => {
 			dbg!(&err);
 			if err.is_target_error() {
-				error!(
-					"target encountered a fatal error: {:?}",
-					err.into_target_error().unwrap()
-				)
+				error!("target encountered a fatal error: {}", err);
 			} else if err.is_connection_error() {
 				let (err, kind) = err.into_connection_error().unwrap();
-				error!("connection error: {kind:?} - {err:?}")
+				error!("connection error: {kind:?} - {err}");
 			} else {
-				error!("gdbstub encountered a fatal error: {err:?}")
+				error!("gdbstub encountered a fatal error: {err}");
 			}
 		}
 	}

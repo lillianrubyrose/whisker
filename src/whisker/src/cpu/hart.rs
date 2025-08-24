@@ -188,6 +188,10 @@ impl WhiskerHart {
 	}
 
 	pub fn step(&mut self) {
+		if self.debug {
+			error!("{:?} still in debug mode at start of step", self.hart_id);
+		}
+
 		self.cycles += 1;
 		trace!("{:?} cycle {}", self.hart_id, self.cycles);
 
@@ -229,8 +233,8 @@ impl WhiskerHart {
 
 		// FIXME: all the modes?
 		warn!(
-			"requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X}",
-			trap, tval, self.pc
+			"{:?} requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X}",
+			self.hart_id, trap, tval, self.pc
 		);
 
 		// handle the trap appropriately depending on whether it's delegated

@@ -760,7 +760,9 @@ impl MemoryBuilder {
 			let existing_end = existing.start + existing.len;
 			assert!(
 				region_end <= existing.start || region.start >= existing_end,
-				"memory region overlapped"
+				"memory region {:?} overlapped with {:?}",
+				region,
+				existing
 			);
 		}
 

@@ -1,31 +1,27 @@
+use std::fmt::Display;
 use std::net::{TcpListener, TcpStream};
-use std::sync::LazyLock;
+use std::num::NonZeroUsize;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::mem::{ReadKind, WriteKind};
-use crate::tracing::*;
-use crate::ty::{HartId, RiscvExtensions};
 use gdbstub::arch::{Arch, Registers};
-use gdbstub::target::TargetError;
-use gdbstub::{
-	common::Signal,
-	conn::ConnectionExt,
-	stub::{
-		run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError},
-		SingleThreadStopReason,
-	},
-	target::{
-		ext::{
-			base::singlethread::{SingleThreadBase, SingleThreadResume, SingleThreadSingleStep},
-			breakpoints::{Breakpoints, SwBreakpoint},
-		},
-		Target,
-	},
+use gdbstub::common::{Signal, Tid};
+use gdbstub::conn::{Connection, ConnectionExt};
+use gdbstub::stub::run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError};
+use gdbstub::stub::MultiThreadStopReason;
+use gdbstub::target::ext::base::multithread::{
+	MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep, MultiThreadSingleStepOps,
 };
+use gdbstub::target::ext::base::BaseOps;
+use gdbstub::target::ext::breakpoints::{
+	Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpointOps, SwBreakpoint, SwBreakpointOps,
+};
+use gdbstub::target::{Target, TargetError, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
-use spin::mutex::Mutex;
+use num_conv::Truncate;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus, MEMORY};
+use crate::mem::{ReadKind, WriteKind};
+use crate::tracing::*;
+use crate::ty::HartId;
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
@@ -57,12 +53,12 @@ impl Registers for Rv64Regs {
 
 	fn gdb_serialize(&self, mut write_byte: impl FnMut(Option<u8>)) {
 		macro_rules! write_le_bytes {
-			($value:expr) => {
+			($value:expr) => {{
 				let bytes = $value.to_le_bytes();
 				for b in bytes {
 					write_byte(Some(b));
 				}
-			};
+			}};
 		}
 
 		// Write GPRs
@@ -126,16 +122,25 @@ impl Arch for Rv64Arch {
 
 pub struct WhiskerEventLoop;
 
+#[derive(Debug, Clone, Copy)]
+pub enum WhiskerTargetError {}
+
+impl Display for WhiskerTargetError {
+	fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match *self {}
+	}
+}
+
 impl Target for WhiskerCpu {
 	type Arch = Rv64Arch;
 
-	type Error = ();
+	type Error = WhiskerTargetError;
 
-	fn base_ops(&mut self) -> gdbstub::target::ext::base::BaseOps<'_, Self::Arch, Self::Error> {
-		gdbstub::target::ext::base::BaseOps::SingleThread(self)
+	fn base_ops(&mut self) -> BaseOps<'_, Self::Arch, Self::Error> {
+		BaseOps::MultiThread(self)
 	}
 
-	fn support_breakpoints(&mut self) -> Option<gdbstub::target::ext::breakpoints::BreakpointsOps<'_, Self>> {
+	fn support_breakpoints(&mut self) -> Option<BreakpointsOps<'_, Self>> {
 		Some(self)
 	}
 
@@ -144,39 +149,17 @@ impl Target for WhiskerCpu {
 	}
 }
 
-static GDB_FAKE_HART: LazyLock<Mutex<WhiskerHart>> = LazyLock::new(|| {
-	let mut hart = WhiskerHart::new(
-		HartId::DEBUG_HARTID,
-		RiscvExtensions::INTEGER
-			| RiscvExtensions::FLOAT
-			| RiscvExtensions::COMPRESSED
-			| RiscvExtensions::ATOMIC
-			| RiscvExtensions::MULTIPLY,
-		0x1000,
-	);
-	hart.debug = true;
-
-	Mutex::new(hart)
-});
-
-// FIXME: multi-hart
-impl SingleThreadBase for WhiskerCpu {
-	fn read_registers(
-		&mut self,
-		regs: &mut <Self::Arch as gdbstub::arch::Arch>::Registers,
-	) -> gdbstub::target::TargetResult<(), Self> {
-		let hart = &self.harts[0];
+impl MultiThreadBase for WhiskerCpu {
+	fn read_registers(&mut self, regs: &mut <Self::Arch as Arch>::Registers, tid: Tid) -> TargetResult<(), Self> {
+		let hart = &self.harts[tid.get() - 1];
 		regs.x.copy_from_slice(hart.registers.regs());
 		regs.f = hart.fp_registers.get_all_raw().map(f64::from_bits);
 		regs.pc = hart.pc();
 		Ok(())
 	}
 
-	fn write_registers(
-		&mut self,
-		regs: &<Self::Arch as gdbstub::arch::Arch>::Registers,
-	) -> gdbstub::target::TargetResult<(), Self> {
-		let hart = &mut self.harts[0];
+	fn write_registers(&mut self, regs: &<Self::Arch as Arch>::Registers, tid: Tid) -> TargetResult<(), Self> {
+		let hart = &mut self.harts[tid.get() - 1];
 		hart.registers.set_all(&regs.x);
 		hart.fp_registers.set_all_raw(&regs.f.map(f64::to_bits));
 		hart.set_pc_debug(regs.pc);
@@ -185,20 +168,24 @@ impl SingleThreadBase for WhiskerCpu {
 
 	fn read_addrs(
 		&mut self,
-		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		start_addr: <Self::Arch as Arch>::Usize,
 		data: &mut [u8],
-	) -> gdbstub::target::TargetResult<usize, Self> {
+		tid: Tid,
+	) -> TargetResult<usize, Self> {
 		let mut mem = MEMORY.wait().lock();
-		let mut hart = GDB_FAKE_HART.lock();
+		let mut hart = &mut self.harts[tid.get() - 1];
+		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			match mem.read_u8(&mut hart, addr, ReadKind::Normal) {
 				Ok(val) => data[idx] = val,
 				Err(_) => {
 					if idx == 0 {
+						hart.debug = false;
 						// if no bytes were read, report a fault error
 						return Err(TargetError::Errno(0x0E));
 					} else {
+						hart.debug = false;
 						// if an access errors, return the length that has been sucessfully read so far
 						return Ok(idx);
 					}
@@ -206,66 +193,94 @@ impl SingleThreadBase for WhiskerCpu {
 			}
 		}
 
+		hart.debug = false;
 		Ok(data.len())
 	}
 
 	fn write_addrs(
 		&mut self,
-		start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+		start_addr: <Self::Arch as Arch>::Usize,
 		data: &[u8],
-	) -> gdbstub::target::TargetResult<(), Self> {
+		tid: Tid,
+	) -> TargetResult<(), Self> {
 		let mut mem = MEMORY.wait().lock();
-		let mut hart = GDB_FAKE_HART.lock();
+		let mut hart = &mut self.harts[tid.get() - 1];
+		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			let val = data[idx];
 			match mem.write_u8(&mut hart, addr, WriteKind::Normal, val) {
 				Ok(()) => {}
 				Err(_) => {
+					hart.debug = false;
 					// if writing failed for any reason, return an error
 					return Err(TargetError::Errno(0x0E));
 				}
 			}
 		}
 
+		hart.debug = false;
 		Ok(())
 	}
 
-	fn support_resume(&mut self) -> Option<gdbstub::target::ext::base::singlethread::SingleThreadResumeOps<'_, Self>> {
+	#[inline(always)]
+	fn list_active_threads(&mut self, thread_is_active: &mut dyn FnMut(Tid)) -> Result<(), Self::Error> {
+		for idx in 0..self.harts.len() {
+			let tid = NonZeroUsize::new(idx + 1).unwrap();
+			thread_is_active(tid);
+		}
+		Ok(())
+	}
+
+	fn support_resume(&mut self) -> Option<MultiThreadResumeOps<'_, Self>> {
 		Some(self)
 	}
 }
 
-impl SingleThreadResume for WhiskerCpu {
-	fn resume(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
+impl MultiThreadResume for WhiskerCpu {
+	fn resume(&mut self) -> Result<(), Self::Error> {
 		self.exec_state = WhiskerExecState::Running;
 		Ok(())
 	}
 
-	fn support_single_step(
-		&mut self,
-	) -> Option<gdbstub::target::ext::base::singlethread::SingleThreadSingleStepOps<'_, Self>> {
+	// FIXME: implement these???
+	fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
+		Ok(())
+	}
+
+	// FIXME: implement these???
+	fn set_resume_action_continue(&mut self, tid: Tid, signal: Option<Signal>) -> Result<(), Self::Error> {
+		error!(
+			"NYI: set_resume_action_continue {:?} sig {:?}",
+			HartId::new((tid.get() - 1).truncate()),
+			signal
+		);
+		Ok(())
+	}
+
+	fn support_single_step(&mut self) -> Option<MultiThreadSingleStepOps<'_, Self>> {
 		Some(self)
 	}
 }
 
-impl SingleThreadSingleStep for WhiskerCpu {
-	fn step(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
+impl MultiThreadSingleStep for WhiskerCpu {
+	// FIXME: control harts individually?
+	fn set_resume_action_step(&mut self, _tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
 		self.exec_state = WhiskerExecState::Step;
 		Ok(())
 	}
 }
 
 impl Breakpoints for WhiskerCpu {
-	fn support_sw_breakpoint(&mut self) -> Option<gdbstub::target::ext::breakpoints::SwBreakpointOps<'_, Self>> {
+	fn support_sw_breakpoint(&mut self) -> Option<SwBreakpointOps<'_, Self>> {
 		Some(self)
 	}
 
-	fn support_hw_breakpoint(&mut self) -> Option<gdbstub::target::ext::breakpoints::HwBreakpointOps<'_, Self>> {
+	fn support_hw_breakpoint(&mut self) -> Option<HwBreakpointOps<'_, Self>> {
 		None
 	}
 
-	fn support_hw_watchpoint(&mut self) -> Option<gdbstub::target::ext::breakpoints::HwWatchpointOps<'_, Self>> {
+	fn support_hw_watchpoint(&mut self) -> Option<HwWatchpointOps<'_, Self>> {
 		None
 	}
 }
@@ -273,18 +288,18 @@ impl Breakpoints for WhiskerCpu {
 impl SwBreakpoint for WhiskerCpu {
 	fn add_sw_breakpoint(
 		&mut self,
-		addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		_kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
-	) -> gdbstub::target::TargetResult<bool, Self> {
+		addr: <Self::Arch as Arch>::Usize,
+		_kind: <Self::Arch as Arch>::BreakpointKind,
+	) -> TargetResult<bool, Self> {
 		self.breakpoints.insert(addr);
 		Ok(true)
 	}
 
 	fn remove_sw_breakpoint(
 		&mut self,
-		addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
-		_kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
-	) -> gdbstub::target::TargetResult<bool, Self> {
+		addr: <Self::Arch as Arch>::Usize,
+		_kind: <Self::Arch as Arch>::BreakpointKind,
+	) -> TargetResult<bool, Self> {
 		self.breakpoints.remove(&addr);
 		Ok(true)
 	}
@@ -295,17 +310,14 @@ impl BlockingEventLoop for WhiskerEventLoop {
 
 	type Connection = Box<dyn ConnectionExt<Error = std::io::Error>>;
 
-	type StopReason = SingleThreadStopReason<u64>;
+	type StopReason = MultiThreadStopReason<u64>;
 
 	fn wait_for_stop_reason(
 		target: &mut Self::Target,
 		conn: &mut Self::Connection,
 	) -> Result<
-		gdbstub::stub::run_blocking::Event<Self::StopReason>,
-		gdbstub::stub::run_blocking::WaitForStopReasonError<
-			<Self::Target as gdbstub::target::Target>::Error,
-			<Self::Connection as gdbstub::conn::Connection>::Error,
-		>,
+		Event<Self::StopReason>,
+		WaitForStopReasonError<<Self::Target as Target>::Error, <Self::Connection as Connection>::Error>,
 	> {
 		let poll_incoming_data = || conn.peek().map(|b| b.is_some()).unwrap_or(true);
 		match target.exec_gdb(poll_incoming_data) {
@@ -315,19 +327,17 @@ impl BlockingEventLoop for WhiskerEventLoop {
 			}
 			Some(res) => {
 				let reason = match res {
-					WhiskerExecStatus::Stepped => SingleThreadStopReason::DoneStep,
-					WhiskerExecStatus::Paused => SingleThreadStopReason::Signal(Signal::SIGINT),
-					WhiskerExecStatus::HitBreakpoint => SingleThreadStopReason::SwBreak(()),
+					WhiskerExecStatus::Stepped => MultiThreadStopReason::DoneStep,
+					WhiskerExecStatus::Paused => MultiThreadStopReason::Signal(Signal::SIGINT),
+					WhiskerExecStatus::HitBreakpoint(hart_id) => MultiThreadStopReason::SwBreak(hart_id.as_tid()),
 				};
 				Ok(Event::TargetStopped(reason))
 			}
 		}
 	}
 
-	fn on_interrupt(
-		target: &mut Self::Target,
-	) -> Result<Option<Self::StopReason>, <Self::Target as gdbstub::target::Target>::Error> {
+	fn on_interrupt(target: &mut Self::Target) -> Result<Option<Self::StopReason>, <Self::Target as Target>::Error> {
 		target.exec_state = WhiskerExecState::Paused;
-		Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
+		Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
 	}
 }

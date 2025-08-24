@@ -1,8 +1,10 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
 
 use bitfield::prelude::*;
+use num_conv::prelude::*;
 
 /// an error type used for results to communicate that an error occured, but a trap for that error
 /// has already been requested, so callers shouldn't handle it themselves.
@@ -514,6 +516,15 @@ impl HartId {
 
 	pub fn inner(self) -> u16 {
 		self.0
+	}
+
+	pub fn as_idx(self) -> usize {
+		self.0.extend::<usize>()
+	}
+
+	/// returns a TID corresponding to the hart for GDB
+	pub fn as_tid(self) -> NonZeroUsize {
+		NonZeroUsize::new(self.0.extend::<usize>() + 1).unwrap()
 	}
 }
 

@@ -28,7 +28,7 @@ pub enum WhiskerExecState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WhiskerExecStatus {
 	Stepped,
-	HitBreakpoint,
+	HitBreakpoint(HartId),
 	Paused,
 }
 
@@ -40,8 +40,7 @@ pub struct WhiskerCpu {
 	steps: u64,
 
 	/// the index into `harts` which will be executed next
-	/// INVARIANT: always in range of harts.len()
-	current_hart_id: usize,
+	current_hart_id: HartId,
 	pub harts: Vec<WhiskerHart>,
 
 	pub exec_state: WhiskerExecState,
@@ -95,7 +94,7 @@ impl WhiskerCpu {
 			exec_state: WhiskerExecState::Paused,
 			breakpoints: FxHashSet::default(),
 
-			current_hart_id: 0,
+			current_hart_id: HartId::new(0),
 			harts,
 
 			interrupt_controller,
@@ -110,12 +109,12 @@ impl WhiskerCpu {
 			self.interrupt_controller.lock().poll(&mut self.harts);
 		}
 
-		trace!("executing hart {}", self.current_hart_id);
-		let hart = &mut self.harts[self.current_hart_id];
+		trace!("executing {:?}", self.current_hart_id);
+		let hart = &mut self.harts[self.current_hart_id.as_idx()];
 
 		if self.breakpoints.contains(&hart.pc()) {
 			debug!("reached breakpoint at {:#018X} on {:?}", hart.pc(), hart.hart_id());
-			return Err(WhiskerExecStatus::HitBreakpoint);
+			return Err(WhiskerExecStatus::HitBreakpoint(self.current_hart_id));
 		}
 
 		hart.step();

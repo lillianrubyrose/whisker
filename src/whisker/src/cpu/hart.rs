@@ -1096,12 +1096,12 @@ impl WhiskerHart {
 		match insn {
 			CSRInstruction::CSRReadWrite { dst, src, csr } => {
 				let token = self.csr_require_rw(csr)?;
+				let new_val = self.registers.get(src);
 				// reads dont happen when dst is zero
 				if dst != GPRegisterIndex::ZERO {
 					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
 				}
-				let new_val = self.registers.get(src);
 				self.write_csr(&token, new_val);
 			}
 			CSRInstruction::CSRReadAndSet { dst, mask, csr } => {
@@ -1110,8 +1110,9 @@ impl WhiskerHart {
 					let token = self.csr_require_rw(csr)?;
 
 					let val = self.read_csr(&token);
+					let mask = self.registers.get(mask);
 					self.registers.set(dst, val);
-					self.write_csr(&token, val | self.registers.get(mask));
+					self.write_csr(&token, val | mask);
 				} else {
 					let token = self.csr_require_ro(csr)?;
 					let val = self.read_csr(&token);
@@ -1123,8 +1124,9 @@ impl WhiskerHart {
 				if mask != GPRegisterIndex::ZERO {
 					let token = self.csr_require_rw(csr)?;
 					let val = self.read_csr(&token);
+					let mask = self.registers.get(mask);
 					self.registers.set(dst, val);
-					self.write_csr(&token, val & self.registers.get(mask));
+					self.write_csr(&token, val & mask);
 				} else {
 					let token = self.csr_require_ro(csr)?;
 					let val = self.read_csr(&token);

@@ -239,22 +239,27 @@ impl MultiThreadBase for WhiskerCpu {
 
 impl MultiThreadResume for WhiskerCpu {
 	fn resume(&mut self) -> Result<(), Self::Error> {
-		self.exec_state = WhiskerExecState::Running;
+		warn!("GDB resume");
+		self.hart_states.iter_mut().for_each(|s| {
+			if *s == WhiskerExecState::Paused {
+				*s = WhiskerExecState::Running
+			}
+		});
 		Ok(())
 	}
 
 	// FIXME: implement these???
 	fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
+		warn!("GDB clear_resume_actions");
+		self.hart_states.fill(WhiskerExecState::Paused);
 		Ok(())
 	}
 
 	// FIXME: implement these???
-	fn set_resume_action_continue(&mut self, tid: Tid, signal: Option<Signal>) -> Result<(), Self::Error> {
-		error!(
-			"NYI: set_resume_action_continue {:?} sig {:?}",
-			HartId::new((tid.get() - 1).truncate()),
-			signal
-		);
+	fn set_resume_action_continue(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
+		let hart_idx = tid.get() - 1;
+		warn!("GDB set_resume_action_step hart {}", hart_idx);
+		self.hart_states[hart_idx] = WhiskerExecState::Running;
 		Ok(())
 	}
 
@@ -265,8 +270,10 @@ impl MultiThreadResume for WhiskerCpu {
 
 impl MultiThreadSingleStep for WhiskerCpu {
 	// FIXME: control harts individually?
-	fn set_resume_action_step(&mut self, _tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
-		self.exec_state = WhiskerExecState::Step;
+	fn set_resume_action_step(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
+		let hart_idx = tid.get() - 1;
+		warn!("GDB set_resume_action_step hart {}", hart_idx);
+		self.hart_states[hart_idx] = WhiskerExecState::Step;
 		Ok(())
 	}
 }
@@ -337,7 +344,7 @@ impl BlockingEventLoop for WhiskerEventLoop {
 	}
 
 	fn on_interrupt(target: &mut Self::Target) -> Result<Option<Self::StopReason>, <Self::Target as Target>::Error> {
-		target.exec_state = WhiskerExecState::Paused;
+		target.hart_states.fill(WhiskerExecState::Paused);
 		Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
 	}
 }

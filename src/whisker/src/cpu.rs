@@ -42,8 +42,7 @@ pub struct WhiskerCpu {
 	/// the index into `harts` which will be executed next
 	current_hart_id: HartId,
 	pub harts: Vec<WhiskerHart>,
-
-	pub exec_state: WhiskerExecState,
+	pub hart_states: Vec<WhiskerExecState>,
 
 	pub breakpoints: FxHashSet<u64>,
 
@@ -91,11 +90,11 @@ impl WhiskerCpu {
 
 		Self {
 			steps: 0,
-			exec_state: WhiskerExecState::Paused,
 			breakpoints: FxHashSet::default(),
 
 			current_hart_id: HartId::new(0),
 			harts,
+			hart_states: vec![WhiskerExecState::Paused; num_harts as usize],
 
 			interrupt_controller,
 			logfile,
@@ -110,6 +109,11 @@ impl WhiskerCpu {
 		}
 
 		trace!("executing {:?}", self.current_hart_id);
+
+		if self.hart_states[self.current_hart_id.as_idx()] == WhiskerExecState::Paused {
+			return Err(WhiskerExecStatus::Paused);
+		}
+
 		let hart = &mut self.harts[self.current_hart_id.as_idx()];
 
 		if self.breakpoints.contains(&hart.pc()) {
@@ -124,6 +128,10 @@ impl WhiskerCpu {
 			f.write_all(dump.as_bytes()).unwrap();
 		}
 
+		if self.hart_states[self.current_hart_id.as_idx()] == WhiskerExecState::Step {
+			return Err(WhiskerExecStatus::Stepped);
+		}
+
 		Ok(())
 	}
 
@@ -131,21 +139,14 @@ impl WhiskerCpu {
 	/// otherwise it returns the status of executing the cpu.
 	/// this function may block until data comes from GDB
 	pub fn exec_gdb<F: FnMut() -> bool>(&mut self, mut poll_incoming_data: F) -> Option<WhiskerExecStatus> {
-		match self.exec_state {
-			WhiskerExecState::Step => match self.execute_one() {
-				Ok(()) => Some(WhiskerExecStatus::Stepped),
-				Err(e) => Some(e),
-			},
-			WhiskerExecState::Running => loop {
-				if self.should_poll() && poll_incoming_data() {
-					return None;
-				}
+		loop {
+			if self.should_poll() && poll_incoming_data() {
+				return None;
+			}
 
-				if let Err(e) = self.execute_one() {
-					return Some(e);
-				}
-			},
-			WhiskerExecState::Paused => Some(WhiskerExecStatus::Paused),
+			if let Err(e) = self.execute_one() {
+				return Some(e);
+			}
 		}
 	}
 }

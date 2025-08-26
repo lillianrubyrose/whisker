@@ -285,7 +285,7 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 				error!("Target terminated: {signal:?}");
 			}
 			gdbstub::stub::DisconnectReason::Disconnect => {
-				cpu.exec_state = WhiskerExecState::Running;
+				cpu.hart_states.fill(WhiskerExecState::Running);
 				loop {
 					// FIXME: handle this better
 					#[allow(unused_must_use)]
@@ -309,7 +309,7 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 }
 
 fn run_normal(mut cpu: WhiskerCpu) {
-	cpu.exec_state = WhiskerExecState::Running;
+	cpu.hart_states.fill(WhiskerExecState::Running);
 	loop {
 		// FIXME: handle this better
 		#[allow(unused_must_use)]

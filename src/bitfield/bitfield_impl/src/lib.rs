@@ -62,7 +62,7 @@ impl BitfieldStructInfo {
 		let str = quote_spanned!(span =>
 			#( #attrs )*
 			#vis struct #ident {
-				#[allow(unused)]
+				#[allow(unused, clippy::identity_op)]
 				bytes: [::core::primitive::u8; #size_expr / 8_usize],
 			}
 		);
@@ -194,11 +194,11 @@ fn expand_ctor(s: &ItemStruct) -> TokenStream2 {
 	let span = s.span();
 	let ident = &s.ident;
 	let (impl_generics, ty_generics, where_clauses) = s.generics.split_for_impl();
-	let size_expr = total_bit_size_expr(&s);
+	let size_expr = total_bit_size_expr(s);
 
 	quote_spanned! {span =>
 		impl #impl_generics #ident #ty_generics #where_clauses {
-			#[allow(dead_code)]
+			#[allow(dead_code, clippy::identity_op)]
 			#[must_use]
 			pub const fn new() -> Self {
 				Self {
@@ -226,12 +226,12 @@ fn expand_accessors(s: &ItemStruct) -> TokenStream2 {
 	});
 
 	quote_spanned!(span => impl #ident {
-		#[allow(dead_code)]
+		#[allow(dead_code, clippy::identity_op)]
 		pub fn inner(&self) -> [::core::primitive::u8; #size_expr / 8_usize] {
 			self.bytes
 		}
 
-		#[allow(dead_code)]
+		#[allow(dead_code, clippy::identity_op)]
 		pub fn set_inner(&mut self, val: [::core::primitive::u8; #size_expr / 8_usize]) {
 			self.bytes = val;
 		}
@@ -247,7 +247,7 @@ fn getter_for_field(f: &Field, offset: &TokenStream2) -> TokenStream2 {
 	let get_ident = format_ident!("get_{}", f.ident.clone().unwrap());
 
 	quote_spanned!(span =>
-		#[allow(non_snake_case, dead_code)]
+		#[allow(non_snake_case, dead_code, clippy::identity_op)]
 		#vis fn #get_ident(&self) -> <#ty as ::bitfield::BitField>::IO {
 			::bitfield::private_impl::read_val::<#ty>(&self.bytes, #offset)
 		}
@@ -261,7 +261,7 @@ fn setter_for_field(f: &Field, offset: &TokenStream2) -> TokenStream2 {
 	let set_ident = format_ident!("set_{}", f.ident.clone().unwrap());
 
 	quote_spanned!(span =>
-		#[allow(non_snake_case, dead_code)]
+		#[allow(non_snake_case, dead_code, clippy::identity_op)]
 		#vis fn #set_ident(&mut self, val: <#ty as ::bitfield::BitField>::IO) {
 			::bitfield::private_impl::write_val::<#ty>(&mut self.bytes, val, #offset)
 		}

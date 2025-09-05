@@ -263,6 +263,6 @@ pub enum IntInstruction {
 
 impl From<IntInstruction> for Instruction {
 	fn from(val: IntInstruction) -> Self {
-		Instruction::IntExtension(val)
+		Instruction::Int(val)
 	}
 }

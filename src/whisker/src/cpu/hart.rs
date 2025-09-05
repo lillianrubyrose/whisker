@@ -485,13 +485,13 @@ impl WhiskerHart {
 
 	fn execute_instruction(&mut self, inst: Instruction) {
 		let _ = match inst {
-			Instruction::IntExtension(insn) => self.execute_i_insn(insn),
-			Instruction::FloatExtension(insn) => self.execute_f_insn(insn),
-			Instruction::Csr(insn) => self.execute_csr_insn(insn),
-			Instruction::CompressedExtension(insn) => self.execute_compressed_insn(insn),
-			Instruction::AtomicExtension(insn) => self.execute_atomic_insn(insn),
-			Instruction::MultiplyInstruction(insn) => self.execute_multiply_insn(insn),
-			Instruction::PrivilegedInstruction(insn) => self.execute_privileged_insn(insn),
+			Instruction::Int(insn) => self.execute_i_insn(insn),
+			Instruction::Float(insn) => self.execute_f_insn(insn),
+			Instruction::Zicsr(insn) => self.execute_csr_insn(insn),
+			Instruction::Compressed(insn) => self.execute_compressed_insn(insn),
+			Instruction::Atomic(insn) => self.execute_atomic_insn(insn),
+			Instruction::Multipliy(insn) => self.execute_multiply_insn(insn),
+			Instruction::Privileged(insn) => self.execute_privileged_insn(insn),
 		};
 	}
 }

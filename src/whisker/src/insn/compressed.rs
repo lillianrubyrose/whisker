@@ -7,6 +7,6 @@ pub enum CompressedInstruction {
 
 impl From<CompressedInstruction> for Instruction {
 	fn from(val: CompressedInstruction) -> Self {
-		Instruction::CompressedExtension(val)
+		Instruction::Compressed(val)
 	}
 }

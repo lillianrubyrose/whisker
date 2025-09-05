@@ -67,6 +67,9 @@ impl UART {
 			child_fd: REMOTE_FD_NUM,
 		}])
 		.expect("fd collision");
+		// FIXME: It closes on CTRL-C but doesn't close on panic
+		// This is intended to live forever.
+		#[allow(clippy::zombie_processes)]
 		let _ = cmd.spawn().expect("unable to spawn UART terminal");
 
 		let this = Arc::new(Mutex::new(Self {

@@ -15,6 +15,6 @@ pub enum PrivilegedInstruction {
 
 impl From<PrivilegedInstruction> for Instruction {
 	fn from(val: PrivilegedInstruction) -> Self {
-		Instruction::PrivilegedInstruction(val)
+		Instruction::Privileged(val)
 	}
 }

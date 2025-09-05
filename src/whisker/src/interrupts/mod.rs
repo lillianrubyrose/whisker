@@ -69,7 +69,7 @@ impl PlatformInterruptController {
 		(tx, this)
 	}
 
-	pub fn poll(&mut self, harts: &mut Vec<WhiskerHart>) {
+	pub fn poll(&mut self, harts: &mut [WhiskerHart]) {
 		loop {
 			match self.interrupt_rx.try_recv() {
 				Ok(source) => {

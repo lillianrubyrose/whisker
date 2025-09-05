@@ -75,6 +75,6 @@ pub enum MultiplyInstruction {
 
 impl From<MultiplyInstruction> for Instruction {
 	fn from(val: MultiplyInstruction) -> Self {
-		Instruction::MultiplyInstruction(val)
+		Instruction::Multipliy(val)
 	}
 }

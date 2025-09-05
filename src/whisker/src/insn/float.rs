@@ -181,6 +181,6 @@ pub enum FloatInstruction {
 
 impl From<FloatInstruction> for Instruction {
 	fn from(val: FloatInstruction) -> Self {
-		Instruction::FloatExtension(val)
+		Instruction::Float(val)
 	}
 }

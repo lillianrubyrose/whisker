@@ -3,6 +3,7 @@ use crate::ty::GPRegisterIndex;
 use super::Instruction;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names, reason = "DWord also ends with 'Word'")]
 pub enum AtomicInstruction {
 	LoadReservedWord {
 		src: GPRegisterIndex,
@@ -161,6 +162,6 @@ pub enum AtomicInstruction {
 
 impl From<AtomicInstruction> for Instruction {
 	fn from(val: AtomicInstruction) -> Self {
-		Instruction::AtomicExtension(val)
+		Instruction::Atomic(val)
 	}
 }

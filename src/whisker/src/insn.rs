@@ -16,11 +16,11 @@ pub use privileged::PrivilegedInstruction;
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
-	IntExtension(IntInstruction),
-	FloatExtension(FloatInstruction),
-	Csr(CSRInstruction),
-	CompressedExtension(CompressedInstruction),
-	AtomicExtension(AtomicInstruction),
-	MultiplyInstruction(MultiplyInstruction),
-	PrivilegedInstruction(PrivilegedInstruction),
+	Int(IntInstruction),
+	Float(FloatInstruction),
+	Zicsr(CSRInstruction),
+	Compressed(CompressedInstruction),
+	Atomic(AtomicInstruction),
+	Multipliy(MultiplyInstruction),
+	Privileged(PrivilegedInstruction),
 }

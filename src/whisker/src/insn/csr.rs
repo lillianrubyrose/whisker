@@ -3,6 +3,7 @@ use crate::insn::Instruction;
 use crate::ty::GPRegisterIndex;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names, reason = "All CSR instructions read")]
 pub enum CSRInstruction {
 	CSRReadWrite {
 		dst: GPRegisterIndex,
@@ -38,6 +39,6 @@ pub enum CSRInstruction {
 
 impl From<CSRInstruction> for Instruction {
 	fn from(val: CSRInstruction) -> Self {
-		Instruction::Csr(val)
+		Instruction::Zicsr(val)
 	}
 }

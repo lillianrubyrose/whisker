@@ -483,8 +483,8 @@ impl WhiskerHart {
 		}
 	}
 
-	fn execute_instruction(&mut self, inst: Instruction) {
-		let _ = match inst {
+	fn execute_instruction(&mut self, insn: Instruction) {
+		let _ = match insn {
 			Instruction::Int(insn) => self.execute_i_insn(insn),
 			Instruction::Float(insn) => self.execute_f_insn(insn),
 			Instruction::Zicsr(insn) => self.execute_csr_insn(insn),

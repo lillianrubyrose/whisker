@@ -22,4 +22,34 @@ pedantic = { level = "warn", priority = -1 }
 too_many_lines = "allow"
 missing_errors_doc = "allow"
 missing-panics-doc = "allow"
-identity_op = "allow" # due to proc macro shit idk
+upper_case_acronyms = "allow"
+uninlined_format_args = "allow" # if there was inlined_format_args = "forbid" i would >:c
+verbose_bit_mask = "allow" # literally just harder to read
+
+# On positive comparisons this is good!
+# On negative ones it makes skimming harder
+len_zero = "allow"
+
+# explicit is good actually
+explicit_iter_loop = "allow"
+
+# useful to check manually every once in a while, but often should be ignored
+similar_names = "allow"
+
+# FIXME: Allow on a case-by-case basis
+# It's angry about something to do with the proc macro expansion
+# Most of them are fixed, idk what's left.
+identity_op = "allow"
+
+# FIXME: Allow on a case-by-case basis
+wildcard_imports = "allow"
+
+# FIXME: allow some cases and audit everything here
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_lossless = "allow"
+cast_sign_loss = "allow"
+
+# FIXME: allow where necessary, mostly fix tho
+unreadable_literal = "allow"

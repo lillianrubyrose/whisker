@@ -12,11 +12,11 @@ pub fn generate_basic_types(_: TokenStream) -> TokenStream {
 
 fn generate_basic_type(num_bits: usize) -> TokenStream2 {
 	let io_ty = match num_bits {
-		..=8 => quote!(::core::primitive::u8),
-		..=16 => quote!(::core::primitive::u16),
-		..=32 => quote!(::core::primitive::u32),
-		..=64 => quote!(::core::primitive::u64),
-		..=128 => quote!(::core::primitive::u128),
+		0..=8 => quote!(::core::primitive::u8),
+		9..=16 => quote!(::core::primitive::u16),
+		17..=32 => quote!(::core::primitive::u32),
+		33..=64 => quote!(::core::primitive::u64),
+		65..=128 => quote!(::core::primitive::u128),
 		_ => unreachable!(),
 	};
 
@@ -131,11 +131,11 @@ fn bitfield_repr_enum(e: ItemEnum) -> syn::Result<TokenStream2> {
 	});
 
 	let storage_type = match bits {
-		..=8 => quote!(::core::primitive::u8),
-		..=16 => quote!(::core::primitive::u16),
-		..=32 => quote!(::core::primitive::u32),
-		..=64 => quote!(::core::primitive::u64),
-		..=128 => quote!(::core::primitive::u128),
+		0..=8 => quote!(::core::primitive::u8),
+		9..=16 => quote!(::core::primitive::u16),
+		17..=32 => quote!(::core::primitive::u32),
+		33..=64 => quote!(::core::primitive::u64),
+		65..=128 => quote!(::core::primitive::u128),
 		_ => unreachable!(),
 	};
 

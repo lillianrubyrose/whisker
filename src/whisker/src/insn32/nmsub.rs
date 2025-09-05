@@ -12,9 +12,7 @@ pub fn parse_nmsub(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 
 	let r4type = R4Type::parse(parcel);
 
-	let Some(rm) = RoundingMode::from_u8(r4type.func3()) else {
-		return None;
-	};
+	let rm = RoundingMode::from_u8(r4type.func3())?;
 
 	let fmt = r4type.func2();
 	match fmt {

@@ -144,7 +144,6 @@ pub fn generate_csr_xml(info: &BTreeMap<CSRIndex, CSRInfo>) -> String {
 
 // NOTE: this is on the hart not on the CSR struct because operations on CSRs may affect state
 impl WhiskerHart {
-	#[must_use]
 	/// ensures that a CSR is readable. this means that it must exist and that the current mode of
 	/// the hart is greater than or equal privilege level to the necessary privilege for the CSR.
 	pub fn csr_require_ro(&mut self, idx: CSRIndex) -> Result<CSRReadToken, TrapRequestGuaranteed> {
@@ -160,7 +159,6 @@ impl WhiskerHart {
 		}
 	}
 
-	#[must_use]
 	/// ensures that a CSR is readable and writeable. this means that it must exist, that it must be
 	/// writeable, and that the current mode of the hart is greater than or equal privilege level to
 	/// the necessary privilege for the CSR.
@@ -397,10 +395,12 @@ impl CSRInfo {
 	}
 }
 
+#[must_use]
 pub struct CSRReadToken {
 	idx: CSRIndex,
 }
 
+#[must_use]
 pub struct CSRReadWriteToken {
 	/// used so that a readwrite token can be used as a read token
 	inner: CSRReadToken,

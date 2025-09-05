@@ -15,9 +15,7 @@ pub fn parse_op_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 
 	let rtype = RType::parse(parcel);
 
-	let Some(rm) = RoundingMode::from_u8(rtype.func3()) else {
-		return None;
-	};
+	let rm = RoundingMode::from_u8(rtype.func3())?;
 
 	// FIXME: this is actually a 5 bit func and 2 bit width
 	// we could select the correct instruction based on the width

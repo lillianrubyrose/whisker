@@ -804,8 +804,8 @@ impl MemoryBuilder {
 	pub fn build(self) -> Memory {
 		Memory {
 			regions: RwLock::new(self.regions),
-			reservations: Default::default(),
-			page_table_cache: Default::default(),
+			reservations: RwLock::new(MemoryReservations::default()),
+			page_table_cache: RwLock::new(BTreeMap::default()),
 		}
 	}
 }

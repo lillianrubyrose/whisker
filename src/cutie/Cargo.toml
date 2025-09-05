@@ -3,6 +3,9 @@ name = "cutie"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 clap.workspace = true
 tracing.workspace = true

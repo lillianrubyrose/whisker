@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 default-run = "whisker"
 
+[lints]
+workspace = true
+
 [dependencies]
 clap.workspace = true
 paste = "1.0.15"

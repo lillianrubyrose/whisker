@@ -874,6 +874,7 @@ impl WhiskerHart {
 		Ok(())
 	}
 
+	#[allow(unused_variables, reason = "FIXME: Implement unfinished instructions")]
 	fn execute_f_insn(&mut self, insn: FloatInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {

@@ -10,6 +10,7 @@ use super::{FClass, RoundingMode};
 #[repr(transparent)]
 pub struct SoftDouble(float64_t);
 
+#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
 impl SoftDouble {
 	pub const fn from_f64(value: f64) -> Self {
 		Self(float64_t { v: value.to_bits() })

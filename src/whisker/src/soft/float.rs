@@ -11,6 +11,7 @@ use super::{ExceptionFlags, FClass, RoundingMode};
 #[allow(unused)]
 pub struct SoftFloat(float32_t);
 
+#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
 impl SoftFloat {
 	pub const ZERO: Self = Self::from_f32(0_f32);
 

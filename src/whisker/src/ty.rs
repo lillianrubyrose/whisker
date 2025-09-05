@@ -474,16 +474,6 @@ pub struct ExceptionBits {
 impl ExceptionBits {
 	pub const MASK: u64 = 0b1000_0000_0000_1100_1011_1011_1111_1111;
 
-	pub fn set_exception(&mut self, trap: TrapIdx, enabled: bool) {
-		debug_assert!(trap.kind() == TrapKind::Exception);
-		let mut inner = u64::from_le_bytes(self.inner());
-		let mask = !((1 << trap.cause()) & Self::MASK);
-		let bit = (u64::from(enabled) << trap.cause()) & Self::MASK;
-		inner &= mask;
-		inner |= bit;
-		self.set_inner(inner.to_le_bytes());
-	}
-
 	pub fn is_enabled(self, trap: TrapIdx) -> bool {
 		if trap.kind() != TrapKind::Exception {
 			return false;
@@ -502,8 +492,6 @@ pub struct HartId(u16);
 
 impl HartId {
 	pub const MAX_NUM_HARTS: u16 = 64;
-
-	pub const DEBUG_HARTID: Self = Self(Self::MAX_NUM_HARTS - 1);
 
 	pub fn new(id: u16) -> Self {
 		assert!(
@@ -537,10 +525,6 @@ pub enum HartMode {
 }
 
 impl HartMode {
-	pub fn bits(self) -> u8 {
-		self as u8
-	}
-
 	pub fn from_bits(bits: u8) -> Self {
 		match bits {
 			0b00 => Self::User,

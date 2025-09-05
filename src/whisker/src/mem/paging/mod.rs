@@ -8,7 +8,6 @@ use crate::mem::{Memory, MemoryOpKind};
 use crate::ty::{HartMode, TrapIdx, TrapRequestGuaranteed};
 
 pub const PAGE_SIZE: u64 = 4096;
-const PAGE_NUM_BITS: u64 = 9;
 
 impl Memory {
 	pub fn translate_addr(

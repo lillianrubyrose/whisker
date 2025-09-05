@@ -362,6 +362,7 @@ impl Debug for CSRIndex {
 
 #[derive(Debug)]
 pub struct CSRInfo {
+	#[allow(dead_code, reason = "FIXME: We should be using this")]
 	required_extensions: RiscvExtensions,
 	ops: CSROps,
 	name: &'static str,
@@ -444,16 +445,6 @@ impl InterruptBits {
 	const MASK_M_MODE: u64 = 0b0010_1010_1010_1010;
 	const MASK_S_MODE: u64 = 0b0010_0010_0010_0010;
 
-	pub fn set_interrupt(&mut self, trap: TrapIdx, enabled: bool) {
-		debug_assert!(trap.kind() == TrapKind::Interrupt);
-		let mut inner = u64::from_le_bytes(self.inner());
-		let mask = !((1 << trap.cause()) & Self::MASK_M_MODE);
-		let bit = (u64::from(enabled) << trap.cause()) & Self::MASK_M_MODE;
-		inner &= mask;
-		inner |= bit;
-		self.set_inner(inner.to_le_bytes());
-	}
-
 	pub fn is_enabled(self, trap: TrapIdx) -> bool {
 		if trap.kind() != TrapKind::Interrupt {
 			return false;
@@ -472,7 +463,7 @@ pub struct TrapVector {
 }
 
 impl TrapVector {
-	pub fn addr_for_trap(self, trap: TrapIdx) -> u64 {
+	pub fn addr_for_trap(self, _trap: TrapIdx) -> u64 {
 		// FIXME: check mode of mtvec and handle offsets
 		self.get_base() << 2
 	}

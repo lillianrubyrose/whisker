@@ -331,6 +331,7 @@ const SECTOR_SIZE: u64 = 512;
 
 const STATUS_OK: u8 = 0;
 const STATUS_IOERR: u8 = 1;
+#[allow(dead_code, reason = "FIXME: Check status")]
 const STATUS_UNSUPP: u8 = 2;
 
 fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {

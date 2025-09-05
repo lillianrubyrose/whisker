@@ -216,6 +216,7 @@ impl MultiThreadBase for WhiskerCpu {
 		Ok(())
 	}
 
+	#[allow(clippy::inline_always, reason = "improves perf for calling `thread_is_active`")]
 	#[inline(always)]
 	fn list_active_threads(&mut self, thread_is_active: &mut dyn FnMut(Tid)) -> Result<(), Self::Error> {
 		for idx in 0..self.harts.len() {

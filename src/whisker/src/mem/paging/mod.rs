@@ -63,6 +63,7 @@ fn trap_page_fault(hart: &mut WhiskerHart, effective_addr: u64, kind: MemoryOpKi
 	}
 }
 
+#[allow(clippy::fn_params_excessive_bools, reason = "they're all obvious")]
 fn is_access_allowed(
 	hart: &mut WhiskerHart,
 	access_kind: MemoryOpKind,

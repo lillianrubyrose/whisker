@@ -3,3 +3,7 @@
 .pre-commit-config.yaml
 
 log.txt
+*.img
+Image
+kernel*
+vmlinux

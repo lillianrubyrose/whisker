@@ -139,14 +139,10 @@ fn main() {
 }
 
 fn find_command(options: &[&'static str]) -> Option<&'static str> {
-	for opt in options.iter() {
-		// This only checks if the command is available in PATH, not if it returns OK status
-		if Command::new(opt).output().is_ok() {
-			return Some(opt);
-		}
-	}
-
-	None
+	options
+		.iter()
+		.find(|&opt| Command::new(opt).output().is_ok())
+		.map(|v| &**v)
 }
 
 fn flatten_to_set<T: Eq + std::hash::Hash>(mut vec: Vec<T>) -> HashSet<T> {

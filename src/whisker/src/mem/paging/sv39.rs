@@ -74,7 +74,7 @@ fn find_page(
 		level_idx,
 		va.as_effective_addr()
 	);
-	let pte_addr = base + PTE_SIZE * u64::from(va.get_page_num(level_idx));
+	let pte_addr = base + PTE_SIZE * va.get_page_num(level_idx);
 	trace!("pte addr for level {}: {:#018X}", level_idx, pte_addr);
 	let pte = Sv39PageTableEntry::read_from_mem(memory, hart, pte_addr, access_kind)?;
 

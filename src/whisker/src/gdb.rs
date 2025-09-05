@@ -16,12 +16,10 @@ use gdbstub::target::ext::breakpoints::{
 };
 use gdbstub::target::{Target, TargetError, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
-use num_conv::Truncate;
 
 use crate::cpu::{WhiskerExecState, WhiskerExecStatus, MEMORY};
 use crate::mem::{ReadKind, WriteKind};
 use crate::tracing::*;
-use crate::ty::HartId;
 use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
@@ -172,12 +170,12 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &mut [u8],
 		tid: Tid,
 	) -> TargetResult<usize, Self> {
-		let mut mem = MEMORY.wait();
-		let mut hart = &mut self.harts[tid.get() - 1];
+		let mem = MEMORY.wait();
+		let hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
-			match mem.read_u8(&mut hart, addr, ReadKind::Normal) {
+			match mem.read_u8(hart, addr, ReadKind::Normal) {
 				Ok(val) => data[idx] = val,
 				Err(_) => {
 					if idx == 0 {
@@ -203,13 +201,13 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &[u8],
 		tid: Tid,
 	) -> TargetResult<(), Self> {
-		let mut mem = MEMORY.wait();
-		let mut hart = &mut self.harts[tid.get() - 1];
+		let mem = MEMORY.wait();
+		let hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			let val = data[idx];
-			match mem.write_u8(&mut hart, addr, WriteKind::Normal, val) {
+			match mem.write_u8(hart, addr, WriteKind::Normal, val) {
 				Ok(()) => {}
 				Err(_) => {
 					hart.debug = false;

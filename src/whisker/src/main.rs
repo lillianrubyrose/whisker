@@ -28,7 +28,6 @@ use clap::{command, Parser, Subcommand};
 use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
-use spin::Mutex;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 

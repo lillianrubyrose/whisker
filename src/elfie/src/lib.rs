@@ -648,17 +648,9 @@ impl ElfFile {
 	}
 
 	pub fn section(&self, name: &str) -> Option<&SectionHeader> {
-		for header in &self.section_headers {
-			if header.name == name {
-				return Some(header);
-			}
-		}
-		None
+		self.section_headers.iter().find(|&header| header.name == name)
 	}
 }
 
 #[cfg(test)]
-mod tests {
-	use super::*;
-	use std::io::Cursor;
-}
+mod tests {}

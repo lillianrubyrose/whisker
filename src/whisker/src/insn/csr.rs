@@ -36,8 +36,8 @@ pub enum CSRInstruction {
 	},
 }
 
-impl Into<Instruction> for CSRInstruction {
-	fn into(self) -> Instruction {
-		Instruction::Csr(self)
+impl From<CSRInstruction> for Instruction {
+	fn from(val: CSRInstruction) -> Self {
+		Instruction::Csr(val)
 	}
 }

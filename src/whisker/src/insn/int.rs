@@ -261,8 +261,8 @@ pub enum IntInstruction {
 	EBreak,
 }
 
-impl Into<Instruction> for IntInstruction {
-	fn into(self) -> Instruction {
-		Instruction::IntExtension(self)
+impl From<IntInstruction> for Instruction {
+	fn from(val: IntInstruction) -> Self {
+		Instruction::IntExtension(val)
 	}
 }

@@ -49,12 +49,10 @@ impl SoftDouble {
 				} else {
 					FClass::NegativeInfinity
 				}
+			} else if (mantissa & Self::QUIET_NAN_MASK) == 0 {
+				FClass::SignalingNaN
 			} else {
-				if (mantissa & Self::QUIET_NAN_MASK) == 0 {
-					FClass::SignalingNaN
-				} else {
-					FClass::QuietNaN
-				}
+				FClass::QuietNaN
 			}
 		} else if exponent == 0 {
 			if mantissa == 0 {
@@ -63,19 +61,15 @@ impl SoftDouble {
 				} else {
 					FClass::NegativeZero
 				}
+			} else if sign == 0 {
+				FClass::PositiveSubNormal
 			} else {
-				if sign == 0 {
-					FClass::PositiveSubNormal
-				} else {
-					FClass::NegativeSubnormal
-				}
+				FClass::NegativeSubnormal
 			}
+		} else if sign == 0 {
+			FClass::PositiveNormal
 		} else {
-			if sign == 0 {
-				FClass::PositiveNormal
-			} else {
-				FClass::NegativeNormal
-			}
+			FClass::NegativeNormal
 		}
 	}
 

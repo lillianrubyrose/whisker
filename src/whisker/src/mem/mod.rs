@@ -3,11 +3,8 @@ use std::fmt::Debug;
 
 use crate::tracing::*;
 use bitflags::bitflags;
-use gdbstub_arch::ppc::reg;
 use num_conv::Extend;
-use parking_lot::{
-	MappedRwLockReadGuard, MappedRwLockWriteGuard, RawRwLock, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
+use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub mod mmio;
 
@@ -150,7 +147,7 @@ impl Memory {
 		};
 		check_read_access(
 			hart,
-			&*region,
+			&region,
 			phys_addr,
 			ReadKind::LoadReserved,
 			core::mem::size_of::<u32>() as u8,
@@ -180,7 +177,7 @@ impl Memory {
 		};
 		check_read_access(
 			hart,
-			&*region,
+			&region,
 			phys_addr,
 			ReadKind::LoadReserved,
 			core::mem::size_of::<u64>() as u8,

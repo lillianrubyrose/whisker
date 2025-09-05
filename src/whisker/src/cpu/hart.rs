@@ -114,7 +114,7 @@ const _: () = {
 
 impl WhiskerHart {
 	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
-		let this = Self {
+		Self {
 			hart_id,
 			extensions,
 
@@ -155,8 +155,7 @@ impl WhiskerHart {
 
 			translation_config: AddressTranslationConfig::new(),
 			last_instruction: None,
-		};
-		this
+		}
 	}
 
 	pub fn hart_id(&self) -> HartId {
@@ -425,7 +424,7 @@ impl WhiskerHart {
 	fn fetch_instruction(&mut self) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
 		let support_compressed = self.supports_extensions(RiscvExtensions::COMPRESSED);
 
-		let mut mem = cpu::MEMORY.wait();
+		let mem = cpu::MEMORY.wait();
 
 		let parcel1 = mem.read_u16(self, self.pc, ReadKind::Instruction)?;
 
@@ -503,35 +502,35 @@ impl WhiskerHart {
 
 macro_rules! read_mem_u8 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.read_u8($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u16 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.read_u16($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u32 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.read_u32($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u64 {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.read_u64($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_float {
 	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.read_soft_float($self, $offset, $kind)
 	}};
 }
@@ -546,35 +545,35 @@ macro_rules! read_mem_double {
 
 macro_rules! write_mem_u8 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.write_u8($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u16 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.write_u16($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u32 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.write_u32($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u64 {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.write_u64($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_float {
 	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
+		let mem = MEMORY.wait();
 		mem.write_soft_float($self, $offset, $kind, $val)
 	}};
 }
@@ -1192,7 +1191,7 @@ impl WhiskerHart {
 					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				let mut memory = MEMORY.wait();
+				let memory = MEMORY.wait();
 				let val = memory.load_reserved_word(self, addr)?;
 				self.registers.set(dst, val.extend());
 			}
@@ -1210,7 +1209,7 @@ impl WhiskerHart {
 
 				let val = self.registers.get(src2) as u32;
 
-				let mut memory = MEMORY.wait();
+				let memory = MEMORY.wait();
 				let success = memory.store_conditional_word(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
@@ -1222,7 +1221,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |hart, word| {
@@ -1241,7 +1240,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1261,7 +1260,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 
@@ -1282,7 +1281,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1302,7 +1301,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1322,7 +1321,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1342,7 +1341,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1362,7 +1361,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1382,7 +1381,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1397,7 +1396,7 @@ impl WhiskerHart {
 			}
 			AtomicInstruction::LoadReservedDoubleWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
-				let mut memory = MEMORY.wait();
+				let memory = MEMORY.wait();
 				let val = memory.load_reserved_dword(self, addr)?;
 				self.registers.set(dst, val);
 			}
@@ -1411,7 +1410,7 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				let val = self.registers.get(src2);
 
-				let mut memory = MEMORY.wait();
+				let memory = MEMORY.wait();
 				let success = memory.store_conditional_dword(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
@@ -1442,7 +1441,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1462,7 +1461,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1482,7 +1481,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1502,7 +1501,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1522,7 +1521,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1542,7 +1541,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1562,7 +1561,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
@@ -1582,7 +1581,7 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mut mem = MEMORY.wait();
+				let mem = MEMORY.wait();
 
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {

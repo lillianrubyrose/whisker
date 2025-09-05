@@ -230,7 +230,7 @@ impl FPRegisterIndex {
 
 impl Debug for UnknownRegisterIndex {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "UnkReg({})", self.0.to_string())
+		write!(f, "UnkReg({})", self.0)
 	}
 }
 

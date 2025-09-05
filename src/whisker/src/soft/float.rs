@@ -52,12 +52,10 @@ impl SoftFloat {
 				} else {
 					FClass::NegativeInfinity
 				}
+			} else if (mantissa & Self::QUIET_NAN_MASK) == 0 {
+				FClass::SignalingNaN
 			} else {
-				if (mantissa & Self::QUIET_NAN_MASK) == 0 {
-					FClass::SignalingNaN
-				} else {
-					FClass::QuietNaN
-				}
+				FClass::QuietNaN
 			}
 		} else if exponent == 0 {
 			if mantissa == 0 {
@@ -66,19 +64,15 @@ impl SoftFloat {
 				} else {
 					FClass::NegativeZero
 				}
+			} else if sign == 0 {
+				FClass::PositiveSubNormal
 			} else {
-				if sign == 0 {
-					FClass::PositiveSubNormal
-				} else {
-					FClass::NegativeSubnormal
-				}
+				FClass::NegativeSubnormal
 			}
+		} else if sign == 0 {
+			FClass::PositiveNormal
 		} else {
-			if sign == 0 {
-				FClass::PositiveNormal
-			} else {
-				FClass::NegativeNormal
-			}
+			FClass::NegativeNormal
 		}
 	}
 
@@ -137,11 +131,7 @@ impl SoftFloat {
 
 	/// Returns if the sign is positive
 	pub fn sign(&self) -> bool {
-		if Self::get_sign(self.to_u32()) == 0 {
-			true
-		} else {
-			false
-		}
+		Self::get_sign(self.to_u32()) == 0
 	}
 
 	// TODO: Maybe rename? I'm not sure. - Lily

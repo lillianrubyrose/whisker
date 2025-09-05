@@ -13,8 +13,8 @@ pub enum PrivilegedInstruction {
 	},
 }
 
-impl Into<Instruction> for PrivilegedInstruction {
-	fn into(self) -> Instruction {
-		Instruction::PrivilegedInstruction(self)
+impl From<PrivilegedInstruction> for Instruction {
+	fn from(val: PrivilegedInstruction) -> Self {
+		Instruction::PrivilegedInstruction(val)
 	}
 }

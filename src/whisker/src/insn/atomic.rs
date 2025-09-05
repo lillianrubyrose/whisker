@@ -159,8 +159,8 @@ pub enum AtomicInstruction {
 	},
 }
 
-impl Into<Instruction> for AtomicInstruction {
-	fn into(self) -> Instruction {
-		Instruction::AtomicExtension(self)
+impl From<AtomicInstruction> for Instruction {
+	fn from(val: AtomicInstruction) -> Self {
+		Instruction::AtomicExtension(val)
 	}
 }

@@ -41,7 +41,7 @@ pub fn parse_op_imm(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 		),
 		SHIFT_LEFT_IMM => {
 			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
-			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5);
 
 			match shift_kind {
 				SHIFT_LOGICAL => Some(
@@ -58,7 +58,7 @@ pub fn parse_op_imm(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 		}
 		SHIFT_RIGHT_IMM => {
 			let shift_kind = extract_bits_32(itype.imm() as u32, 6, 11) as u8;
-			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5) as u32;
+			let shift_amt = extract_bits_32(itype.imm() as u32, 0, 5);
 
 			match shift_kind {
 				SHIFT_LOGICAL => Some(

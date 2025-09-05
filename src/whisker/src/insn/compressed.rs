@@ -5,8 +5,8 @@ pub enum CompressedInstruction {
 	Nop,
 }
 
-impl Into<Instruction> for CompressedInstruction {
-	fn into(self) -> Instruction {
-		Instruction::CompressedExtension(self)
+impl From<CompressedInstruction> for Instruction {
+	fn from(val: CompressedInstruction) -> Self {
+		Instruction::CompressedExtension(val)
 	}
 }

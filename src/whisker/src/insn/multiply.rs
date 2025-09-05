@@ -73,8 +73,8 @@ pub enum MultiplyInstruction {
 	},
 }
 
-impl Into<Instruction> for MultiplyInstruction {
-	fn into(self) -> Instruction {
-		Instruction::MultiplyInstruction(self)
+impl From<MultiplyInstruction> for Instruction {
+	fn from(val: MultiplyInstruction) -> Self {
+		Instruction::MultiplyInstruction(val)
 	}
 }

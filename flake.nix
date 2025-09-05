@@ -88,6 +88,7 @@
               pkgs.libclang.lib
               pkgs.llvmPackages.libcxxClang
               pkgs.cmake
+              pkgs.socat
 
               # riscv-tests
               pkgs.autoconf

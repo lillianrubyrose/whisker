@@ -166,7 +166,7 @@ impl WhiskerHart {
 		let info = self.csr_info.get(&idx);
 
 		// FIXME: extension checks
-		if info.is_some_and(|i| i.is_rw()) && idx.required_mode() <= self.mode() {
+		if info.is_some_and(CSRInfo::is_rw) && idx.required_mode() <= self.mode() {
 			Ok(CSRReadWriteToken {
 				inner: CSRReadToken { idx },
 			})
@@ -339,7 +339,7 @@ fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
 	hart.float_status_control.set_inner([val]);
 }
 
-/// INVARIANT: holds a valid CSR index (0..NUM_CSRS)
+/// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CSRIndex(u16);
 

@@ -438,7 +438,7 @@ impl BlockRequestHeader {
 				return None;
 			}
 		};
-		Some(BlockRequestHeader { kind, sector })
+		Some(BlockRequestHeader { sector, kind })
 	}
 }
 

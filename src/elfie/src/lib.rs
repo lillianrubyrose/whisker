@@ -25,12 +25,14 @@ pub enum ISA {
 }
 
 impl ISA {
+	#[must_use]
 	pub const fn to_value(self) -> u16 {
 		match self {
 			ISA::RiscV => 0xF3,
 		}
 	}
 
+	#[must_use]
 	pub fn from_value(value: u16) -> Option<Self> {
 		match value {
 			0xF3 => Some(Self::RiscV),
@@ -60,10 +62,12 @@ impl ProgramHeaderType {
 }
 
 impl ProgramHeaderType {
+	#[must_use]
 	pub const fn to_value(self) -> u32 {
 		self.0
 	}
 
+	#[must_use]
 	pub fn from_value(value: u32) -> Option<Self> {
 		match value {
 			v if v == Self::PT_NULL.to_value() => Some(Self::PT_NULL),
@@ -137,10 +141,12 @@ impl SectionHeaderFlags {
 	pub const SHF_ORDERED: Self = Self(0x4000000);
 	pub const SHF_EXCLUDE: Self = Self(0x8000000);
 
+	#[must_use]
 	pub fn contains(&self, other: Self) -> bool {
 		(self.0 & other.0) == other.0
 	}
 
+	#[must_use]
 	pub fn intersects(&self, other: Self) -> bool {
 		(self.0 & other.0) != 0
 	}
@@ -306,10 +312,12 @@ impl SectionHeaderType {
 }
 
 impl SectionHeaderType {
+	#[must_use]
 	pub const fn to_value(self) -> u32 {
 		self.0
 	}
 
+	#[must_use]
 	pub fn from_value(value: u32) -> Option<Self> {
 		match value {
 			v if v == Self::SHT_NULL.to_value() => Some(Self::SHT_NULL),
@@ -417,6 +425,7 @@ pub enum ElfType {
 }
 
 impl ElfType {
+	#[must_use]
 	pub fn to_value(self) -> u16 {
 		match self {
 			Self::None => 0x00,
@@ -427,6 +436,7 @@ impl ElfType {
 		}
 	}
 
+	#[must_use]
 	pub fn from_value(value: u16) -> Option<Self> {
 		match value {
 			0x00 => Some(Self::None),
@@ -647,6 +657,7 @@ impl ElfFile {
 		})
 	}
 
+	#[must_use]
 	pub fn section(&self, name: &str) -> Option<&SectionHeader> {
 		self.section_headers.iter().find(|&header| header.name == name)
 	}

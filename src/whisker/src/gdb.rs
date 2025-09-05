@@ -175,19 +175,17 @@ impl MultiThreadBase for WhiskerCpu {
 		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
-			match mem.read_u8(hart, addr, ReadKind::Normal) {
-				Ok(val) => data[idx] = val,
-				Err(_) => {
-					if idx == 0 {
-						hart.debug = false;
-						// if no bytes were read, report a fault error
-						return Err(TargetError::Errno(0x0E));
-					} else {
-						hart.debug = false;
-						// if an access errors, return the length that has been sucessfully read so far
-						return Ok(idx);
-					}
+			if let Ok(val) = mem.read_u8(hart, addr, ReadKind::Normal) {
+				data[idx] = val
+			} else {
+				if idx == 0 {
+					hart.debug = false;
+					// if no bytes were read, report a fault error
+					return Err(TargetError::Errno(0x0E));
 				}
+				hart.debug = false;
+				// if an access errors, return the length that has been sucessfully read so far
+				return Ok(idx);
 			}
 		}
 
@@ -207,13 +205,10 @@ impl MultiThreadBase for WhiskerCpu {
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			let val = data[idx];
-			match mem.write_u8(hart, addr, WriteKind::Normal, val) {
-				Ok(()) => {}
-				Err(_) => {
-					hart.debug = false;
-					// if writing failed for any reason, return an error
-					return Err(TargetError::Errno(0x0E));
-				}
+			if mem.write_u8(hart, addr, WriteKind::Normal, val).is_err() {
+				hart.debug = false;
+				// if writing failed for any reason, return an error
+				return Err(TargetError::Errno(0x0E));
 			}
 		}
 

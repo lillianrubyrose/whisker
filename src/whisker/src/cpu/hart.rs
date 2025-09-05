@@ -213,7 +213,7 @@ impl WhiskerHart {
 			Ok((inst, size)) => {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
-				self.last_instruction = Some(inst.clone());
+				self.last_instruction = Some(inst);
 				self.execute_instruction(inst);
 			}
 			// trap was requested during decoding
@@ -437,12 +437,11 @@ impl WhiskerHart {
 
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
-				match insn16::parse(self, parcel1) {
-					Some(insn) => Ok((insn, 2)),
-					None => {
-						warn!("unable to parse 16 bit instruction {parcel1:#06X}");
-						Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend()))
-					}
+				if let Some(insn) = insn16::parse(self, parcel1) {
+					Ok((insn, 2))
+				} else {
+					warn!("unable to parse 16 bit instruction {parcel1:#06X}");
+					Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel1.extend()))
 				}
 			} else {
 				warn!(
@@ -1013,15 +1012,14 @@ impl WhiskerHart {
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is NaN
-				match lhs.partial_cmp(&rhs) {
-					Some(cmp) => self.registers.set(dst, u64::from(cmp == Ordering::Equal)),
-					None => {
-						// if any input was NaN, the output is 0
-						self.registers.set(dst, 0);
-						// if either input was sNaN, write invalid operation
-						if lhs.is_snan() || rhs.is_snan() {
-							self.float_status_control.set_invalid_operation(true);
-						}
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers.set(dst, u64::from(cmp == Ordering::Equal))
+				} else {
+					// if any input was NaN, the output is 0
+					self.registers.set(dst, 0);
+					// if either input was sNaN, write invalid operation
+					if lhs.is_snan() || rhs.is_snan() {
+						self.float_status_control.set_invalid_operation(true);
 					}
 				}
 			}
@@ -1030,12 +1028,11 @@ impl WhiskerHart {
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is nan
-				match lhs.partial_cmp(&rhs) {
-					Some(cmp) => self.registers.set(dst, u64::from(cmp == Ordering::Less)),
-					None => {
-						self.registers.set(dst, 0);
-						self.float_status_control.set_invalid_operation(true);
-					}
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers.set(dst, u64::from(cmp == Ordering::Less))
+				} else {
+					self.registers.set(dst, 0);
+					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			FloatInstruction::LessOrEqualSingle { dst, lhs, rhs } => {
@@ -1043,14 +1040,12 @@ impl WhiskerHart {
 				let rhs = self.fp_registers.get_float(rhs);
 
 				// the partial_cmp here returns None if either lhs or rhs is nan
-				match lhs.partial_cmp(&rhs) {
-					Some(cmp) => self
-						.registers
-						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal))),
-					None => {
-						self.registers.set(dst, 0);
-						self.float_status_control.set_invalid_operation(true);
-					}
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers
+						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
+				} else {
+					self.registers.set(dst, 0);
+					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			FloatInstruction::ConvertSingleToWord { dst, src, rm } => todo!("convert single to word"),
@@ -1104,31 +1099,31 @@ impl WhiskerHart {
 			}
 			CSRInstruction::CSRReadAndSet { dst, mask, csr } => {
 				// we MUST NOT check for writability if the mask register is x0
-				if mask != GPRegisterIndex::ZERO {
+				if mask == GPRegisterIndex::ZERO {
+					let token = self.csr_require_ro(csr)?;
+					let val = self.read_csr(&token);
+					self.registers.set(dst, val);
+				} else {
 					let token = self.csr_require_rw(csr)?;
 
 					let val = self.read_csr(&token);
 					let mask = self.registers.get(mask);
 					self.registers.set(dst, val);
 					self.write_csr(&token, val | mask);
-				} else {
-					let token = self.csr_require_ro(csr)?;
-					let val = self.read_csr(&token);
-					self.registers.set(dst, val);
 				}
 			}
 			CSRInstruction::CSRReadAndClear { dst, mask, csr } => {
 				// we MUST NOT check for writability if the mask register is x0
-				if mask != GPRegisterIndex::ZERO {
+				if mask == GPRegisterIndex::ZERO {
+					let token = self.csr_require_ro(csr)?;
+					let val = self.read_csr(&token);
+					self.registers.set(dst, val);
+				} else {
 					let token = self.csr_require_rw(csr)?;
 					let val = self.read_csr(&token);
 					let mask = self.registers.get(mask);
 					self.registers.set(dst, val);
 					self.write_csr(&token, val & mask);
-				} else {
-					let token = self.csr_require_ro(csr)?;
-					let val = self.read_csr(&token);
-					self.registers.set(dst, val);
 				}
 			}
 			CSRInstruction::CSRReadWriteImm { dst, imm, csr } => {

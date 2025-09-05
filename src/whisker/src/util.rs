@@ -1,5 +1,3 @@
-use num_conv::Extend;
-
 /// extracts bits start..=end from val
 pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
 	debug_assert!(start <= end);

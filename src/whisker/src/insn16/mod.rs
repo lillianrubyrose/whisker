@@ -832,17 +832,14 @@ mod ty {
 
 			// the shift types need to not sign extend, but AND does
 			let func2 = extract_bits_16(parcel, 10, 11) as u8;
-			let imm = match func2 {
-				func2::ANDI => {
-					let imm_0_4 = extract_bits_16(parcel, 2, 6) as u32;
-					let imm_5 = extract_bits_16(parcel, 12, 12) as u32;
-					sign_ext_imm(imm_5 << 5 | imm_0_4, 5)
-				}
-				_ => {
-					let imm_0_4 = extract_bits_16(parcel, 2, 6);
-					let imm_5 = extract_bits_16(parcel, 12, 12);
-					(imm_5 << 5 | imm_0_4) as i64
-				}
+			let imm = if func2 == func2::ANDI {
+				let imm_0_4 = extract_bits_16(parcel, 2, 6) as u32;
+				let imm_5 = extract_bits_16(parcel, 12, 12) as u32;
+				sign_ext_imm(imm_5 << 5 | imm_0_4, 5)
+			} else {
+				let imm_0_4 = extract_bits_16(parcel, 2, 6);
+				let imm_5 = extract_bits_16(parcel, 12, 12);
+				(imm_5 << 5 | imm_0_4) as i64
 			};
 
 			Self {

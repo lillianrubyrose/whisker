@@ -105,9 +105,7 @@ pub fn parse_op_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 			_ => None,
 		},
 		SQRT_SINGLE => {
-			if rtype.src2() != RegisterIndex::ZERO {
-				None
-			} else {
+			if rtype.src2() == RegisterIndex::ZERO {
 				Some(
 					FloatInstruction::SqrtSingle {
 						dst: rtype.dst().to_fp(),
@@ -116,6 +114,8 @@ pub fn parse_op_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 					}
 					.into(),
 				)
+			} else {
+				None
 			}
 		}
 		CMP_SINGLE => match rtype.func3() {
@@ -272,7 +272,7 @@ pub mod consts {
 		pub const MAX: u8 = 0b001;
 	}
 
-	/// these bits are identical for CONVERT_INT_SINGLE and CONVERT_SINGLE_INT
+	/// these bits are identical for `CONVERT_INT_SINGLE` and `CONVERT_SINGLE_INT`
 	pub mod convert_float {
 		pub const WORD: u8 = 0b00000;
 		pub const UNSIGNED_WORD: u8 = 0b00001;

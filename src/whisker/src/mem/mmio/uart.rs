@@ -117,7 +117,7 @@ impl UART {
 
 impl MMIODevice for UART {
 	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
-		let is_dlab = self.line_control_reg & 0b1000_0000 == 1;
+		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
 		match addr {
 			DATA_REG => {
 				if is_dlab {
@@ -152,7 +152,7 @@ impl MMIODevice for UART {
 	}
 
 	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
-		let is_dlab = self.line_control_reg & 0b1000_0000 == 1;
+		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
 		match addr {
 			DATA_REG => {
 				if is_dlab {

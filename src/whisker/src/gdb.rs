@@ -172,7 +172,7 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &mut [u8],
 		tid: Tid,
 	) -> TargetResult<usize, Self> {
-		let mut mem = MEMORY.wait().lock();
+		let mut mem = MEMORY.wait();
 		let mut hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 
@@ -203,7 +203,7 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &[u8],
 		tid: Tid,
 	) -> TargetResult<(), Self> {
-		let mut mem = MEMORY.wait().lock();
+		let mut mem = MEMORY.wait();
 		let mut hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 

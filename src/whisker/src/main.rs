@@ -20,6 +20,7 @@ compile_error!("whisker only supports 64bit architectures");
 use std::fmt::Write as _;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::{fs, panic};
 
 use ::tracing::level_filters::LevelFilter;
@@ -236,7 +237,7 @@ fn init_cpu(
 			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
 		),
 	));
-	cpu::MEMORY.get_or_init(|| Mutex::new(mem_builder.build()));
+	cpu::MEMORY.get_or_init(|| Arc::new(mem_builder.build()));
 
 	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img)
 }

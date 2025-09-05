@@ -32,7 +32,7 @@ pub enum WhiskerExecStatus {
 	Paused,
 }
 
-pub static MEMORY: OnceLock<Mutex<Memory>> = OnceLock::new();
+pub static MEMORY: OnceLock<Arc<Memory>> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct WhiskerCpu {
@@ -77,13 +77,13 @@ impl WhiskerCpu {
 		// FIXME: interrupt controller refactor
 		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
 
-		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as Arc<Mutex<_>>).unwrap();
-		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as Arc<Mutex<_>>).unwrap();
+		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
+		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();
 
 		if let Some(fs_img) = fs_img {
 			mem::mmio::register_mmio(
 				MMIOKind::VirtioBlock,
-				mem::mmio::virtio_block::VirtioBlockDevice::init(fs_img, int_tx.clone()) as Arc<Mutex<_>>,
+				mem::mmio::virtio_block::VirtioBlockDevice::init(fs_img, int_tx.clone()) as _,
 			)
 			.unwrap();
 		}

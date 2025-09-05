@@ -22,7 +22,7 @@ impl DescriptorChain {
 		}
 	}
 
-	pub fn next(&mut self, mem: &mut Memory) -> Option<Descriptor> {
+	pub fn next(&mut self, mem: &Memory) -> Option<Descriptor> {
 		let idx = self.next_idx?;
 
 		if idx >= self.queue_len {
@@ -89,7 +89,7 @@ impl Descriptor {
 		self.flags
 	}
 
-	fn read_from_mem(mem: &mut Memory, descriptor_addr: u64) -> Result<Self, ()> {
+	fn read_from_mem(mem: &Memory, descriptor_addr: u64) -> Result<Self, ()> {
 		let addr = mem.read_hw_u64(descriptor_addr)?;
 		let rest = mem.read_hw_u64(descriptor_addr + 8)?;
 		trace!("descriptor mem: {:#018X} {:#018X}", addr, rest);

@@ -244,11 +244,11 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 		let command = command_rx.recv().unwrap();
 		trace!("block device thread cmd: {:?}", command);
 		let queue_idx = command.queue;
-		let mut mem = MEMORY.wait().lock();
+		let mem = MEMORY.wait();
 		let mut virtio = virt_blk.lock();
 		let queue = &mut virtio.queues[queue_idx.extend::<usize>()];
-		if let Some((mut descriptors, head_idx)) = queue.next_avail(&mut mem) {
-			let Some(first) = descriptors.next(&mut mem) else {
+		if let Some((mut descriptors, head_idx)) = queue.next_avail(&mem) {
+			let Some(first) = descriptors.next(&mem) else {
 				error!("descriptor chain {:#?} missing first descriptor?", descriptors);
 				continue 'main;
 			};
@@ -261,13 +261,13 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 
 			// FIXME: maybe support different layouts of descriptors
 
-			let Some(header) = BlockRequestHeader::read_from_mem(&mut mem, first.addr()) else {
+			let Some(header) = BlockRequestHeader::read_from_mem(&mem, first.addr()) else {
 				continue 'main;
 			};
 
 			trace!("header: {:?}", header);
 
-			let Some(buf_desc) = descriptors.next(&mut mem) else {
+			let Some(buf_desc) = descriptors.next(&mem) else {
 				error!("virtio block request missing buf descriptor");
 				continue 'main;
 			};
@@ -286,7 +286,7 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 			let buf_addr = buf_desc.addr();
 			let buf_len = buf_desc.len();
 
-			let Some(status_desc) = descriptors.next(&mut mem) else {
+			let Some(status_desc) = descriptors.next(&mem) else {
 				error!("virtio blk request missing status descriptor");
 				continue 'main;
 			};
@@ -308,7 +308,7 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 				},
 			};
 
-			let used_len = if handle_request(&mut mem, req).is_ok() {
+			let used_len = if handle_request(&mem, req).is_ok() {
 				// wrote all of buf, plus one status byte
 				buf_len + 1
 			} else {
@@ -316,7 +316,7 @@ fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Recei
 				0
 			};
 
-			queue.set_used(&mut mem, head_idx, used_len);
+			queue.set_used(&mem, head_idx, used_len);
 			virtio
 				.interrupt_tx
 				.send(InterruptMessage::new_high(InterruptSource::VIRTIO))
@@ -333,7 +333,7 @@ const STATUS_OK: u8 = 0;
 const STATUS_IOERR: u8 = 1;
 const STATUS_UNSUPP: u8 = 2;
 
-fn handle_request(mem: &mut Memory, req: BlockRequest) -> Result<(), ()> {
+fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
 	match req {
 		BlockRequest::Read {
 			sector,
@@ -413,7 +413,7 @@ struct BlockRequestHeader {
 }
 
 impl BlockRequestHeader {
-	fn read_from_mem(mem: &mut Memory, addr: u64) -> Option<BlockRequestHeader> {
+	fn read_from_mem(mem: &Memory, addr: u64) -> Option<BlockRequestHeader> {
 		let Ok(kind) = mem.read_hw_u32(addr) else {
 			error!("virtio blk unable to read descriptor at {:#018X}", addr);
 			return None;

@@ -661,12 +661,4 @@ impl ElfFile {
 mod tests {
 	use super::*;
 	use std::io::Cursor;
-
-	#[test]
-	fn test_elf_file() {
-		let data = include_bytes!("../../../target/out.elf");
-		let elf = ElfFile::parse(&mut Cursor::new(data)).unwrap();
-
-		dbg!(elf);
-	}
 }

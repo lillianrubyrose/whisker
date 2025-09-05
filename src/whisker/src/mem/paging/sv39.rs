@@ -10,7 +10,7 @@ const SV_39_LEVELS: u8 = 3;
 const PTE_SIZE: u64 = core::mem::size_of::<Sv39PageTableEntry>() as u64;
 
 pub fn translate(
-	memory: &mut Memory,
+	memory: &Memory,
 	hart: &mut WhiskerHart,
 	addr: u64,
 	access_kind: MemoryOpKind,
@@ -61,7 +61,7 @@ pub fn translate(
 }
 
 fn find_page(
-	memory: &mut Memory,
+	memory: &Memory,
 	hart: &mut WhiskerHart,
 	access_kind: MemoryOpKind,
 	level_idx: u8,
@@ -177,7 +177,7 @@ struct Sv39PageTableEntry {
 
 impl Sv39PageTableEntry {
 	fn read_from_mem(
-		memory: &mut Memory,
+		memory: &Memory,
 		hart: &mut WhiskerHart,
 		pte_addr: u64,
 		access_kind: MemoryOpKind,

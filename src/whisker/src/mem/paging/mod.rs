@@ -12,7 +12,7 @@ const PAGE_NUM_BITS: u64 = 9;
 
 impl Memory {
 	pub fn translate_addr(
-		&mut self,
+		&self,
 		hart: &mut WhiskerHart,
 		addr: u64,
 		kind: MemoryOpKind,
@@ -23,19 +23,26 @@ impl Memory {
 			return Ok(addr);
 		}
 
+		let translation_mode = hart.translation_config.get_mode();
+		if matches!(translation_mode, AddressTranslationMode::Bare) {
+			return Ok(addr);
+		}
+
 		let page = addr & !(PAGE_SIZE - 1);
-		let phys_addr = if let Some(virt_base) = self.page_table_cache.get(&page) {
+		let page_table_cache = self.page_table_cache.read();
+		let phys_addr = if let Some(virt_base) = page_table_cache.get(&page) {
 			virt_base + (addr & (PAGE_SIZE - 1))
 		} else {
 			core::hint::cold_path();
-			let phys_addr = match hart.translation_config.get_mode() {
-				AddressTranslationMode::Bare => addr,
+			drop(page_table_cache);
+			let phys_addr = match translation_mode {
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!(),
 				AddressTranslationMode::Sv57 => todo!(),
+				AddressTranslationMode::Bare => unreachable!("already checked"),
 				mode => unreachable!("unimplemented addr mode {:?}", mode),
 			};
-			self.page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
+			self.page_table_cache.write().insert(page, phys_addr & !(PAGE_SIZE - 1));
 			phys_addr
 		};
 
@@ -43,9 +50,9 @@ impl Memory {
 		Ok(phys_addr)
 	}
 
-	pub fn clear_vm_cache(&mut self, _asid: u64, _vaddr: u64) {
+	pub fn clear_vm_cache(&self, _asid: u64, _vaddr: u64) {
 		warn!("clearing vm cache");
-		self.page_table_cache.clear();
+		self.page_table_cache.write().clear();
 	}
 }
 

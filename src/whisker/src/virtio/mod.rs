@@ -59,7 +59,7 @@ impl VirtQueue {
 		self.max_size
 	}
 
-	pub fn next_avail(&mut self, mem: &mut Memory) -> Option<(DescriptorChain, u16)> {
+	pub fn next_avail(&mut self, mem: &Memory) -> Option<(DescriptorChain, u16)> {
 		// the descriptor table MUST be physically continuous in memory, so wrapping cannot happen
 		// for any of these offset calculations.
 		// spec v1.3 section 2.7
@@ -91,7 +91,7 @@ impl VirtQueue {
 		}
 	}
 
-	pub fn set_used(&mut self, mem: &mut Memory, desc_id: u16, used_len: u32) {
+	pub fn set_used(&mut self, mem: &Memory, desc_id: u16, used_len: u32) {
 		const USED_ELEM_SIZE: u16 = 8;
 
 		trace!("setting used desc {} len {}", desc_id, used_len);

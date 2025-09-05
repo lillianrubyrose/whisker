@@ -19,12 +19,7 @@ pub mod system;
 
 pub use ty::*;
 
-use crate::{
-	cpu::hart::WhiskerHart,
-	insn::*,
-	ty::{RegisterIndex, UnknownRegisterIndex},
-	util::extract_bits_32,
-};
+use crate::{cpu::hart::WhiskerHart, insn::*, util::extract_bits_32};
 
 pub fn parse(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	let opcode_ty = extract_bits_32(parcel, 2, 6);
@@ -94,27 +89,27 @@ pub fn parse(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
 	}
 }
 
-pub fn extract_dst(inst: u32) -> UnknownRegisterIndex {
-	RegisterIndex::new(extract_bits_32(inst, 7, 11) as u8).unwrap()
-}
-
-pub fn extract_src1(inst: u32) -> UnknownRegisterIndex {
-	RegisterIndex::new(extract_bits_32(inst, 15, 19) as u8).unwrap()
-}
-
-pub fn extract_src2(inst: u32) -> UnknownRegisterIndex {
-	RegisterIndex::new(extract_bits_32(inst, 20, 24) as u8).unwrap()
-}
-
 /// here to prevent things from using the fields directly
 mod ty {
-	use super::{extract_dst, extract_src1, extract_src2};
 	use crate::{
+		ty::RegisterIndex,
 		ty::UnknownRegisterIndex,
 		util::{extract_bits_32, sign_ext_imm},
 	};
 
-	#[derive(Debug)]
+	fn extract_dst(inst: u32) -> UnknownRegisterIndex {
+		RegisterIndex::new(extract_bits_32(inst, 7, 11) as u8).unwrap()
+	}
+
+	fn extract_src1(inst: u32) -> UnknownRegisterIndex {
+		RegisterIndex::new(extract_bits_32(inst, 15, 19) as u8).unwrap()
+	}
+
+	fn extract_src2(inst: u32) -> UnknownRegisterIndex {
+		RegisterIndex::new(extract_bits_32(inst, 20, 24) as u8).unwrap()
+	}
+
+	#[derive(Debug, Clone, Copy)]
 	pub struct IType {
 		dst: UnknownRegisterIndex,
 		src: UnknownRegisterIndex,
@@ -125,32 +120,32 @@ mod ty {
 	impl IType {
 		pub fn parse(parcel: u32) -> Self {
 			let dst = extract_dst(parcel);
-			let func = extract_bits_32(parcel, 12, 14) as u8;
 			let src = extract_src1(parcel);
+			let func = extract_bits_32(parcel, 12, 14) as u8;
 			let imm = extract_bits_32(parcel, 20, 31);
 			let imm = sign_ext_imm(imm, 11);
-			Self { dst, func, src, imm }
+			Self { dst, src, func, imm }
 		}
 
 		#[inline]
-		pub fn dst(&self) -> UnknownRegisterIndex {
+		pub fn dst(self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn src(&self) -> UnknownRegisterIndex {
+		pub fn src(self) -> UnknownRegisterIndex {
 			self.src
 		}
 		#[inline]
-		pub fn func(&self) -> u8 {
+		pub fn func(self) -> u8 {
 			self.func
 		}
 		#[inline]
-		pub fn imm(&self) -> i64 {
+		pub fn imm(self) -> i64 {
 			self.imm
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct UType {
 		dst: UnknownRegisterIndex,
 		imm: i64,
@@ -165,16 +160,16 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn dst(&self) -> UnknownRegisterIndex {
+		pub fn dst(self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn imm(&self) -> i64 {
+		pub fn imm(self) -> i64 {
 			self.imm
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct SType {
 		func: u8,
 		src1: UnknownRegisterIndex,
@@ -192,28 +187,28 @@ mod ty {
 
 			let imm = sign_ext_imm(imm1 << 5 | imm0, 11);
 
-			Self { imm, func, src1, src2 }
+			Self { func, src1, src2, imm }
 		}
 
 		#[inline]
-		pub fn func(&self) -> u8 {
+		pub fn func(self) -> u8 {
 			self.func
 		}
 		#[inline]
-		pub fn src1(&self) -> UnknownRegisterIndex {
+		pub fn src1(self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> UnknownRegisterIndex {
+		pub fn src2(self) -> UnknownRegisterIndex {
 			self.src2
 		}
 		#[inline]
-		pub fn imm(&self) -> i64 {
+		pub fn imm(self) -> i64 {
 			self.imm
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct JType {
 		dst: UnknownRegisterIndex,
 		imm: i64,
@@ -234,16 +229,16 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn dst(&self) -> UnknownRegisterIndex {
+		pub fn dst(self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn imm(&self) -> i64 {
+		pub fn imm(self) -> i64 {
 			self.imm
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct RType {
 		func: u16,
 		dst: UnknownRegisterIndex,
@@ -267,32 +262,32 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn func(&self) -> u16 {
+		pub fn func(self) -> u16 {
 			self.func
 		}
 		#[inline]
-		pub fn func3(&self) -> u8 {
+		pub fn func3(self) -> u8 {
 			(self.func & 0b111) as u8
 		}
 		#[inline]
-		pub fn func7(&self) -> u8 {
+		pub fn func7(self) -> u8 {
 			((self.func & 0b1111111000) >> 3) as u8
 		}
 		#[inline]
-		pub fn dst(&self) -> UnknownRegisterIndex {
+		pub fn dst(self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn src1(&self) -> UnknownRegisterIndex {
+		pub fn src1(self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> UnknownRegisterIndex {
+		pub fn src2(self) -> UnknownRegisterIndex {
 			self.src2
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct BType {
 		func: u8,
 		src1: UnknownRegisterIndex,
@@ -312,28 +307,28 @@ mod ty {
 
 			let imm = sign_ext_imm(imm_12 << 12 | imm_11 << 11 | imm_5_10 << 5 | imm_1_4 << 1, 12);
 
-			Self { imm, func, src1, src2 }
+			Self { func, src1, src2, imm }
 		}
 
 		#[inline]
-		pub fn func(&self) -> u8 {
+		pub fn func(self) -> u8 {
 			self.func
 		}
 		#[inline]
-		pub fn src1(&self) -> UnknownRegisterIndex {
+		pub fn src1(self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> UnknownRegisterIndex {
+		pub fn src2(self) -> UnknownRegisterIndex {
 			self.src2
 		}
 		#[inline]
-		pub fn imm(&self) -> i64 {
+		pub fn imm(self) -> i64 {
 			self.imm
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, Clone, Copy)]
 	pub struct R4Type {
 		dst: UnknownRegisterIndex,
 		func: u8,
@@ -362,31 +357,31 @@ mod ty {
 		}
 
 		#[inline]
-		pub fn func(&self) -> u8 {
+		pub fn func(self) -> u8 {
 			self.func
 		}
 		#[inline]
-		pub fn func2(&self) -> u8 {
+		pub fn func2(self) -> u8 {
 			(self.func & 0b11000) >> 3
 		}
 		#[inline]
-		pub fn func3(&self) -> u8 {
+		pub fn func3(self) -> u8 {
 			self.func & 0b00111
 		}
 		#[inline]
-		pub fn dst(&self) -> UnknownRegisterIndex {
+		pub fn dst(self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]
-		pub fn src1(&self) -> UnknownRegisterIndex {
+		pub fn src1(self) -> UnknownRegisterIndex {
 			self.src1
 		}
 		#[inline]
-		pub fn src2(&self) -> UnknownRegisterIndex {
+		pub fn src2(self) -> UnknownRegisterIndex {
 			self.src2
 		}
 		#[inline]
-		pub fn src3(&self) -> UnknownRegisterIndex {
+		pub fn src3(self) -> UnknownRegisterIndex {
 			self.src3
 		}
 	}

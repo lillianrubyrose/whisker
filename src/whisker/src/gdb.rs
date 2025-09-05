@@ -87,13 +87,13 @@ impl Registers for Rv64Regs {
 
 		// Read GPRs
 		for reg in self.x.iter_mut() {
-			*reg = regs.next().ok_or(())?
+			*reg = regs.next().ok_or(())?;
 		}
 		self.pc = regs.next().ok_or(())?;
 
 		// Read FPRs
 		for reg in self.f.iter_mut() {
-			*reg = f64::from_bits(regs.next().ok_or(())?)
+			*reg = f64::from_bits(regs.next().ok_or(())?);
 		}
 
 		if regs.next().is_some() {
@@ -240,7 +240,7 @@ impl MultiThreadResume for WhiskerCpu {
 		warn!("GDB resume");
 		self.hart_states.iter_mut().for_each(|s| {
 			if *s == WhiskerExecState::Paused {
-				*s = WhiskerExecState::Running
+				*s = WhiskerExecState::Running;
 			}
 		});
 		Ok(())

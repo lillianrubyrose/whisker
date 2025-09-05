@@ -140,23 +140,23 @@ impl ExceptionFlags {
 	pub const FLAG_INFINITE: u8 = softfloat_sys::softfloat_flag_infinite;
 	pub const FLAG_INVALID: u8 = softfloat_sys::softfloat_flag_invalid;
 
-	pub fn is_inexact(&self) -> bool {
+	pub fn is_inexact(self) -> bool {
 		self.0 & Self::FLAG_INEXACT != 0
 	}
 
-	pub fn is_infinite(&self) -> bool {
+	pub fn is_infinite(self) -> bool {
 		self.0 & Self::FLAG_INFINITE != 0
 	}
 
-	pub fn is_overflow(&self) -> bool {
+	pub fn is_overflow(self) -> bool {
 		self.0 & Self::FLAG_OVERFLOW != 0
 	}
 
-	pub fn is_underflow(&self) -> bool {
+	pub fn is_underflow(self) -> bool {
 		self.0 & Self::FLAG_UNDERFLOW != 0
 	}
 
-	pub fn is_invalid(&self) -> bool {
+	pub fn is_invalid(self) -> bool {
 		self.0 & Self::FLAG_INVALID != 0
 	}
 

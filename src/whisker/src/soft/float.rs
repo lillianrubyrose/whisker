@@ -76,66 +76,66 @@ impl SoftFloat {
 		}
 	}
 
-	pub fn is_nan(&self) -> bool {
+	pub fn is_nan(self) -> bool {
 		Self::get_exponent(self.0.v) == Self::EXPONENT_MASK && Self::get_mantissa(self.0.v) != 0u32
 	}
 
-	pub fn is_snan(&self) -> bool {
+	pub fn is_snan(self) -> bool {
 		self.is_nan() && (Self::get_mantissa(self.0.v) & Self::QUIET_NAN_MASK != 0)
 	}
-	pub fn is_qnan(&self) -> bool {
+	pub fn is_qnan(self) -> bool {
 		self.is_nan() && (Self::get_mantissa(self.0.v) & Self::QUIET_NAN_MASK == 0)
 	}
 
-	pub fn add(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		let res = unsafe { softfloat_sys::f32_add(self.0, other.0) };
 		ExceptionFlags::get_from_softfloat().update_hart(hart);
 		Self(res)
 	}
 
-	pub fn sub(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_sub(self.0, other.0) })
 	}
 
-	pub fn mul(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_mul(self.0, other.0) })
 	}
 
-	pub fn div(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_div(self.0, other.0) })
 	}
 
-	pub fn rem(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_rem(self.0, other.0) })
 	}
 
-	pub fn mul_add(&self, mul: &Self, add: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_mulAdd(self.0, mul.0, add.0) })
 	}
 
 	// FIXME: This is probably fine?
-	pub fn mul_sub(&self, mul: &Self, sub: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		self.mul_add(mul, &sub.set_sign(!sub.sign()), rm, hart)
+	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.mul_add(mul, sub.set_sign(!sub.sign()), rm, hart)
 	}
 
-	pub fn sqrt(&self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f32_sqrt(self.0) })
 	}
 
 	/// Returns if the sign is positive
-	pub fn sign(&self) -> bool {
+	pub fn sign(self) -> bool {
 		Self::get_sign(self.to_u32()) == 0
 	}
 
 	// TODO: Maybe rename? I'm not sure. - Lily
-	pub fn set_sign(&self, sign: bool) -> Self {
+	pub fn set_sign(self, sign: bool) -> Self {
 		Self::from_u32(self.to_u32() | ((sign as u32) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
 	}
 }

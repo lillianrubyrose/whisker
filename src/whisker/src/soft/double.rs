@@ -73,41 +73,41 @@ impl SoftDouble {
 		}
 	}
 
-	pub fn is_nan(&self) -> bool {
+	pub fn is_nan(self) -> bool {
 		Self::get_exponent(self.0.v) == Self::EXPONENT_BITS && Self::get_mantissa(self.0.v) != 0u64
 	}
 
-	pub fn add(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_add(self.0, other.0) })
 	}
 
-	pub fn sub(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_sub(self.0, other.0) })
 	}
 
-	pub fn mul(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_mul(self.0, other.0) })
 	}
 
-	pub fn div(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_div(self.0, other.0) })
 	}
 
-	pub fn rem(&self, other: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_rem(self.0, other.0) })
 	}
 
-	pub fn mul_add(&self, mul: &Self, add: &Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_mulAdd(self.0, mul.0, add.0) })
 	}
 
-	pub fn sqrt(&self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
 		Self(unsafe { softfloat_sys::f64_sqrt(self.0) })
 	}

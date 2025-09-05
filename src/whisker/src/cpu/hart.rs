@@ -889,13 +889,13 @@ impl WhiskerHart {
 			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				let result = lhs.add(&rhs, rm, self);
+				let result = lhs.add(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::SubSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				let result = lhs.sub(&rhs, rm, self);
+				let result = lhs.sub(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::MulAddSingle {
@@ -908,7 +908,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let add = self.fp_registers.get_float(add);
-				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
+				let result = mul_lhs.mul_add(mul_rhs, add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::MulSubSingle {
@@ -921,7 +921,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let sub = self.fp_registers.get_float(sub);
-				let result = mul_lhs.mul_sub(&mul_rhs, &sub, rm, self);
+				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::NegMulAddSingle {
@@ -934,7 +934,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let add = self.fp_registers.get_float(add);
-				let result = mul_lhs.mul_add(&mul_rhs, &add, rm, self);
+				let result = mul_lhs.mul_add(mul_rhs, add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::NegMulSubSingle {
@@ -947,19 +947,19 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let sub = self.fp_registers.get_float(sub);
-				let result = mul_lhs.mul_sub(&mul_rhs, &sub, rm, self);
+				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::MulSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				let result = lhs.mul(&rhs, rm, self);
+				let result = lhs.mul(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::DivSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				let result = lhs.div(&rhs, rm, self);
+				let result = lhs.div(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::SqrtSingle { dst, val, rm } => {
@@ -987,7 +987,7 @@ impl WhiskerHart {
 				warn!("FMIN.S Implementation is incorrect");
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				if lhs.lt(&rhs) {
+				if lhs < rhs {
 					self.fp_registers.set_float(dst, lhs);
 				} else {
 					self.fp_registers.set_float(dst, rhs);
@@ -999,7 +999,7 @@ impl WhiskerHart {
 				warn!("FMAX.S Implementation is incorrect");
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				if lhs.gt(&rhs) {
+				if lhs > rhs {
 					self.fp_registers.set_float(dst, lhs);
 				} else {
 					self.fp_registers.set_float(dst, rhs);

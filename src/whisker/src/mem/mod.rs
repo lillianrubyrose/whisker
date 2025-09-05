@@ -661,7 +661,7 @@ pub enum ReadKind {
 }
 
 impl ReadKind {
-	pub fn as_mem_op(&self) -> MemoryOpKind {
+	pub fn as_mem_op(self) -> MemoryOpKind {
 		match self {
 			ReadKind::Normal | ReadKind::LoadReserved => MemoryOpKind::Load,
 			ReadKind::Instruction => MemoryOpKind::Instruction,

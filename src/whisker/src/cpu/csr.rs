@@ -254,7 +254,7 @@ fn read_mcause(hart: &mut WhiskerHart) -> u64 {
 	hart.mcause.inner()
 }
 fn write_mcause(hart: &mut WhiskerHart, val: u64) {
-	hart.mcause = TrapIdx::from_raw(val)
+	hart.mcause = TrapIdx::from_raw(val);
 }
 
 fn read_mip(hart: &mut WhiskerHart) -> u64 {

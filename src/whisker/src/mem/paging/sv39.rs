@@ -142,11 +142,11 @@ impl Sv39Addr {
 		Some(vaddr)
 	}
 
-	fn as_effective_addr(&self) -> u64 {
+	fn as_effective_addr(self) -> u64 {
 		u64::from_le_bytes(self.inner())
 	}
 
-	fn get_page_num(&self, idx: u8) -> u64 {
+	fn get_page_num(self, idx: u8) -> u64 {
 		match idx {
 			0 => u64::from(self.get_virt_page_0()),
 			1 => u64::from(self.get_virt_page_1()),

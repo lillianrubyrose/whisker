@@ -106,7 +106,7 @@ impl GPRegisterIndex {
 		Self(31, PhantomData),
 	];
 
-	pub fn display(&self) -> &'static str {
+	pub fn display(self) -> &'static str {
 		match self.0 {
 			0 => "zero",
 			1 => "ra",
@@ -144,7 +144,7 @@ impl GPRegisterIndex {
 		}
 	}
 
-	pub fn abi_kind(&self) -> &'static str {
+	pub fn abi_kind(self) -> &'static str {
 		match self.0 {
 			1 => "code_ptr",
 			2 | 3 | 4 | 8 => "data_ptr",
@@ -189,7 +189,7 @@ impl FPRegisterIndex {
 		Self(31, PhantomData),
 	];
 
-	pub fn display(&self) -> &'static str {
+	pub fn display(self) -> &'static str {
 		match self.0 {
 			0 => "f0",
 			1 => "f1",
@@ -298,7 +298,7 @@ impl RiscvExtensions {
 		self
 	}
 
-	pub const fn inner(&self) -> u64 {
+	pub const fn inner(self) -> u64 {
 		self.0
 	}
 }
@@ -366,7 +366,7 @@ impl TrapIdx {
 		Self(Self::INTERRUPT_MASK | code)
 	}
 
-	pub const fn kind(&self) -> TrapKind {
+	pub const fn kind(self) -> TrapKind {
 		if self.0 & Self::INTERRUPT_MASK != 0 {
 			TrapKind::Interrupt
 		} else {
@@ -374,11 +374,11 @@ impl TrapIdx {
 		}
 	}
 
-	pub const fn cause(&self) -> u64 {
+	pub const fn cause(self) -> u64 {
 		self.0 & Self::CAUSE_MASK
 	}
 
-	pub const fn inner(&self) -> u64 {
+	pub const fn inner(self) -> u64 {
 		self.0
 	}
 

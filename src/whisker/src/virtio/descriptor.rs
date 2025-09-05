@@ -45,7 +45,7 @@ impl DescriptorChain {
 		};
 
 		if descriptor.has_next() {
-			self.next_idx = Some(descriptor.next)
+			self.next_idx = Some(descriptor.next);
 		} else {
 			self.next_idx = None;
 		}

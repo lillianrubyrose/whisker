@@ -279,7 +279,7 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 	match gdb.run_blocking::<WhiskerEventLoop>(&mut cpu) {
 		Ok(dc_reason) => match dc_reason {
 			gdbstub::stub::DisconnectReason::TargetExited(result) => {
-				error!("Target exited: {result}")
+				error!("Target exited: {result}");
 			}
 			gdbstub::stub::DisconnectReason::TargetTerminated(signal) => {
 				error!("Target terminated: {signal:?}");

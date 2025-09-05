@@ -86,7 +86,7 @@ fn bitfield_repr_inner(input: TokenStream2) -> syn::Result<TokenStream2> {
 	let target = syn::parse2::<DeriveInput>(input)?;
 	match target.data {
 		syn::Data::Struct(_data_struct) => todo!("BitFieldRepr for structs?"),
-		syn::Data::Enum(data_enum) => bitfield_repr_enum(ItemEnum {
+		syn::Data::Enum(data_enum) => bitfield_repr_enum(&ItemEnum {
 			attrs: target.attrs,
 			vis: target.vis,
 			enum_token: data_enum.enum_token,
@@ -99,7 +99,7 @@ fn bitfield_repr_inner(input: TokenStream2) -> syn::Result<TokenStream2> {
 	}
 }
 
-fn bitfield_repr_enum(e: ItemEnum) -> syn::Result<TokenStream2> {
+fn bitfield_repr_enum(e: &ItemEnum) -> syn::Result<TokenStream2> {
 	let span = e.span();
 	let ident = &e.ident;
 	let (impl_generics, ty_generics, where_clauses) = e.generics.split_for_impl();

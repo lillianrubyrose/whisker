@@ -34,22 +34,9 @@ impl BitField for bool {
 	}
 }
 
-/*
-pub enum U1 {}
-impl BitField for U1 {
-	const SIZE: usize = 1;
-	type Storage = u8;
-	type IO = u8;
-	fn from_bits(bits: Self::Storage) -> Self::IO {
-		todo!()
-	}
-	fn to_bits(val: Self::IO) -> Self::Storage {
-		todo!()
-	}
-}
-*/
-
 #[doc(hidden)]
+#[allow(clippy::must_use_candidate, reason = "internals")]
+#[allow(clippy::inline_always, reason = "should be inlined for perf")]
 pub mod private_impl {
 	use super::*;
 
@@ -76,7 +63,7 @@ pub mod private_impl {
 		}
 		// handle middle bytes
 		if end_idx - start_idx >= 2 {
-			for idx in ((start_idx + 1)..=(end_idx - 1)).rev() {
+			for idx in ((start_idx + 1)..end_idx).rev() {
 				collector.push_bits(bytes[idx], 8);
 			}
 		}
@@ -123,7 +110,7 @@ pub mod private_impl {
 
 		// handle middle bytes
 		if end_idx - start_idx >= 2 {
-			for idx in ((start_idx + 1)..=(end_idx - 1)).rev() {
+			for idx in ((start_idx + 1)..end_idx).rev() {
 				let val = bit_reader.read_bits(8);
 				bytes[idx] = val;
 			}

@@ -22,8 +22,9 @@ pub use ty::*;
 use crate::{cpu::hart::WhiskerHart, insn::*, util::extract_bits_32};
 
 pub fn parse(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
-	let opcode_ty = extract_bits_32(parcel, 2, 6);
 	use consts::opcode::*;
+
+	let opcode_ty = extract_bits_32(parcel, 2, 6);
 	match opcode_ty {
 		LOAD => load::parse_load(hart, parcel),
 		LOAD_FP => load_fp::parse_load_fp(hart, parcel),

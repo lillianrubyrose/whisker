@@ -33,7 +33,7 @@ pub fn translate(
 	if !is_access_allowed(hart, access_kind, r, w, x, u) {
 		trace!("access not allowed: {:?} r:{} w:{} x:{} u:{}", access_kind, r, w, x, u);
 		return Err(trap_page_fault(hart, addr, access_kind));
-	};
+	}
 
 	trace!("PTE access allowed");
 

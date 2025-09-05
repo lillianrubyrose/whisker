@@ -88,9 +88,9 @@ impl CompressedInstruction {
 	}
 
 	pub fn parse_c1(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
-		let func3 = extract_bits_16(parcel, 13, 15) as u8;
-
 		use consts::opcode::c1::*;
+
+		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 		match func3 {
 			ADD_IMM => {
 				let im = CImmType::parse(parcel);
@@ -521,11 +521,12 @@ mod ty {
 	#[allow(unused)]
 	impl CImmType {
 		pub fn parse(parcel: u16) -> Self {
+			use super::consts::opcode::*;
+
 			// the format of the immediate depends on the exact instruction
 			let ty = extract_bits_16(parcel, 0, 1) as u8;
 			let func = extract_bits_16(parcel, 13, 15) as u8;
 			let reg = extract_reg(parcel, 7, 11);
-			use super::consts::opcode::*;
 			let imm = match ty {
 				C1 => {
 					match func {
@@ -598,9 +599,10 @@ mod ty {
 
 	impl CStackStoreType {
 		pub fn parse(parcel: u16) -> Self {
+			use super::consts::opcode::c2::*;
+
 			let src = extract_reg(parcel, 2, 6);
 			let func = extract_bits_16(parcel, 13, 15) as u8;
-			use super::consts::opcode::c2::*;
 			let imm = match func {
 				FSDSP | SDSP => {
 					let imm_6_8 = extract_bits_16(parcel, 7, 9);
@@ -667,9 +669,10 @@ mod ty {
 
 	impl CLoadType {
 		pub fn parse(parcel: u16) -> Self {
+			use super::consts::opcode::c0::*;
+
 			// the format of the immediate depends on the exact instruction
 			let func = extract_bits_16(parcel, 13, 15) as u8;
-			use super::consts::opcode::c0::*;
 			// NOTE: imm is ZERO extended not sign extended
 			let imm = match func {
 				LOAD_WORD => {
@@ -717,9 +720,10 @@ mod ty {
 
 	impl CStoreType {
 		pub fn parse(parcel: u16) -> Self {
+			use super::consts::opcode::c0::*;
+
 			// the format of the immediate depends on the exact instruction
 			let func = extract_bits_16(parcel, 13, 15) as u8;
-			use super::consts::opcode::c0::*;
 			// NOTE: imm is ZERO extended not sign extended
 			let imm = match func {
 				STORE_WORD => {
@@ -824,9 +828,10 @@ mod ty {
 
 	impl CBArithType {
 		pub fn parse(parcel: u16) -> Self {
+			use super::consts::opcode::c1::*;
+
 			// the shift types need to not sign extend, but AND does
 			let func2 = extract_bits_16(parcel, 10, 11) as u8;
-			use super::consts::opcode::c1::*;
 			let imm = match func2 {
 				func2::ANDI => {
 					let imm_0_4 = extract_bits_16(parcel, 2, 6) as u32;

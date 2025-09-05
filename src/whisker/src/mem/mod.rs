@@ -234,7 +234,7 @@ impl Memory {
 					let bytes = val.to_le_bytes();
 					kind.write(hart, phys_addr, bytes.as_slice());
 				}
-			};
+			}
 
 			drop(region_guard);
 			// writing unreserves the address written to
@@ -286,7 +286,7 @@ impl Memory {
 					let bytes = val.to_le_bytes();
 					kind.write(hart, phys_addr, bytes.as_slice());
 				}
-			};
+			}
 
 			drop(region_guard);
 

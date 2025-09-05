@@ -2,7 +2,7 @@ use crate::ty::GPRegisterIndex;
 
 use super::Instruction;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[allow(clippy::enum_variant_names, reason = "DWord also ends with 'Word'")]
 pub enum AtomicInstruction {
 	LoadReservedWord {

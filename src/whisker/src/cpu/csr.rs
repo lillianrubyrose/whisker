@@ -129,8 +129,8 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 }
 
 pub fn generate_csr_xml(info: &BTreeMap<CSRIndex, CSRInfo>) -> String {
-	let mut xml = String::from("  <feature name=\"org.gnu.gdb.riscv.csr\">\n");
 	const GDB_CSR_BASE: u16 = 65;
+	let mut xml = String::from("  <feature name=\"org.gnu.gdb.riscv.csr\">\n");
 	for (idx, info) in info.iter() {
 		xml.push_str(&format!(
 			"    <reg name=\"{}\" bitsize=\"64\" regnum=\"{}\"/>\n",

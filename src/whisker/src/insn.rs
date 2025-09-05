@@ -14,7 +14,7 @@ pub use int::IntInstruction;
 pub use multiply::MultiplyInstruction;
 pub use privileged::PrivilegedInstruction;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
 	Int(IntInstruction),
 	Float(FloatInstruction),

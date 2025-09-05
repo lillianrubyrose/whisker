@@ -412,9 +412,7 @@ impl WhiskerHart {
 		let mask = 1 << bit_idx;
 		let value_bit = u64::from(pending) << bit_idx;
 		let mip = (mip & !mask) | value_bit;
-		if mip > (1 << 19) {
-			panic!("mip {:#018X} {:?}", mip, interrupt);
-		}
+		assert!(mip <= (1 << 19), "mip {:#018X} {:?}", mip, interrupt);
 		self.mip.set_inner(mip.to_le_bytes());
 	}
 }

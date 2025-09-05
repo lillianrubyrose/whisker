@@ -63,7 +63,7 @@ impl VirtioBlockDevice {
 
 		thread::spawn({
 			let virtio = Arc::clone(&this);
-			move || start_block_device(virtio, thread_rx)
+			move || start_block_device(&virtio, &thread_rx)
 		});
 
 		this
@@ -72,13 +72,14 @@ impl VirtioBlockDevice {
 
 impl MMIODevice for VirtioBlockDevice {
 	fn read(&mut self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
+		use offsets::*;
+
 		let Ok(out) = bytemuck::try_from_bytes_mut::<u32>(buf) else {
 			error!("virtio block device only supports reads of u32");
 			return;
 		};
 
 		let offset = addr.wrapping_sub(VIRTIO_BLOCK_BASE);
-		use offsets::*;
 		match offset {
 			MAGIC_VAL => *out = 0x74726976, //"virt" in little endian
 			VERSION => *out = 2,
@@ -108,9 +109,10 @@ impl MMIODevice for VirtioBlockDevice {
 	}
 
 	fn write(&mut self, hart: &mut WhiskerHart, addr: u64, val: &[u8]) {
+		use offsets::*;
+
 		let val = *bytemuck::from_bytes::<u32>(val);
 		let offset = addr.wrapping_sub(VIRTIO_BLOCK_BASE);
-		use offsets::*;
 		match offset {
 			MAGIC_VAL | VERSION | DEVICE_ID | VENDOR_ID | DEVICE_SUPPORTED_FEATURES => {} // READ ONLY
 			DEVICE_FEATURES_SELECT => {
@@ -244,7 +246,7 @@ impl VirtioBlockDevice {
 	}
 }
 
-fn start_block_device(virt_blk: Arc<Mutex<VirtioBlockDevice>>, command_rx: Receiver<Command>) {
+fn start_block_device(virt_blk: &Arc<Mutex<VirtioBlockDevice>>, command_rx: &Receiver<Command>) {
 	'main: loop {
 		let command = command_rx.recv().unwrap();
 		trace!("block device thread cmd: {:?}", command);
@@ -395,7 +397,7 @@ fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum BlockRequest {
 	Read {
 		sector: u64,

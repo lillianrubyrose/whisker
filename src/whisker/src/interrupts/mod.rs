@@ -91,13 +91,13 @@ impl PlatformInterruptController {
 
 impl MMIODevice for PlatformInterruptController {
 	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
-		let out = from_bytes_mut::<u32>(buf);
+		use addrs::*;
 
+		let out = from_bytes_mut::<u32>(buf);
 		let offset = addr - PLIC_BASE;
 
 		trace!("reading from PLIC offset {:#018X}", offset);
 
-		use addrs::*;
 		match offset {
 			PRIORITY_REG_MIN..PRIORITY_REG_MAX => {
 				let source_idx = ((offset - PRIORITY_REG_MIN) as usize) / 4;
@@ -129,12 +129,13 @@ impl MMIODevice for PlatformInterruptController {
 	}
 
 	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
+		use addrs::*;
+
 		let val = u32::from_le_bytes(val.try_into().unwrap());
 		let offset = addr - PLIC_BASE;
 
 		trace!("writing to PLIC offset {:#018X}", offset);
 
-		use addrs::*;
 		match offset {
 			PRIORITY_REG_MIN..PRIORITY_REG_MAX => {
 				let source_idx = ((offset - PRIORITY_REG_MIN) as usize) / 4;

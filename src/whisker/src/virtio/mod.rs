@@ -15,7 +15,7 @@ pub const MAX_QUEUE_SIZE: u16 = 16;
 pub struct VirtQueue {
 	pub descriptor_table: u64,
 	/// data supplied by the driver
-	/// points to a struct of type virtq_avail
+	/// points to a struct of type `virtq_avail`
 	pub avail_ring: u64,
 	/// data supplied by the device
 	pub used_ring: u64,

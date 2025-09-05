@@ -5,7 +5,7 @@ use crate::{
 
 use super::Instruction;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FloatInstruction {
 	LoadWord {
 		dst: FPRegisterIndex,

@@ -2,7 +2,7 @@ use crate::cpu::csr::CSRIndex;
 use crate::insn::Instruction;
 use crate::ty::GPRegisterIndex;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[allow(clippy::enum_variant_names, reason = "All CSR instructions read")]
 pub enum CSRInstruction {
 	CSRReadWrite {

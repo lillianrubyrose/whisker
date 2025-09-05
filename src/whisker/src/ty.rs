@@ -536,7 +536,7 @@ impl HartMode {
 	}
 }
 
-/// these exist to allow the generic RegisterIndex to derive things without needing the underlying register
+/// these exist to allow the generic `RegisterIndex` to derive things without needing the underlying register
 /// container type to derive things
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GPRegsIdx {}

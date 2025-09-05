@@ -103,7 +103,7 @@ fn main() {
 			extensions,
 			compile_args,
 		} => {
-			let objs = compile(files.as_slice(), flatten_to_set(extensions), compile_args.as_slice());
+			let objs = compile(files.as_slice(), &flatten_to_set(extensions), compile_args.as_slice());
 			link_to_elf(objs.as_slice(), linker_script.as_path(), out.as_str());
 		}
 		Commands::CompileStaticLib {
@@ -112,7 +112,7 @@ fn main() {
 			out,
 			compile_args,
 		} => {
-			let objs = compile(files.as_slice(), flatten_to_set(extensions), compile_args.as_slice());
+			let objs = compile(files.as_slice(), &flatten_to_set(extensions), compile_args.as_slice());
 			create_staticlib(objs.as_slice(), out.as_str());
 		}
 		Commands::Objcopy { elf } => {
@@ -126,13 +126,13 @@ fn main() {
 			let bootloader_name = "boot.bin";
 			let bootloader_path = PathBuf::from("src/boot/boot.s");
 			let linker_script = PathBuf::from("src/boot/boot.ld");
-			let objs = compile(&[bootloader_path], HashSet::new(), &[]);
+			let objs = compile(&[bootloader_path], &HashSet::new(), &[]);
 			let elf = link_to_elf(objs.as_slice(), linker_script.as_path(), "boot.elf");
 			copy_to_flat_bin(&elf, bootloader_name);
 		}
 		Commands::CompileWhiskerLib => {
 			let whisker_path = PathBuf::from("examples/whisker.c");
-			let objs = compile(&[whisker_path], ISAExtension::all(), &[]);
+			let objs = compile(&[whisker_path], &ISAExtension::all(), &[]);
 			create_staticlib(objs.as_slice(), "libwhisker.a");
 		}
 	}
@@ -153,7 +153,7 @@ fn flatten_to_set<T: Eq + std::hash::Hash>(mut vec: Vec<T>) -> HashSet<T> {
 
 /// compiles all files in `files` with the given arguments
 /// returns a list of the compiled object files
-fn compile(files: &[PathBuf], extensions: HashSet<ISAExtension>, compile_args: &[String]) -> Vec<PathBuf> {
+fn compile(files: &[PathBuf], extensions: &HashSet<ISAExtension>, compile_args: &[String]) -> Vec<PathBuf> {
 	if files.is_empty() {
 		error!("no input files given");
 		exit(1)
@@ -187,25 +187,21 @@ fn compile(files: &[PathBuf], extensions: HashSet<ISAExtension>, compile_args: &
 	for file in files.iter() {
 		info!("compiling {}", file.display());
 		let file = base_dir.join(file);
-		match file.extension() {
-			Some(ext) => {
-				if !(ext.eq_ignore_ascii_case("s") || ext.eq_ignore_ascii_case("asm") || ext.eq_ignore_ascii_case("c"))
-				{
-					error!("unsupported file extension {}", ext.to_string_lossy());
-					exit(1)
-				}
-			}
-			None => {
-				error!("could not determine extension of file `{}`", file.display());
+		if let Some(ext) = file.extension() {
+			if !(ext.eq_ignore_ascii_case("s") || ext.eq_ignore_ascii_case("asm") || ext.eq_ignore_ascii_case("c")) {
+				error!("unsupported file extension {}", ext.to_string_lossy());
 				exit(1)
 			}
-		};
+		} else {
+			error!("could not determine extension of file `{}`", file.display());
+			exit(1)
+		}
 
 		let out_path = target_dir.join(file.file_stem().unwrap()).with_extension("o");
 
 		// This is the base ISA + D, GCC needs D even when it doesn't emit D instructions for some reason
 		let mut march = String::from("rv64id");
-		for ele in &extensions {
+		for ele in extensions {
 			march.push(ele.to_char());
 		}
 

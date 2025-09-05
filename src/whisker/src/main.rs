@@ -56,7 +56,7 @@ enum Commands {
 		#[arg(short = 'g', long)]
 		use_gdb: bool,
 		#[arg(long)]
-		/// set to true to just load the passed file into memory at DRAM_BASE
+		/// set to true to just load the passed file into memory at `DRAM_BASE`
 		raw_kernel: bool,
 		#[arg()]
 		bootrom: PathBuf,
@@ -144,7 +144,7 @@ fn main() {
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
-			let cpu = init_cpu(bootrom, kernel, raw_kernel, logfile, NUM_HARTS, fs_img.as_deref());
+			let cpu = init_cpu(&bootrom, &kernel, raw_kernel, logfile, NUM_HARTS, fs_img.as_deref());
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -164,18 +164,20 @@ const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1000_0000;
 
 fn init_cpu(
-	bootrom: PathBuf,
-	kernel: PathBuf,
+	bootrom: &PathBuf,
+	kernel: &PathBuf,
 	raw_kernel: bool,
 	logfile: Option<PathBuf>,
 	num_harts: u16,
 	fs_img: Option<&Path>,
 ) -> WhiskerCpu {
+	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
+
 	let mut bootrom_data =
-		fs::read(&bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
+		fs::read(bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
 	bootrom_data.resize(0x1000, 0);
 
-	let kernel_data = fs::read(&kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
+	let kernel_data = fs::read(kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
 
 	let supported = RiscvExtensions::INTEGER
 		| RiscvExtensions::FLOAT
@@ -189,8 +191,6 @@ fn init_cpu(
 	//		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
 	//		.add_mmio(MMIOKind::UART)
 	//		.build();
-
-	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
 
 	let mut mem_builder = MemoryBuilder::default()
 		// FIXME: maybe model the bootrom as an IO region so it can be RX instead of RWX

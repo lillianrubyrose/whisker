@@ -176,7 +176,7 @@ impl MultiThreadBase for WhiskerCpu {
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			if let Ok(val) = mem.read_u8(hart, addr, ReadKind::Normal) {
-				data[idx] = val
+				data[idx] = val;
 			} else {
 				if idx == 0 {
 					hart.debug = false;

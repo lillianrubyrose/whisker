@@ -170,7 +170,7 @@ impl WhiskerHart {
 		trace!("hart {:?} setting mode to {:?}", self.hart_id(), mode);
 		match mode {
 			HartMode::Machine | HartMode::Supervisor | HartMode::User => self.mode = mode,
-			unimp => panic!("unimplemented mode {:?}", unimp),
+			HartMode::Hypervisor => unimplemented!("Hypervisor mode is not implemented"),
 		}
 	}
 
@@ -848,8 +848,7 @@ impl WhiskerHart {
 			}
 
 			// we don't do reordering, fence is a no-op
-			IntInstruction::Fence { .. } => {}
-			IntInstruction::InstructionFence => {}
+			IntInstruction::Fence { .. } | IntInstruction::InstructionFence => {}
 
 			// =========
 			// SYSTEM
@@ -1013,7 +1012,7 @@ impl WhiskerHart {
 
 				// the partial_cmp here returns None if either lhs or rhs is NaN
 				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Equal))
+					self.registers.set(dst, u64::from(cmp == Ordering::Equal));
 				} else {
 					// if any input was NaN, the output is 0
 					self.registers.set(dst, 0);
@@ -1029,7 +1028,7 @@ impl WhiskerHart {
 
 				// the partial_cmp here returns None if either lhs or rhs is nan
 				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Less))
+					self.registers.set(dst, u64::from(cmp == Ordering::Less));
 				} else {
 					self.registers.set(dst, 0);
 					self.float_status_control.set_invalid_operation(true);
@@ -1165,6 +1164,11 @@ impl WhiskerHart {
 		Ok(())
 	}
 
+	#[allow(
+		clippy::unnecessary_wraps,
+		clippy::unused_self,
+		reason = "Consistency with other execute functions"
+	)]
 	fn execute_compressed_insn(&mut self, insn: CompressedInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			// this nop is special in that it's designated as an explicit NOP for future standard use
@@ -1592,6 +1596,7 @@ impl WhiskerHart {
 		Ok(())
 	}
 
+	#[allow(clippy::unnecessary_wraps, reason = "Consistency with other execute functions")]
 	fn execute_multiply_insn(&mut self, insn: MultiplyInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			MultiplyInstruction::Multiply { lhs, rhs, dst } => {
@@ -1737,6 +1742,7 @@ impl WhiskerHart {
 		Ok(())
 	}
 
+	#[allow(clippy::unnecessary_wraps, reason = "Consistency with other execute functions")]
 	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			PrivilegedInstruction::Mret => {

@@ -129,14 +129,17 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 }
 
 pub fn generate_csr_xml(info: &BTreeMap<CSRIndex, CSRInfo>) -> String {
+	use std::fmt::Write;
+
 	const GDB_CSR_BASE: u16 = 65;
 	let mut xml = String::from("  <feature name=\"org.gnu.gdb.riscv.csr\">\n");
 	for (idx, info) in info.iter() {
-		xml.push_str(&format!(
-			"    <reg name=\"{}\" bitsize=\"64\" regnum=\"{}\"/>\n",
+		let _ = write!(
+			xml,
+			"    <reg name=\"{}\" bitsize=\"64\" regnum=\"{}\"/>",
 			info.name,
 			idx.0 + GDB_CSR_BASE,
-		));
+		);
 	}
 	xml.push_str("  </feature>\n");
 	xml
@@ -180,8 +183,7 @@ impl WhiskerHart {
 	pub fn read_csr(&mut self, token: &CSRReadToken) -> u64 {
 		let idx = token.idx;
 		let read = match self.csr_info.get(&idx).unwrap().ops {
-			CSROps::Read(read) => read,
-			CSROps::ReadWrite(read, _) => read,
+			CSROps::ReadWrite(read, _) | CSROps::Read(read) => read,
 		};
 		read(self)
 	}

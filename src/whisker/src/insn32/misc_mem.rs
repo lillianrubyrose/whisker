@@ -12,6 +12,10 @@ pub fn parse_misc_mem(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction
 	}
 }
 
+#[allow(
+	clippy::unnecessary_wraps,
+	reason = "the weird signature here is because right now we dont actually parse the data out of the instruction, and fences are no-ops."
+)]
 fn parse_fence(_: &mut WhiskerHart, _itype: IType) -> Option<Instruction> {
 	// FIXME: the weird signature here is because right now we dont actually parse the data out
 	// of the instruction, and fences are no-ops.

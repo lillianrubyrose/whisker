@@ -243,17 +243,19 @@ fn init_cpu(
 
 fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) {
 	let elf = ElfFile::parse(Cursor::new(&kernel_data))
-		.unwrap_or_else(|err| panic!("could not parse ELF file {} | {err}", kernel_path.display()));
+		.unwrap_or_else(|err| panic!("could not parse kernel ELF file {} | {err}", kernel_path.display()));
 
-	if elf.isa != ISA::RiscV {
-		panic!("ELF file is not for RISC-V architecture");
-	}
-	if elf.class != Class::X64 {
-		panic!("ELF file is not 64-bit");
-	}
-	if elf.endianness != Endianness::Little {
-		panic!("ELF file is not little-endian");
-	}
+	assert_eq!(
+		elf.isa,
+		ISA::RiscV,
+		"Only RISC-V architecture kernel ELF files are supported"
+	);
+	assert_eq!(elf.class, Class::X64, "Only 64-bit kernel ELF files are supported");
+	assert_eq!(
+		elf.endianness,
+		Endianness::Little,
+		"Only little-endian kernel ELF files are supported"
+	);
 
 	for program_header in &elf.program_headers {
 		if program_header.ty == ProgramHeaderType::PT_LOAD {

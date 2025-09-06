@@ -232,8 +232,8 @@ impl WhiskerHart {
 
 		// FIXME: all the modes?
 		warn!(
-			"{:?} requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X}",
-			self.hart_id, trap, tval, self.pc
+			"{:?} requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X} mode={:?}",
+			self.hart_id, trap, tval, self.pc, self.mode
 		);
 
 		// handle the trap appropriately depending on whether it's delegated
@@ -273,6 +273,8 @@ impl WhiskerHart {
 		// save previous mode in MPP for restoring in xRET
 		mstatus.set_mpp(self.mode());
 		self.mstatus = mstatus;
+
+		self.set_mode(HartMode::Machine);
 
 		// save interrupted PC for return
 		self.mepc = self.pc;

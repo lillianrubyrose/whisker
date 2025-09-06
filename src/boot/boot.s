@@ -2,6 +2,9 @@
 
 .pushsection .text.entry
 .global __bootrom_start
+# NOTE: upon entry:
+# a0 contains the boot hartid
+# a1 contains a pointer to the DTB
 __bootrom_start:
     # set up a default trap handler that just spins
     la t0, trap

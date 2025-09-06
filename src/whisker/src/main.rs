@@ -161,7 +161,7 @@ fn main() {
 // THESE MUST BE IN SYNC WITH LINKER SCRIPTS
 const BOOTROM_OFFSET: u64 = 0x00001000;
 const DRAM_BASE: u64 = 0x8000_0000;
-const DRAM_SIZE: u64 = 0x1000_0000;
+const DRAM_SIZE: u64 = 0x1_0000_0000;
 
 fn init_cpu(
 	bootrom: &PathBuf,
@@ -227,6 +227,11 @@ fn init_cpu(
 		load_elf(kernel.as_path(), kernel_data.as_slice(), &mut main_mem);
 	}
 
+	let dtb = fs::read("assets/whisker.dtb").unwrap();
+	assert!(dtb.len() > 0, "potentially corrupt dtb");
+	let dtb_ptr = 0xF000_0000;
+	main_mem[(dtb_ptr - DRAM_BASE as usize)..][..dtb.len()].copy_from_slice(dtb.as_slice());
+
 	mem_builder = mem_builder.add_region(MemoryRegion::new_main_mem(
 		DRAM_BASE,
 		DRAM_SIZE,
@@ -238,7 +243,12 @@ fn init_cpu(
 	));
 	cpu::MEMORY.get_or_init(|| Arc::new(mem_builder.build()));
 
-	WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img)
+	let mut cpu = WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img);
+	for (hart_id, hart) in cpu.harts.iter_mut().enumerate() {
+		hart.registers.set(GPRegisterIndex::new(10).unwrap(), hart_id as u64);
+		hart.registers.set(GPRegisterIndex::new(11).unwrap(), dtb_ptr as u64);
+	}
+	cpu
 }
 
 fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) {

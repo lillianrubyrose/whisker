@@ -93,22 +93,22 @@ macro_rules! impl_mem_read_write {
 				}
 
 				#[allow(dead_code)]
-               	pub fn [<write_ $ty:snake>](
+				pub fn [<write_ $ty:snake>](
 					&self,
-              		hart: &mut WhiskerHart,
-              		effective_addr: u64,
-              		kind: WriteKind,
-                    val: $ty,
-               	) -> Result<(), TrapRequestGuaranteed> {
-   				    let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
+					hart: &mut WhiskerHart,
+					effective_addr: u64,
+					kind: WriteKind,
+					val: $ty,
+				) -> Result<(), TrapRequestGuaranteed> {
+					let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 
-                    let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
-                       	// FIXME: these are the same, is this always the case? should this be inline?
-                       	let e = match kind {
-                      		WriteKind::Normal => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
-                      		WriteKind::Atomic => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
-                       	};
-                       	return Err(e);
+					let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+						// FIXME: these are the same, is this always the case? should this be inline?
+						let e = match kind {
+							WriteKind::Normal => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+							WriteKind::Atomic => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+						};
+						return Err(e);
 					};
 					let region = &mut *region_guard;
 					check_write_access(hart, &*region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
@@ -121,7 +121,7 @@ macro_rules! impl_mem_read_write {
 							Ok(())
 						}
 						MemoryKind::MMIO(kind) => {
-						    let bytes = val.to_le_bytes();
+							let bytes = val.to_le_bytes();
 							kind.write(hart, phys_addr, bytes.as_slice());
 							Ok(())
 						}
@@ -131,7 +131,7 @@ macro_rules! impl_mem_read_write {
 
 					self.reservations.write().unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 					ret
-               	}
+				}
 				)*
 			}
 		}

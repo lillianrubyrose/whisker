@@ -90,7 +90,7 @@ impl PlatformInterruptController {
 }
 
 impl MMIODevice for PlatformInterruptController {
-	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
+	fn read(&mut self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		use addrs::*;
 
 		let out = from_bytes_mut::<u32>(buf);
@@ -111,7 +111,12 @@ impl MMIODevice for PlatformInterruptController {
 				let offset = (offset - ENABLE_REG_MIN) as usize;
 				let context = offset / 0x80;
 				let idx = offset % 80;
-				*out = self.context_info.get(context).unwrap().enabled[idx];
+				let ctx = self.context_info.get(context).unwrap();
+				if let Some(val) = ctx.enabled.get(idx) {
+					*out = *val;
+				} else {
+					error!("FIXME: access oob plic");
+				}
 			}
 			CONTEXT_REG_MIN..CONTEXT_REG_MAX => {
 				let offset = (offset - CONTEXT_REG_MIN) as usize;

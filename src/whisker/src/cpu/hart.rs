@@ -6,6 +6,7 @@ use std::fmt::Write as _;
 use crate::soft::float::SoftFloat;
 use crate::tracing::*;
 use bitfield::bitfields;
+use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
 
 use bitfield::prelude::*;
@@ -32,6 +33,10 @@ pub struct WhiskerHart {
 	/// whether this hart is in debug mode, which prevents certain things from trapping or erroring
 	/// like memory accesses.
 	pub debug: bool,
+	/// set to true if the hart has requested to break into the debugger.
+	/// reset after the hart has finished processing the request.
+	/// this handles debugger interrupts and watchpoints.
+	pub requested_break: Option<HartBreakKind>,
 
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
@@ -112,6 +117,12 @@ const _: () = {
 	assert!(core::mem::size_of::<MStatus>() == core::mem::size_of::<u64>());
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HartBreakKind {
+	BreakpointException,
+	Watchpoint(WatchKind, u64),
+}
+
 impl WhiskerHart {
 	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
 		Self {
@@ -120,6 +131,8 @@ impl WhiskerHart {
 
 			mode: HartMode::Machine,
 			debug: false,
+			requested_break: None,
+
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),
 			pc: initial_pc,
@@ -1824,6 +1837,10 @@ impl WhiskerHart {
 // DEBUG
 // ===================
 impl WhiskerHart {
+	pub fn request_watchpoint(&mut self, watch_kind: WatchKind, addr: u64) {
+		self.requested_break = Some(HartBreakKind::Watchpoint(watch_kind, addr));
+	}
+
 	pub fn set_pc_debug(&mut self, pc: u64) {
 		self.pc = pc;
 	}

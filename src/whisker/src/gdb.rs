@@ -12,7 +12,7 @@ use gdbstub::target::ext::base::multithread::{
 };
 use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::{
-	Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpointOps, SwBreakpoint, SwBreakpointOps,
+	Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint, SwBreakpointOps,
 };
 use gdbstub::target::{Target, TargetError, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
@@ -231,9 +231,9 @@ impl MultiThreadBase for WhiskerCpu {
 	}
 }
 
+// FIXME: i think a lot of these are subtly wrong
 impl MultiThreadResume for WhiskerCpu {
 	fn resume(&mut self) -> Result<(), Self::Error> {
-		warn!("GDB resume");
 		self.hart_states.iter_mut().for_each(|s| {
 			if *s == WhiskerExecState::Paused {
 				*s = WhiskerExecState::Running;
@@ -242,17 +242,13 @@ impl MultiThreadResume for WhiskerCpu {
 		Ok(())
 	}
 
-	// FIXME: implement these???
 	fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
-		warn!("GDB clear_resume_actions");
 		self.hart_states.fill(WhiskerExecState::Paused);
 		Ok(())
 	}
 
-	// FIXME: implement these???
 	fn set_resume_action_continue(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
 		let hart_idx = tid.get() - 1;
-		warn!("GDB set_resume_action_step hart {}", hart_idx);
 		self.hart_states[hart_idx] = WhiskerExecState::Running;
 		Ok(())
 	}
@@ -263,10 +259,8 @@ impl MultiThreadResume for WhiskerCpu {
 }
 
 impl MultiThreadSingleStep for WhiskerCpu {
-	// FIXME: control harts individually?
 	fn set_resume_action_step(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
 		let hart_idx = tid.get() - 1;
-		warn!("GDB set_resume_action_step hart {}", hart_idx);
 		self.hart_states[hart_idx] = WhiskerExecState::Step;
 		Ok(())
 	}
@@ -282,7 +276,7 @@ impl Breakpoints for WhiskerCpu {
 	}
 
 	fn support_hw_watchpoint(&mut self) -> Option<HwWatchpointOps<'_, Self>> {
-		None
+		Some(self)
 	}
 }
 
@@ -303,6 +297,39 @@ impl SwBreakpoint for WhiskerCpu {
 	) -> TargetResult<bool, Self> {
 		self.breakpoints.remove(&addr);
 		Ok(true)
+	}
+}
+
+impl HwWatchpoint for WhiskerCpu {
+	fn add_hw_watchpoint(
+		&mut self,
+		addr: <Self::Arch as Arch>::Usize,
+		len: <Self::Arch as Arch>::Usize,
+		kind: gdbstub::target::ext::breakpoints::WatchKind,
+	) -> TargetResult<bool, Self> {
+		warn!("adding watchpoint for {:#018X} len {}", addr, len);
+		let mut watchpoints = MEMORY.wait().watchpoints.write();
+
+		watchpoints.push((addr, len, kind));
+		watchpoints.sort_by_key(|(addr, _, _)| *addr);
+		Ok(true)
+	}
+
+	fn remove_hw_watchpoint(
+		&mut self,
+		addr: <Self::Arch as Arch>::Usize,
+		len: <Self::Arch as Arch>::Usize,
+		kind: gdbstub::target::ext::breakpoints::WatchKind,
+	) -> TargetResult<bool, Self> {
+		warn!("removing watchpoint for {:#018X} len {}", addr, len);
+		let mut watchpoints = MEMORY.wait().watchpoints.write();
+		match watchpoints.iter().position(|e| e == &(addr, len, kind)) {
+			Some(idx) => {
+				watchpoints.remove(idx);
+				Ok(true)
+			}
+			None => Ok(false),
+		}
 	}
 }
 
@@ -331,6 +358,11 @@ impl BlockingEventLoop for WhiskerEventLoop {
 					WhiskerExecStatus::Stepped => MultiThreadStopReason::DoneStep,
 					WhiskerExecStatus::Paused => MultiThreadStopReason::Signal(Signal::SIGINT),
 					WhiskerExecStatus::HitBreakpoint(hart_id) => MultiThreadStopReason::SwBreak(hart_id.as_tid()),
+					WhiskerExecStatus::HitWatchpoint(hart_id, kind, addr) => MultiThreadStopReason::Watch {
+						tid: hart_id.as_tid(),
+						kind,
+						addr,
+					},
 				};
 				Ok(Event::TargetStopped(reason))
 			}

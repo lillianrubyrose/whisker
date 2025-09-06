@@ -1,8 +1,10 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use crate::tracing::*;
 use bitflags::bitflags;
+use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -27,6 +29,8 @@ pub struct Memory {
 	regions: parking_lot::RwLock<Vec<MemoryRegion>>,
 
 	reservations: parking_lot::RwLock<MemoryReservations>,
+
+	pub watchpoints: RwLock<Vec<(u64, u64, WatchKind)>>,
 }
 
 impl Memory {
@@ -50,6 +54,26 @@ impl Memory {
 				phys_addr >= r.start && phys_addr < r_end
 			})
 			.map(|position| RwLockWriteGuard::map(regions, |regions| &mut regions[position]))
+	}
+
+	fn is_watchpoint(&self, addr: u64) -> Option<WatchKind> {
+		trace!("checking watchpoint for {:#018X}", addr);
+		if let Ok(idx) = self.watchpoints.read().binary_search_by(|(start, len, _)| {
+			let region_end = start + len - 1;
+			if addr > region_end {
+				Ordering::Greater
+			} else if addr < *start {
+				Ordering::Less
+			} else {
+				Ordering::Equal
+			}
+		}) {
+			let kind = self.watchpoints.read()[idx].2;
+			trace!("watchpoint hit at {:#018X} kind {:?}", addr, kind);
+			Some(kind)
+		} else {
+			None
+		}
 	}
 }
 
@@ -77,7 +101,7 @@ macro_rules! impl_mem_read_write {
 					};
 					check_read_access(hart, &*region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
 
-					match region.kind {
+					let ret = match region.kind {
 						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
@@ -89,7 +113,16 @@ macro_rules! impl_mem_read_write {
 							kind.read(hart, phys_addr, ret.as_mut_slice());
 							Ok(<$ty>::from_le_bytes(ret))
 						}
+					};
+
+					// watchpoints should only happen if the read actually happens
+					// but should use the virtual address rather than physical
+					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr) {
+						if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+							hart.request_watchpoint(watch_kind, effective_addr);
+						}
 					}
+					ret
 				}
 
 				#[allow(dead_code)]
@@ -127,6 +160,14 @@ macro_rules! impl_mem_read_write {
 						}
 					};
 
+					// watchpoints should only happen if the write actually happens
+					// but should use the virtual address rather than physical
+					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr) {
+						if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
+							hart.request_watchpoint(watch_kind, effective_addr);
+						}
+					}
+
 					drop(region_guard);
 
 					self.reservations.write().unreserve_addr_other_harts(hart.hart_id(), phys_addr);
@@ -141,6 +182,7 @@ macro_rules! impl_mem_read_write {
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 impl Memory {
+	// FIXME: is this really a phys addr??? i dont think so
 	pub fn load_reserved_word(&self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
 		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
@@ -167,10 +209,19 @@ impl Memory {
 			}
 		};
 
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+		{
+			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+				hart.request_watchpoint(watch_kind, phys_addr);
+			}
+		}
+
 		self.reservations.write().reserve(hart.hart_id(), phys_addr);
 		ret
 	}
 
+	// FIXME: is this really a phys addr??? i dont think so
 	pub fn load_reserved_dword(&self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u64, TrapRequestGuaranteed> {
 		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
@@ -197,10 +248,19 @@ impl Memory {
 			}
 		};
 
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+		{
+			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+				hart.request_watchpoint(watch_kind, phys_addr);
+			}
+		}
+
 		self.reservations.write().reserve(hart.hart_id(), phys_addr);
 		ret
 	}
 
+	// FIXME: i dont think this is actually meant to be a phys addr
 	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_word(
@@ -223,7 +283,7 @@ impl Memory {
 			core::mem::size_of::<u32>() as u8,
 		)?;
 
-		if is_reserved {
+		let ret = if is_reserved {
 			match region.kind {
 				MemoryKind::MainMemory { ref mut backing } => {
 					let offset = phys_addr - region.start;
@@ -250,9 +310,20 @@ impl Memory {
 			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
+		};
+
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+		{
+			if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
+				hart.request_watchpoint(watch_kind, phys_addr);
+			}
 		}
+
+		ret
 	}
 
+	// FIXME: i dont think this is actually a phys addr
 	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_dword(
@@ -275,7 +346,7 @@ impl Memory {
 			core::mem::size_of::<u64>() as u8,
 		)?;
 
-		if is_reserved {
+		let ret = if is_reserved {
 			match region.kind {
 				MemoryKind::MainMemory { ref mut backing } => {
 					let offset = phys_addr - region.start;
@@ -302,7 +373,17 @@ impl Memory {
 			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
+		};
+
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+		{
+			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+				hart.request_watchpoint(watch_kind, phys_addr);
+			}
 		}
+
+		ret
 	}
 
 	pub fn atomic_op_word<F: FnOnce(&mut WhiskerHart, u32) -> Option<u32>>(
@@ -365,7 +446,7 @@ impl Memory {
 			return Err(pte_fault(hart, kind, phys_addr));
 		}
 
-		match region.kind {
+		let ret = match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
@@ -377,7 +458,17 @@ impl Memory {
 				kind.read(hart, phys_addr, ret.as_mut_slice());
 				Ok(<u64>::from_le_bytes(ret))
 			}
+		};
+
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+		{
+			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+				hart.request_watchpoint(watch_kind, phys_addr);
+			}
 		}
+
+		ret
 	}
 }
 
@@ -806,6 +897,7 @@ impl MemoryBuilder {
 			regions: RwLock::new(self.regions),
 			reservations: RwLock::new(MemoryReservations::default()),
 			page_table_cache: RwLock::new(BTreeMap::default()),
+			watchpoints: RwLock::new(Vec::new()),
 		}
 	}
 }

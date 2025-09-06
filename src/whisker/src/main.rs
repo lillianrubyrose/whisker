@@ -1,3 +1,4 @@
+#![feature(let_chains)]
 #![feature(assert_matches)]
 #![feature(cold_path)]
 

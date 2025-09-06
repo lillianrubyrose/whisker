@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+use gdbstub::target::ext::breakpoints::WatchKind;
 use spin::Mutex;
 
 use crate::tracing::*;
@@ -25,10 +26,11 @@ pub enum WhiskerExecState {
 	Paused,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhiskerExecStatus {
 	Stepped,
 	HitBreakpoint(HartId),
+	HitWatchpoint(HartId, WatchKind, u64),
 	Paused,
 }
 
@@ -108,17 +110,19 @@ impl WhiskerCpu {
 			self.interrupt_controller.lock().poll(&mut self.harts);
 		}
 
-		trace!("executing {:?}", self.current_hart_id);
+		let hart_id = self.current_hart_id;
+		trace!("executing {:?}", hart_id);
+		self.current_hart_id = HartId::new(self.current_hart_id.inner().wrapping_add(1) % self.harts.len() as u16);
 
-		if self.hart_states[self.current_hart_id.as_idx()] == WhiskerExecState::Paused {
+		if self.hart_states[hart_id.as_idx()] == WhiskerExecState::Paused {
 			return Err(WhiskerExecStatus::Paused);
 		}
 
-		let hart = &mut self.harts[self.current_hart_id.as_idx()];
+		let hart = &mut self.harts[hart_id.as_idx()];
 
 		if self.breakpoints.contains(&hart.pc()) {
 			debug!("reached breakpoint at {:#018X} on {:?}", hart.pc(), hart.hart_id());
-			return Err(WhiskerExecStatus::HitBreakpoint(self.current_hart_id));
+			return Err(WhiskerExecStatus::HitBreakpoint(hart_id));
 		}
 
 		hart.step();
@@ -128,7 +132,17 @@ impl WhiskerCpu {
 			f.write_all(dump.as_bytes()).unwrap();
 		}
 
-		if self.hart_states[self.current_hart_id.as_idx()] == WhiskerExecState::Step {
+		if let Some(kind) = hart.requested_break.take() {
+			warn!("hart {:?} requested break: {:?}", hart_id, kind);
+			match kind {
+				hart::HartBreakKind::BreakpointException => return Err(WhiskerExecStatus::HitBreakpoint(hart_id)),
+				hart::HartBreakKind::Watchpoint(watch_kind, addr) => {
+					return Err(WhiskerExecStatus::HitWatchpoint(hart_id, watch_kind, addr))
+				}
+			}
+		}
+
+		if self.hart_states[hart_id.as_idx()] == WhiskerExecState::Step {
 			return Err(WhiskerExecStatus::Stepped);
 		}
 

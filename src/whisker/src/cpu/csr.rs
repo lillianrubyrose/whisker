@@ -156,7 +156,7 @@ impl WhiskerHart {
 		if info.is_some() && idx.required_mode() <= self.mode() {
 			Ok(CSRReadToken { idx })
 		} else {
-			error!("ERROR: accessing {:?} ro", idx);
+			error!("ERROR: accessing {:?} ro mode {:?}", idx, self.mode());
 
 			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
 		}
@@ -174,7 +174,7 @@ impl WhiskerHart {
 				inner: CSRReadToken { idx },
 			})
 		} else {
-			error!("ERROR: accessing {:?} rw", idx);
+			error!("ERROR: accessing {:?} rw mode {:?}", idx, self.mode());
 
 			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0))
 		}

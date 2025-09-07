@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::thread;
 
 use bitfield::prelude::*;
-use command_fds::{CommandFdExt as _, FdMapping};
 use num_conv::Truncate;
 use socketpair::socketpair_stream;
 use spin::Mutex;
@@ -52,6 +51,8 @@ pub struct UART {
 
 #[cfg(target_family = "unix")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
+	use command_fds::{CommandFdExt as _, FdMapping};
+
 	const REMOTE_FD_NUM: RawFd = 4;
 	let (local, other) = socketpair_stream().map_err(|_| "unable to create socket pair")?;
 
@@ -84,6 +85,14 @@ fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), Strin
 	let reader = local.try_clone().map_err(|_| "could not clone socket")?;
 	let writer = local;
 	Ok((reader, writer))
+}
+
+#[cfg(not(target_family = "unix"))]
+/// fallback path for UART spawning where it's not supported
+fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
+	// these types in the Ok case are dummy types because the compiler has to have *some*
+	// type to pick for the impl
+	Err::<(&[u8], &mut [u8]), String>(String::from("UART terminal spawning not supported"))
 }
 
 impl UART {

@@ -27,11 +27,13 @@ elfie.path = "../elfie"
 bitflags = "2.9.1"
 crossterm = "0.29.0"
 socketpair = "0.19.8"
-command-fds = "0.3.2"
 bytemuck = { version = "1.23.1", features = ["derive"] }
 
 bitfield = { path = "../bitfield" }
 spin = "0.10.0"
+
+[target.'cfg(unix)'.dependencies]
+command-fds = "0.3.2"
 
 [features]
 tracing = []

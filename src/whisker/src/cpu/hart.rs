@@ -452,7 +452,7 @@ impl WhiskerHart {
 
 		if extract_bits_16(parcel1, 0, 1) != 0b11 {
 			if support_compressed {
-				if let Some(insn) = insn16::parse(self, parcel1) {
+				if let Some(insn) = insn16::parse(parcel1) {
 					Ok((insn, 2))
 				} else {
 					warn!("unable to parse 16 bit instruction {parcel1:#06X}");
@@ -471,7 +471,7 @@ impl WhiskerHart {
 			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
 			let high_parcel = mem.read_u16(self, self.pc + 2, ReadKind::Instruction)?;
 			let full_parcel = high_parcel.extend::<u32>() << 16 | parcel1.extend::<u32>();
-			match insn32::parse(self, full_parcel) {
+			match insn32::parse(full_parcel) {
 				Some(insn) => Ok((insn, 4)),
 				None => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, full_parcel.extend())),
 			}
@@ -498,12 +498,17 @@ impl WhiskerHart {
 	fn execute_instruction(&mut self, insn: Instruction) {
 		let _ = match insn {
 			Instruction::Int(insn) => self.execute_i_insn(insn),
-			Instruction::Float(insn) => self.execute_f_insn(insn),
+			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => self.execute_f_insn(insn),
+			// FIXME: Figure out what the official ISA defined bit pattern is for Zicsr
 			Instruction::Zicsr(insn) => self.execute_csr_insn(insn),
+			// We don't have to check compressed here as we handle that in the caller.
 			Instruction::Compressed(insn) => self.execute_compressed_insn(insn),
-			Instruction::Atomic(insn) => self.execute_atomic_insn(insn),
-			Instruction::Multipliy(insn) => self.execute_multiply_insn(insn),
+			Instruction::Atomic(insn) if self.supports_extensions(RiscvExtensions::ATOMIC) => self.execute_atomic_insn(insn),
+			Instruction::Multipliy(insn) if self.supports_extensions(RiscvExtensions::MULTIPLY) => self.execute_multiply_insn(insn),
+			// FIXME for asquared31415
 			Instruction::Privileged(insn) => self.execute_privileged_insn(insn),
+			// FIXME: Supposed to be the bits of the instruction instead of zero
+			_ => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0)),
 		};
 	}
 }

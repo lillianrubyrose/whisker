@@ -5,7 +5,7 @@ use crate::cpu::hart::WhiskerHart;
 use crate::ty::GPRegisterIndex;
 use crate::{insn::*, insn32::IType};
 
-pub fn parse_system(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_system(parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);

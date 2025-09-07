@@ -2,13 +2,8 @@ use crate::cpu::hart::WhiskerHart;
 use crate::ty::RiscvExtensions;
 use crate::{insn::*, insn32::SType};
 
-pub fn parse_store_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_store_fp(parcel: u32) -> Option<Instruction> {
 	use consts::*;
-
-	// all STORE-FP instructions need the F extension
-	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
-		return None;
-	}
 
 	let stype = SType::parse(parcel);
 	match stype.func() {

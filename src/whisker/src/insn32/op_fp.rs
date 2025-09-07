@@ -4,14 +4,8 @@ use crate::{insn::*, insn32::RType, soft::RoundingMode, ty::RiscvExtensions};
 
 /// Returns the parsed instruction if it was valid, or None if the instruction could not be decoded.
 /// Caller is responsible for error handling in the None case, including producing exceptions.
-pub fn parse_op_fp(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 	use consts::*;
-
-	// OP-FP type is reserved for standard F extension only
-	// all opcodes in this type require F (and D requires F)
-	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
-		return None;
-	}
 
 	let rtype = RType::parse(parcel);
 

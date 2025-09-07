@@ -12,7 +12,7 @@ macro_rules! parse_branch {
 }
 
 #[rustfmt::skip]
-pub fn parse_branch(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_branch(parcel: u32) -> Option<Instruction> {
 	let btype = BType::parse(parcel);
 	parse_branch!(
 		btype,

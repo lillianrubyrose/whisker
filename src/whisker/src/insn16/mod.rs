@@ -11,7 +11,7 @@ use crate::{
 };
 
 impl CompressedInstruction {
-	pub fn parse_c0(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c0(parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c0::*;
 
 		let ty = extract_bits_16(parcel, 13, 15) as u8;
@@ -87,7 +87,7 @@ impl CompressedInstruction {
 		}
 	}
 
-	pub fn parse_c1(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c1(parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c1::*;
 
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
@@ -310,7 +310,7 @@ impl CompressedInstruction {
 		}
 	}
 
-	pub fn parse_c2(_: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
+	pub fn parse_c2(parcel: u16) -> Option<Instruction> {
 		use consts::opcode::c2::*;
 		let func3 = extract_bits_16(parcel, 13, 15) as u8;
 		match func3 {
@@ -453,17 +453,15 @@ impl CompressedInstruction {
 	}
 }
 
-pub fn parse(hart: &mut WhiskerHart, parcel: u16) -> Option<Instruction> {
+pub fn parse(parcel: u16) -> Option<Instruction> {
 	use consts::opcode::*;
-
-	debug_assert!(hart.supports_extensions(RiscvExtensions::COMPRESSED));
 
 	let opcode_ty = extract_bits_16(parcel, 0, 1) as u8;
 	trace!("(C-ext) parcel={parcel:#018b}");
 	match opcode_ty {
-		C0 => CompressedInstruction::parse_c0(hart, parcel),
-		C1 => CompressedInstruction::parse_c1(hart, parcel),
-		C2 => CompressedInstruction::parse_c2(hart, parcel),
+		C0 => CompressedInstruction::parse_c0(parcel),
+		C1 => CompressedInstruction::parse_c1(parcel),
+		C2 => CompressedInstruction::parse_c2(parcel),
 		// bits 0b11 encode 32 bit instructions, so this cannot be reached
 		_ => unreachable!(),
 	}

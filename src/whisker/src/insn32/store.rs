@@ -1,7 +1,7 @@
 use crate::cpu::hart::WhiskerHart;
 use crate::{insn::*, insn32::SType};
 
-pub fn parse_store(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+  pub fn parse_store(parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let stype = SType::parse(parcel);

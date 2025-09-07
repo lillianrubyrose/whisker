@@ -1,14 +1,8 @@
 use crate::cpu::hart::WhiskerHart;
 use crate::{insn::*, insn32::R4Type, soft::RoundingMode, ty::RiscvExtensions};
 
-pub fn parse_nmadd(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_nmadd(parcel: u32) -> Option<Instruction> {
 	use crate::insn32::consts::*;
-
-	// NMADD type is reserved for standard F extension only
-	// all opcodes in this type require F (and D requires F)
-	if !hart.supports_extensions(RiscvExtensions::FLOAT) {
-		return None;
-	}
 
 	let r4type = R4Type::parse(parcel);
 

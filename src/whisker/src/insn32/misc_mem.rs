@@ -1,11 +1,11 @@
 use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType};
 
-pub fn parse_misc_mem(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_misc_mem(parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);
 	match itype.func() {
-		FENCE => parse_fence(hart, itype),
+		FENCE => parse_fence(itype),
 		FENCE_I => Some(IntInstruction::InstructionFence.into()),
 		// FIXME: are there any other MISC-MEM instructions?
 		_ => unreachable!("MISC-MEM func={:#05b}", itype.func()),
@@ -16,7 +16,7 @@ pub fn parse_misc_mem(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction
 	clippy::unnecessary_wraps,
 	reason = "the weird signature here is because right now we dont actually parse the data out of the instruction, and fences are no-ops."
 )]
-fn parse_fence(_: &mut WhiskerHart, _itype: IType) -> Option<Instruction> {
+fn parse_fence(_itype: IType) -> Option<Instruction> {
 	// FIXME: the weird signature here is because right now we dont actually parse the data out
 	// of the instruction, and fences are no-ops.
 

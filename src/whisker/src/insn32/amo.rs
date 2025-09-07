@@ -8,13 +8,8 @@ use crate::{
 
 impl AtomicInstruction {}
 
-pub fn parse_amo(hart: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_amo(parcel: u32) -> Option<Instruction> {
 	use consts::*;
-
-	// all AMO type instructions need the atomic extension
-	if !hart.supports_extensions(RiscvExtensions::ATOMIC) {
-		return None;
-	}
 
 	let rtype = RType::parse(parcel);
 	match rtype.func3() {

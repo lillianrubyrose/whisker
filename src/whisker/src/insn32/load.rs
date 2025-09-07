@@ -1,6 +1,6 @@
 use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType};
 
-pub fn parse_load(_: &mut WhiskerHart, parcel: u32) -> Option<Instruction> {
+pub fn parse_load(parcel: u32) -> Option<Instruction> {
 	use consts::*;
 
 	let itype = IType::parse(parcel);

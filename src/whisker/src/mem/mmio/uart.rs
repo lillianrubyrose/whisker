@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, RawFd};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use std::{env, thread};
+use std::thread;
 
 use bitfield::prelude::*;
 use command_fds::{CommandFdExt as _, FdMapping};
@@ -12,7 +12,7 @@ use num_conv::Truncate;
 use socketpair::socketpair_stream;
 use spin::Mutex;
 
-use crate::tracing::*;
+use crate::{tracing::*, util};
 
 use crate::cpu::hart::WhiskerHart;
 use crate::interrupts::{InterruptMessage, InterruptSource};
@@ -50,27 +50,45 @@ pub struct UART {
 	interrupt_tx: Sender<InterruptMessage>,
 }
 
+#[cfg(target_family = "unix")]
+fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
+	const REMOTE_FD_NUM: RawFd = 4;
+	let (local, other) = socketpair_stream().map_err(|_| "unable to create socket pair")?;
+
+	let term = util::find_terminal().map_err(|_| "unable to find a terminal")?;
+	let mut cmd = Command::new(&term);
+	cmd.args([
+		"-e",
+		"socat",
+		"stdio,raw,echo=0,icrnl,opost",
+		format!("FD:{REMOTE_FD_NUM},crnl").as_str(),
+	])
+	.stdin(Stdio::null())
+	.stdout(Stdio::null())
+	.stderr(Stdio::null())
+	.fd_mappings(vec![FdMapping {
+		parent_fd: other
+			.as_fd()
+			.try_clone_to_owned()
+			.map_err(|_| "unable to clone fd for uart")?,
+		child_fd: REMOTE_FD_NUM,
+	}])
+	.map_err(|_| "fd collided in UART terminal")?;
+	// FIXME: It closes on CTRL-C but doesn't close on panic
+	// This is intended to live forever.
+	#[allow(clippy::zombie_processes)]
+	let _ = cmd
+		.spawn()
+		.map_err(|e| format!("unable to spawn UART terminal `{}`: {:?}", term, e))?;
+
+	let reader = local.try_clone().map_err(|_| "could not clone socket")?;
+	let writer = local;
+	Ok((reader, writer))
+}
+
 impl UART {
 	pub fn init(interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
-		const REMOTE_FD_NUM: RawFd = 4;
-		let (mut local, other) = socketpair_stream().expect("unable to create socket pair");
-		let mut cmd = Command::new(env::var_os("TERM").expect("could not find $TERM"));
-		cmd.args([
-			"--hold",
-			"-e",
-			"socat",
-			"stdio,raw,echo=0,icrnl,opost",
-			format!("FD:{REMOTE_FD_NUM},crnl").as_str(),
-		])
-		.fd_mappings(vec![FdMapping {
-			parent_fd: other.as_fd().try_clone_to_owned().expect("unable to clone fd for uart"),
-			child_fd: REMOTE_FD_NUM,
-		}])
-		.expect("fd collision");
-		// FIXME: It closes on CTRL-C but doesn't close on panic
-		// This is intended to live forever.
-		#[allow(clippy::zombie_processes)]
-		let _ = cmd.spawn().expect("unable to spawn UART terminal");
+		let (mut reader, writer) = spawn_io_term().expect("failed to initialize UART");
 
 		let this = Arc::new(Mutex::new(Self {
 			data_reg: 0,
@@ -86,7 +104,7 @@ impl UART {
 			interrupt_id: InterruptIdentification::new(),
 
 			data_queue: VecDeque::new(),
-			stdout: Box::new(local.try_clone().unwrap()),
+			stdout: Box::new(writer),
 			interrupt_tx,
 		}));
 
@@ -94,7 +112,7 @@ impl UART {
 			let uart = Arc::clone(&this);
 			move || 'outer: loop {
 				let mut b = 0_u8;
-				let Ok(()) = local.read_exact(core::slice::from_mut(&mut b)) else {
+				let Ok(()) = reader.read_exact(core::slice::from_mut(&mut b)) else {
 					error!("reading from UART term failed");
 					break 'outer;
 				};

@@ -17,9 +17,6 @@ gdbstub_arch = "0.3.1"
 rustc-hash = "2.1.1"
 parking_lot = "0.12"
 
-softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.0", default-features = false, features = [
-    "riscv",
-] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 num-conv = "0.1.0"
@@ -34,6 +31,11 @@ spin = "0.10.0"
 
 [target.'cfg(unix)'.dependencies]
 command-fds = "0.3.2"
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.0", default-features = false, features = [
+    "riscv",
+] }
 
 [features]
 tracing = []

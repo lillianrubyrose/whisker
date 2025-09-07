@@ -107,16 +107,13 @@ impl RoundingMode {
 
 	fn to_sf_u8(self) -> u8 {
 		match self {
-			RoundingMode::RoundToNearestTieEven => softfloat_sys::softfloat_round_near_even,
-			RoundingMode::RoundTowardsZero => softfloat_sys::softfloat_round_minMag,
-			RoundingMode::RoundDown => softfloat_sys::softfloat_round_min,
-			RoundingMode::RoundUp => softfloat_sys::softfloat_round_max,
-			RoundingMode::RoundToNearestTiesMaxMagnitude => softfloat_sys::softfloat_round_near_maxMag,
 			RoundingMode::Dynamic => unreachable!("dynamic should read from a CSR"),
+			rm => rm.as_u8(),
 			_ => unreachable!(),
 		}
 	}
 
+	#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 	fn write_thread_local(self, hart: &mut WhiskerHart) {
 		let rm = match self {
 			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode(),
@@ -126,6 +123,9 @@ impl RoundingMode {
 			softfloat_sys::softfloat_roundingMode_write_helper(rm.to_sf_u8());
 		}
 	}
+
+	#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+	fn write_thread_local(self, hart: &mut WhiskerHart) {}
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -134,11 +134,11 @@ pub struct ExceptionFlags(u8);
 
 #[allow(unused)]
 impl ExceptionFlags {
-	pub const FLAG_INEXACT: u8 = softfloat_sys::softfloat_flag_inexact;
-	pub const FLAG_UNDERFLOW: u8 = softfloat_sys::softfloat_flag_underflow;
-	pub const FLAG_OVERFLOW: u8 = softfloat_sys::softfloat_flag_overflow;
-	pub const FLAG_INFINITE: u8 = softfloat_sys::softfloat_flag_infinite;
-	pub const FLAG_INVALID: u8 = softfloat_sys::softfloat_flag_invalid;
+	pub const FLAG_INEXACT: u8 = 1;
+	pub const FLAG_UNDERFLOW: u8 = 2;
+	pub const FLAG_OVERFLOW: u8 = 4;
+	pub const FLAG_INFINITE: u8 = 8;
+	pub const FLAG_INVALID: u8 = 16;
 
 	pub fn is_inexact(self) -> bool {
 		self.0 & Self::FLAG_INEXACT != 0
@@ -165,7 +165,10 @@ impl ExceptionFlags {
 	}
 
 	pub fn get_from_softfloat() -> Self {
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 		let val = unsafe { softfloat_sys::softfloat_exceptionFlags_read_helper() };
+		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+		let val = 0;
 		Self(val)
 	}
 }

@@ -1,50 +1,118 @@
 use std::cmp::Ordering;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use softfloat_sys::float32_t;
 
+use super::{FClass, RoundingMode};
 use crate::cpu::hart::WhiskerHart;
-
-use super::{ExceptionFlags, FClass, RoundingMode};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 #[allow(unused)]
-pub struct SoftFloat(float32_t);
+pub struct SoftFloat(u32);
+
+#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl SoftFloat {
+	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_add(self.0.into(), other.0.into()) })
+	}
+
+	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_sub(self.0.into(), other.0.into()) })
+	}
+
+	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_mul(self.0.into(), other.0.into()) })
+	}
+
+	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_div(self.0.into(), other.0.into()) })
+	}
+
+	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_rem(self.0.into(), other.0.into()) })
+	}
+
+	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_mulAdd(self.0.into(), mul.0.into(), add.0.into()) })
+	}
+
+	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		rm.write_thread_local(hart);
+		Self(unsafe { softfloat_sys::f32_sqrt(self.0.into()) })
+	}
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+impl SoftFloat {
+	pub fn add(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() + other.to_f32())
+	}
+
+	pub fn sub(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() - other.to_f32())
+	}
+
+	pub fn mul(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() * other.to_f32())
+	}
+
+	pub fn div(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() / other.to_f32())
+	}
+
+	pub fn rem(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() % other.to_f32())
+	}
+
+	pub fn mul_add(self, mul: Self, add: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32() * mul.to_f32() + add.to_f32())
+	}
+
+	pub fn sqrt(self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f32(self.to_f32().sqrt())
+	}
+}
 
 #[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
 impl SoftFloat {
 	pub const ZERO: Self = Self::from_f32(0_f32);
 
 	pub const fn from_f32(value: f32) -> Self {
-		Self(float32_t { v: value.to_bits() })
+		Self(value.to_bits())
 	}
 
 	pub const fn to_f32(self) -> f32 {
-		f32::from_bits(self.0.v)
+		f32::from_bits(self.0)
 	}
 
 	pub fn from_u32(value: u32) -> Self {
-		Self(float32_t { v: value })
+		Self(value)
 	}
 
 	pub fn to_u32(self) -> u32 {
-		self.0.v
+		self.0
 	}
 
 	pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
-		Self(float32_t {
-			v: u32::from_le_bytes(bytes),
-		})
+		Self(u32::from_le_bytes(bytes))
 	}
 
 	pub fn to_le_bytes(self) -> [u8; 4] {
-		self.0.v.to_le_bytes()
+		self.0.to_le_bytes()
 	}
 
 	pub fn fclass(self) -> FClass {
-		let sign = Self::get_sign(self.0.v);
-		let exponent = Self::get_exponent(self.0.v);
-		let mantissa = Self::get_mantissa(self.0.v);
+		let sign = Self::get_sign(self.0);
+		let exponent = Self::get_exponent(self.0);
+		let mantissa = Self::get_mantissa(self.0);
 
 		if exponent == Self::EXPONENT_MASK {
 			if mantissa == 0 {
@@ -78,56 +146,19 @@ impl SoftFloat {
 	}
 
 	pub fn is_nan(self) -> bool {
-		Self::get_exponent(self.0.v) == Self::EXPONENT_MASK && Self::get_mantissa(self.0.v) != 0u32
+		Self::get_exponent(self.0) == Self::EXPONENT_MASK && Self::get_mantissa(self.0) != 0u32
 	}
 
 	pub fn is_snan(self) -> bool {
-		self.is_nan() && (Self::get_mantissa(self.0.v) & Self::QUIET_NAN_MASK != 0)
+		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK != 0)
 	}
 	pub fn is_qnan(self) -> bool {
-		self.is_nan() && (Self::get_mantissa(self.0.v) & Self::QUIET_NAN_MASK == 0)
-	}
-
-	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		let res = unsafe { softfloat_sys::f32_add(self.0, other.0) };
-		ExceptionFlags::get_from_softfloat().update_hart(hart);
-		Self(res)
-	}
-
-	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_sub(self.0, other.0) })
-	}
-
-	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_mul(self.0, other.0) })
-	}
-
-	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_div(self.0, other.0) })
-	}
-
-	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_rem(self.0, other.0) })
-	}
-
-	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_mulAdd(self.0, mul.0, add.0) })
+		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
 	}
 
 	// FIXME: This is probably fine?
 	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		self.mul_add(mul, sub.set_sign(!sub.sign()), rm, hart)
-	}
-
-	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_sqrt(self.0) })
 	}
 
 	/// Returns if the sign is positive
@@ -173,7 +204,12 @@ impl Default for SoftFloat {
 
 impl PartialEq for SoftFloat {
 	fn eq(&self, other: &Self) -> bool {
-		unsafe { softfloat_sys::f32_eq(self.0, other.0) }
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+		unsafe {
+			softfloat_sys::f32_eq(self.0, other.0)
+		}
+		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+		self.to_f32().eq(&other.to_f32())
 	}
 }
 
@@ -181,9 +217,18 @@ impl PartialOrd for SoftFloat {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 		if self.is_nan() || other.is_nan() {
 			None
-		} else if unsafe { softfloat_sys::f32_eq(self.0, other.0) } {
+		} else if self.eq(other) {
 			Some(Ordering::Equal)
-		} else if unsafe { softfloat_sys::f32_lt(self.0, other.0) } {
+		} else if {
+			#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+			unsafe {
+				softfloat_sys::f32_lt(self.0, other.0)
+			}
+			#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+			{
+				self.to_f32() < other.to_f32()
+			}
+		} {
 			Some(Ordering::Less)
 		} else {
 			Some(Ordering::Greater)

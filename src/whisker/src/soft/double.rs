@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use softfloat_sys::float64_t;
 
 use crate::cpu::hart::WhiskerHart;
@@ -8,40 +9,41 @@ use super::{FClass, RoundingMode};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct SoftDouble(float64_t);
+pub struct SoftDouble(u64);
 
-#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
 impl SoftDouble {
 	pub const fn from_f64(value: f64) -> Self {
-		Self(float64_t { v: value.to_bits() })
+		Self(value.to_bits())
 	}
 
 	pub const fn to_f64(self) -> f64 {
-		f64::from_bits(self.0.v)
+		f64::from_bits(self.0)
 	}
 
 	pub fn from_u64(value: u64) -> Self {
-		Self(float64_t { v: value })
+		Self(value)
 	}
 
 	pub fn to_u64(self) -> u64 {
-		self.0.v
-	}
-
-	pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
-		Self(float64_t {
-			v: u64::from_le_bytes(bytes),
-		})
+		self.0
 	}
 
 	pub fn to_le_bytes(self) -> [u8; 8] {
-		self.0.v.to_le_bytes()
+		self.0.to_le_bytes()
+	}
+
+	pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
+		Self(u64::from_le_bytes(bytes))
+	}
+
+	pub fn is_nan(self) -> bool {
+		Self::get_exponent(self.0) == Self::EXPONENT_BITS && Self::get_mantissa(self.0) != 0u64
 	}
 
 	pub fn fclass(self) -> FClass {
-		let sign = Self::get_sign(self.0.v);
-		let exponent = Self::get_exponent(self.0.v);
-		let mantissa = Self::get_mantissa(self.0.v);
+		let sign = Self::get_sign(self.0);
+		let exponent = Self::get_exponent(self.0);
+		let mantissa = Self::get_mantissa(self.0);
 
 		if exponent == Self::EXPONENT_MASK {
 			if mantissa == 0 {
@@ -73,44 +75,75 @@ impl SoftDouble {
 			FClass::NegativeNormal
 		}
 	}
+}
 
-	pub fn is_nan(self) -> bool {
-		Self::get_exponent(self.0.v) == Self::EXPONENT_BITS && Self::get_mantissa(self.0.v) != 0u64
-	}
-
+#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl SoftDouble {
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_add(self.0, other.0) })
+		Self(unsafe { softfloat_sys::f64_add(self.0.into(), other.0.into()) })
 	}
 
 	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_sub(self.0, other.0) })
+		Self(unsafe { softfloat_sys::f64_sub(self.0.into(), other.0.into()) })
 	}
 
 	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_mul(self.0, other.0) })
+		Self(unsafe { softfloat_sys::f64_mul(self.0.into(), other.0.into()) })
 	}
 
 	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_div(self.0, other.0) })
+		Self(unsafe { softfloat_sys::f64_div(self.0.into(), other.0.into()) })
 	}
 
 	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_rem(self.0, other.0) })
+		Self(unsafe { softfloat_sys::f64_rem(self.0.into(), other.0.into()) })
 	}
 
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_mulAdd(self.0, mul.0, add.0) })
+		Self(unsafe { softfloat_sys::f64_mulAdd(self.0.into(), mul.0.into(), add.0.into()) })
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_sqrt(self.0) })
+		Self(unsafe { softfloat_sys::f64_sqrt(self.0.into()) })
+	}
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+impl SoftDouble {
+	pub fn add(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() + other.to_f64())
+	}
+
+	pub fn sub(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() - other.to_f64())
+	}
+
+	pub fn mul(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() * other.to_f64())
+	}
+
+	pub fn div(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() / other.to_f64())
+	}
+
+	pub fn rem(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() % other.to_f64())
+	}
+
+	pub fn mul_add(self, mul: Self, add: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64() * mul.to_f64() + add.to_f64())
+	}
+
+	pub fn sqrt(self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
+		Self::from_f64(self.to_f64().sqrt())
 	}
 }
 
@@ -146,7 +179,12 @@ impl Default for SoftDouble {
 
 impl PartialEq for SoftDouble {
 	fn eq(&self, other: &Self) -> bool {
-		unsafe { softfloat_sys::f64_eq(self.0, other.0) }
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+		unsafe {
+			softfloat_sys::f64_eq(self.0, other.0)
+		}
+		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+		self.to_f64().eq(&other.to_f64())
 	}
 }
 
@@ -154,9 +192,18 @@ impl PartialOrd for SoftDouble {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 		if self.is_nan() || other.is_nan() {
 			None
-		} else if unsafe { softfloat_sys::f64_eq(self.0, other.0) } {
+		} else if self.eq(other) {
 			Some(Ordering::Equal)
-		} else if unsafe { softfloat_sys::f64_lt(self.0, other.0) } {
+		} else if {
+			#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+			unsafe {
+				softfloat_sys::f64_lt(self.0, other.0)
+			}
+			#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+			{
+				self.to_f64() < other.to_f64()
+			}
+		} {
 			Some(Ordering::Less)
 		} else {
 			Some(Ordering::Greater)

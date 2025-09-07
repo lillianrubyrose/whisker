@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io::{Read, Write};
+use std::io::{stdin, stdout, Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -87,12 +87,9 @@ fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), Strin
 	Ok((reader, writer))
 }
 
-#[cfg(not(target_family = "unix"))]
-/// fallback path for UART spawning where it's not supported
+#[cfg(target_family = "windows")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
-	// these types in the Ok case are dummy types because the compiler has to have *some*
-	// type to pick for the impl
-	Err::<(&[u8], &mut [u8]), String>(String::from("UART terminal spawning not supported"))
+	Ok((stdin(), stdout()))
 }
 
 impl UART {

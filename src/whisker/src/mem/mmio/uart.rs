@@ -99,7 +99,7 @@ impl UART {
 					break 'outer;
 				};
 
-				debug!("UART read: {:0X}", b);
+				trace!("UART read: {:0X}", b);
 
 				let mut uart = uart.lock();
 				uart.data_queue.push_back(b);
@@ -120,22 +120,23 @@ impl UART {
 
 impl MMIODevice for UART {
 	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
+		let out = &mut buf[0];
 		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
 		match addr {
 			DATA_REG => {
 				if is_dlab {
 					// divisor LSB
-					buf[0] = (self.divisor & 0xFF).truncate();
+					*out = (self.divisor & 0xFF).truncate();
 				} else {
-					buf[0] = self.do_read();
+					*out = self.do_read();
 				}
 			}
 			INTERRUPT_ENABLE_REG => {
 				if is_dlab {
 					// divisor MSB
-					buf[0] = (self.divisor >> 8).truncate();
+					*out = (self.divisor >> 8).truncate();
 				} else {
-					buf[0] = self.interrupt_enable.bits();
+					*out = self.interrupt_enable.bits();
 				}
 			}
 			INTERRUPT_IDENT_REG => {
@@ -143,44 +144,56 @@ impl MMIODevice for UART {
 				self.interrupt_tx
 					.send(InterruptMessage::new_low(InterruptSource::UART))
 					.expect("unable to send interrupt controller");
-				buf[0] = ret;
+				*out = ret;
 			}
-			LINE_CONTROL_REG => buf[0] = self.line_control_reg,
-			MODEM_CONTROL_REG => todo!("read modem control register"),
-			LINE_STATUS_REG => buf[0] = self.read_line_status(),
-			MODEM_STATUS_REG => todo!("read modem status register"),
-			SCRATCH_REG => buf[0] = self.scratch_reg,
+			LINE_CONTROL_REG => *out = self.line_control_reg,
+			MODEM_CONTROL_REG => {
+				// FIXME: dont do this
+				warn!("ignored read from UART modem control register");
+			}
+			LINE_STATUS_REG => *out = self.read_line_status(),
+			MODEM_STATUS_REG => {
+				// FIXME: dont do this
+				warn!("ignored read from UART modem status register");
+			}
+			SCRATCH_REG => *out = self.scratch_reg,
 			_ => warn!("read from unknown UART addr {:#018X}", addr),
 		}
 	}
 
 	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
+		let val = val[0];
 		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
 		match addr {
 			DATA_REG => {
 				if is_dlab {
 					// divisor LSB
 					self.divisor &= 0xFF00;
-					self.divisor |= u16::from(val[0]);
+					self.divisor |= u16::from(val);
 				} else {
-					self.do_write(val[0]);
+					self.do_write(val);
 				}
 			}
 			INTERRUPT_ENABLE_REG => {
 				if is_dlab {
 					//divisor MSB
 					self.divisor &= 0x00FF;
-					self.divisor |= u16::from(val[0]) << 8;
+					self.divisor |= u16::from(val) << 8;
 				} else {
-					self.interrupt_enable = UartInterruptKind::from_bits_retain(val[0]);
+					self.interrupt_enable = UartInterruptKind::from_bits_retain(val);
 				}
 			}
-			FIFO_CONTROL_REG => self.write_fifo_control(val[0]),
-			LINE_CONTROL_REG => self.write_line_control(val[0]),
-			MODEM_CONTROL_REG => todo!("write modem control reg"),
+			FIFO_CONTROL_REG => self.write_fifo_control(val),
+			LINE_CONTROL_REG => self.write_line_control(val),
+			MODEM_CONTROL_REG => {
+				// FIXME: dont do this
+				warn!("ignored write of {:02X} to UART Modem Control Register", val);
+			}
 			LINE_STATUS_REG => {} // ignored
-			MODEM_STATUS_REG => todo!("write modem status register"),
-			SCRATCH_REG => self.scratch_reg = val[0],
+			MODEM_STATUS_REG => {
+				warn!("ignored write of {:02X} to UART Modem Status Register", val);
+			}
+			SCRATCH_REG => self.scratch_reg = val,
 			_ => {
 				warn!("write to unknown UART addr {:#018X}", addr);
 			}

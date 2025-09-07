@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
-use std::os::fd::{AsFd, RawFd};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -52,6 +51,7 @@ pub struct UART {
 #[cfg(target_family = "unix")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
 	use command_fds::{CommandFdExt as _, FdMapping};
+	use std::os::fd::{AsFd, RawFd};
 
 	const REMOTE_FD_NUM: RawFd = 4;
 	let (local, other) = socketpair_stream().map_err(|_| "unable to create socket pair")?;

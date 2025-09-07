@@ -1,12 +1,4 @@
-use std::env;
-use std::io::{Read, Write};
-use std::process::{Command, Stdio};
-
 use crate::tracing::*;
-
-pub trait ReadWrite: Read + Write {}
-
-impl<T: Read + Write> ReadWrite for T {}
 
 /// extracts bits start..=end from val
 pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
@@ -56,10 +48,16 @@ pub fn sign_ext_imm(imm: u32, sign_bit_idx: u8) -> i64 {
 	};
 	(imm as i64) | high_bits
 }
+
 // FIXME: kitty doesn't show the socat output, maybe fix that?
+#[cfg(unix)]
 const KNOWN_TERMINALS: &[&str] = &["xterm", "alacritty", "ghostty", "konsole", "gnome-terminal"];
 
+#[cfg(unix)]
 pub fn find_terminal() -> Result<String, ()> {
+	use std::env;
+	use std::process::{Command, Stdio};
+
 	let test_term = |term: &str| -> bool {
 		let Ok(mut child) = Command::new(term)
 			.arg("--version") // search for command

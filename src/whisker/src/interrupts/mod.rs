@@ -90,7 +90,7 @@ impl PlatformInterruptController {
 }
 
 impl MMIODevice for PlatformInterruptController {
-	fn read(&mut self, hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
+	fn read(&mut self, _hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		use addrs::*;
 
 		let out = from_bytes_mut::<u32>(buf);

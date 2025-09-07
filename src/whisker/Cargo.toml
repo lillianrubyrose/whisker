@@ -33,7 +33,7 @@ spin = "0.10.0"
 command-fds = "0.3.2"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.0", default-features = false, features = [
+softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.1", default-features = false, features = [
     "riscv",
 ] }
 

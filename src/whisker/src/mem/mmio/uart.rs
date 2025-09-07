@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -89,6 +89,7 @@ fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), Strin
 
 #[cfg(target_family = "windows")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
+	use std::io::{stdin, stdout};
 	Ok((stdin(), stdout()))
 }
 

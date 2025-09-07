@@ -838,7 +838,7 @@ dependencies = [
 [[package]]
 name = "softfloat-sys"
 version = "0.2.0"
-source = "git+https://github.com/whisker-emu/softfloat-sys.git?tag=v0.2.0#d790f7db14895e6a73e2da0ece5ab64ae07a6ea6"
+source = "git+https://github.com/whisker-emu/softfloat-sys.git?tag=v0.2.1#57fc809a86209f04fff31a0c442be648f2904558"
 dependencies = [
  "c99",
  "cc",

@@ -1,8 +1,5 @@
 use std::cmp::Ordering;
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-use softfloat_sys::float32_t;
-
 use super::{FClass, RoundingMode};
 use crate::cpu::hart::WhiskerHart;
 
@@ -16,37 +13,37 @@ pub struct SoftFloat(u32);
 impl SoftFloat {
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_add(self.0.into(), other.0.into()) })
+		Self(unsafe { softfloat_sys::f32_add(self.0.into(), other.0.into()) }.v)
 	}
 
 	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_sub(self.0.into(), other.0.into()) })
+		Self(unsafe { softfloat_sys::f32_sub(self.0.into(), other.0.into()) }.v)
 	}
 
 	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_mul(self.0.into(), other.0.into()) })
+		Self(unsafe { softfloat_sys::f32_mul(self.0.into(), other.0.into()) }.v)
 	}
 
 	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_div(self.0.into(), other.0.into()) })
+		Self(unsafe { softfloat_sys::f32_div(self.0.into(), other.0.into()) }.v)
 	}
 
 	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_rem(self.0.into(), other.0.into()) })
+		Self(unsafe { softfloat_sys::f32_rem(self.0.into(), other.0.into()) }.v)
 	}
 
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_mulAdd(self.0.into(), mul.0.into(), add.0.into()) })
+		Self(unsafe { softfloat_sys::f32_mulAdd(self.0.into(), mul.0.into(), add.0.into()) }.v)
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f32_sqrt(self.0.into()) })
+		Self(unsafe { softfloat_sys::f32_sqrt(self.0.into()) }.v)
 	}
 }
 
@@ -206,7 +203,7 @@ impl PartialEq for SoftFloat {
 	fn eq(&self, other: &Self) -> bool {
 		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 		unsafe {
-			softfloat_sys::f32_eq(self.0, other.0)
+			softfloat_sys::f32_eq(self.0.into(), other.0.into())
 		}
 		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 		self.to_f32().eq(&other.to_f32())
@@ -222,7 +219,7 @@ impl PartialOrd for SoftFloat {
 		} else if {
 			#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 			unsafe {
-				softfloat_sys::f32_lt(self.0, other.0)
+				softfloat_sys::f32_lt(self.0.into(), other.0.into())
 			}
 			#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 			{

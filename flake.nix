@@ -82,7 +82,7 @@
         devShells = {
           default = pkgs.mkShell {
             nativeBuildInputs = [
-              pkgs.rust-analyzer
+              pkgs.rust-analyzer-nightly
               rust-toolchain.defaultToolchain
               pkgs.clang-tools
               pkgs.libclang.lib

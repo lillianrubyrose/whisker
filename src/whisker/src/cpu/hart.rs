@@ -1262,7 +1262,7 @@ impl WhiskerHart {
 					let src2_val = hart.registers.get(src2);
 
 					// put (src1) value into rd
-					hart.registers.set(dst, u64::from(word));
+					hart.registers.set(dst, word as i32 as i64 as u64);
 					Some(src2_val as u32)
 				})?;
 			}
@@ -1282,7 +1282,7 @@ impl WhiskerHart {
 					let new_val = word.wrapping_add(src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1303,7 +1303,7 @@ impl WhiskerHart {
 					let new_val = word ^ src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1323,7 +1323,7 @@ impl WhiskerHart {
 					let new_val = word & src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1343,7 +1343,7 @@ impl WhiskerHart {
 					let new_val = word | src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1363,7 +1363,7 @@ impl WhiskerHart {
 					let new_val = std::cmp::min(word as i32, src2_val) as u32;
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1383,7 +1383,7 @@ impl WhiskerHart {
 					let new_val = std::cmp::max(word as i32, src2_val) as u32;
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1403,7 +1403,7 @@ impl WhiskerHart {
 					let new_val = std::cmp::min(word, src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}
@@ -1423,7 +1423,7 @@ impl WhiskerHart {
 					let new_val = std::cmp::max(word, src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, u64::from(word));
+					this.registers.set(dst, word as i32 as i64 as u64);
 					Some(new_val)
 				})?;
 			}

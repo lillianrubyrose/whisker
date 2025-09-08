@@ -1733,7 +1733,7 @@ impl WhiskerHart {
 				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
 				let rhs = self.registers.get(rhs).truncate::<u32>().cast_signed();
 
-				let result = lhs * rhs;
+				let result = lhs.wrapping_mul(rhs);
 
 				self.registers.set(dst, result.sign_extend::<u64>());
 			}

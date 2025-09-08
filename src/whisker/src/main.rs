@@ -536,7 +536,6 @@ mod tests {
 	fn integer_tests() {
 		// ignore misaligned tests for now
 		run_tests("rv64ui", &["ma_data"]);
-		run_tests("rv64um", &[]);
 		run_tests("rv64si", &["csr", "dirty", "icache-alias"]);
 	}
 

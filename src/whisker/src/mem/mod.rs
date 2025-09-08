@@ -7,6 +7,7 @@ use bitflags::bitflags;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use rustc_hash::FxHashMap;
 
 pub mod mmio;
 
@@ -17,6 +18,8 @@ use crate::mem::mmio::MMIOKind;
 use crate::soft::double::SoftDouble;
 use crate::soft::float::SoftFloat;
 use crate::ty::{HartId, TrapIdx, TrapRequestGuaranteed};
+use crate::util::extract_bits_32;
+use crate::{DRAM_BASE, DRAM_SIZE};
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
 
@@ -24,6 +27,7 @@ pub const MEM_PAGE_SIZE: u64 = 4096;
 pub struct Memory {
 	/// cache of page base addresses to physical addresses
 	page_table_cache: parking_lot::RwLock<BTreeMap<u64, u64>>,
+	pub instruction_parcel_cache: spin::RwLock<FxHashMap<u64, u32>>,
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
 	regions: parking_lot::RwLock<Vec<MemoryRegion>>,
@@ -185,6 +189,29 @@ macro_rules! impl_mem_read_write {
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 impl Memory {
+	// FIXME: This cache needs to be cleared on any FENCE.I instruction
+	pub fn read_instruction_parcel(
+		&self,
+		hart: &mut WhiskerHart,
+		pc: u64,
+	) -> Result<(bool, u32), TrapRequestGuaranteed> {
+		if (DRAM_BASE..DRAM_BASE + DRAM_SIZE).contains(&pc) {
+			if let Some(parcel) = self.instruction_parcel_cache.read().get(&pc) {
+				let parcel = *parcel;
+				return Ok((extract_bits_32(parcel, 0, 1) != 0b11, parcel));
+			}
+		}
+
+		let lo = self.read_u16(hart, pc, ReadKind::Instruction)?.extend::<u32>();
+		if extract_bits_32(lo, 0, 1) != 0b11 {
+			return Ok((true, lo));
+		}
+		let hi = self.read_u16(hart, pc + 2, ReadKind::Instruction)?.extend::<u32>();
+		let parcel = hi << 16 | lo;
+		self.instruction_parcel_cache.write().insert(pc, parcel);
+		Ok((false, parcel))
+	}
+
 	// FIXME: is this really a phys addr??? i dont think so
 	pub fn load_reserved_word(&self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
 		let Some(region) = self.region_for_addr(phys_addr) else {
@@ -881,6 +908,7 @@ impl MemoryBuilder {
 			regions: RwLock::new(self.regions),
 			reservations: RwLock::new(MemoryReservations::default()),
 			page_table_cache: RwLock::new(BTreeMap::default()),
+			instruction_parcel_cache: spin::RwLock::new(FxHashMap::default()),
 			watchpoints: RwLock::new(Vec::new()),
 		}
 	}

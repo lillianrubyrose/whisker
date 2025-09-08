@@ -1,10 +1,14 @@
-use crate::tracing::*;
 use bitfield::prelude::*;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::mem::paging::{PAGE_SIZE, is_access_allowed, trap_page_fault};
-use crate::mem::{Memory, MemoryOpKind};
-use crate::ty::TrapRequestGuaranteed;
+use crate::{
+	cpu::hart::WhiskerHart,
+	mem::{
+		Memory, MemoryOpKind,
+		paging::{PAGE_SIZE, is_access_allowed, trap_page_fault},
+	},
+	tracing::*,
+	ty::TrapRequestGuaranteed,
+};
 
 const SV_39_LEVELS: u8 = 3;
 const PTE_SIZE: u64 = core::mem::size_of::<Sv39PageTableEntry>() as u64;

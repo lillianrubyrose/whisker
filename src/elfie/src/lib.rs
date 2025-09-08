@@ -1,6 +1,8 @@
-use std::fs::File;
-use std::io::{Seek, SeekFrom};
-use std::path::Path;
+use std::{
+	fs::File,
+	io::{Seek, SeekFrom},
+	path::Path,
+};
 
 use crate::ext::ReadExt;
 

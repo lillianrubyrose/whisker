@@ -1,7 +1,9 @@
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::NonZeroUsize;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
+use std::{
+	fmt::Debug,
+	marker::PhantomData,
+	num::NonZeroUsize,
+	ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
+};
 
 use bitfield::prelude::*;
 use num_conv::prelude::*;

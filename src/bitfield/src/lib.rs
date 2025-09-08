@@ -1,9 +1,9 @@
 pub use bitfield_impl::{BitFieldRepr, bitfields};
 
 pub mod prelude {
+	pub use bitfield_impl::{BitFieldRepr, bitfields};
+
 	pub use crate::types::*;
-	pub use bitfield_impl::BitFieldRepr;
-	pub use bitfield_impl::bitfields;
 }
 
 pub trait BitField {

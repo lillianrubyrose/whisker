@@ -1,9 +1,7 @@
 use bitflags::bitflags;
-
-use crate::tracing::*;
 use num_conv::prelude::*;
 
-use crate::mem::Memory;
+use crate::{mem::Memory, tracing::*};
 
 #[derive(Debug)]
 pub struct DescriptorChain {

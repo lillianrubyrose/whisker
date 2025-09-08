@@ -1,14 +1,14 @@
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::ops::Deref;
+use std::{collections::BTreeMap, fmt::Debug, ops::Deref};
 
-use crate::tracing::*;
 use bitfield::{BitField, prelude::*};
 use num_conv::prelude::*;
 
-use crate::cpu::hart::{MStatus, WhiskerHart};
-use crate::ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed};
-use crate::util::extract_bits_16;
+use crate::{
+	cpu::hart::{MStatus, WhiskerHart},
+	tracing::*,
+	ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
+	util::extract_bits_16,
+};
 
 const NUM_CSRS: u16 = 4096;
 

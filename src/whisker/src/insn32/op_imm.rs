@@ -1,5 +1,4 @@
-use crate::util::extract_bits_32;
-use crate::{insn::*, insn32::IType};
+use crate::{insn::*, insn32::IType, util::extract_bits_32};
 
 pub fn parse_op_imm(parcel: u32) -> Option<Instruction> {
 	use consts::*;

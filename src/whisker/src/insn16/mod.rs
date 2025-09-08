@@ -1,9 +1,10 @@
-use crate::tracing::*;
-
-use crate::insn16::ty::CWideImmType;
 use crate::{
 	insn::*,
-	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},
+	insn16::ty::{
+		CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType,
+		CWideImmType,
+	},
+	tracing::*,
 	ty::GPRegisterIndex,
 	util::extract_bits_16,
 };

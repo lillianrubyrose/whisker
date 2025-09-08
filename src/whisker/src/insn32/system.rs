@@ -1,8 +1,4 @@
-use crate::tracing::*;
-
-use crate::cpu::csr::CSRIndex;
-use crate::ty::GPRegisterIndex;
-use crate::{insn::*, insn32::IType};
+use crate::{cpu::csr::CSRIndex, insn::*, insn32::IType, tracing::*, ty::GPRegisterIndex};
 
 pub fn parse_system(parcel: u32) -> Option<Instruction> {
 	use consts::*;

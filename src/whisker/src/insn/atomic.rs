@@ -1,6 +1,5 @@
-use crate::ty::GPRegisterIndex;
-
 use super::Instruction;
+use crate::ty::GPRegisterIndex;
 
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::enum_variant_names, reason = "DWord also ends with 'Word'")]

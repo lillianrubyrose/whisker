@@ -1,11 +1,9 @@
 #![allow(dead_code, reason = "FIXME: Finish implementation. meowmeow")]
 
-use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::Extend;
 
-use crate::mem::Memory;
-use crate::virtio::descriptor::DescriptorChain;
+use crate::{mem::Memory, tracing::*, virtio::descriptor::DescriptorChain};
 
 pub mod descriptor;
 

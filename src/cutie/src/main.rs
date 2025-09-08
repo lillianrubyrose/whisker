@@ -1,13 +1,12 @@
-use std::collections::HashSet;
-use std::path::Path;
-use std::process::exit;
-use std::{path::PathBuf, process::Command};
+use std::{
+	collections::HashSet,
+	path::{Path, PathBuf},
+	process::{exit, Command},
+};
 
 use clap::{Parser, Subcommand};
-use tracing::level_filters::LevelFilter;
-use tracing::*;
-use tracing_subscriber::layer::SubscriberExt as _;
-use tracing_subscriber::util::SubscriberInitExt as _;
+use tracing::{level_filters::LevelFilter, *};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum ISAExtension {

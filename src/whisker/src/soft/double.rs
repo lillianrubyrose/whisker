@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 
-use crate::cpu::hart::WhiskerHart;
-
 use super::{FClass, RoundingMode};
+use crate::cpu::hart::WhiskerHart;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]

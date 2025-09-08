@@ -1,6 +1,5 @@
-use crate::ty::GPRegisterIndex;
-
 use super::Instruction;
+use crate::ty::GPRegisterIndex;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MultiplyInstruction {

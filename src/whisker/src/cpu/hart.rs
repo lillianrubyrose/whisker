@@ -1,27 +1,22 @@
-use std::assert_matches::assert_matches;
-use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _};
 
-use crate::soft::float::SoftFloat;
-use crate::tracing::*;
-use bitfield::bitfields;
+use bitfield::{bitfields, prelude::*};
+use cpu::MEMORY;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
 
-use bitfield::prelude::*;
-
-use crate::cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector};
-use crate::insn::*;
-use crate::mem::{ReadKind, WriteKind};
-use crate::regs::{FPRegisters, GPRegisters};
-use crate::soft::FloatStatusControl;
-use crate::ty::{
-	ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed,
+use crate::{
+	cpu,
+	cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector},
+	insn::*,
+	insn16, insn32,
+	mem::{ReadKind, WriteKind},
+	regs::{FPRegisters, GPRegisters},
+	soft::{FloatStatusControl, float::SoftFloat},
+	tracing::*,
+	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
+	util::*,
 };
-use crate::{cpu, insn16};
-use crate::{insn32, util::*};
-use cpu::MEMORY;
 
 #[derive(Debug)]
 pub struct WhiskerHart {

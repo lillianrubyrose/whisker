@@ -1,23 +1,25 @@
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::{
+	fs::{File, OpenOptions},
+	io::Write,
+	path::{Path, PathBuf},
+	sync::{Arc, OnceLock},
+};
 
 use gdbstub::target::ext::breakpoints::WatchKind;
+use rustc_hash::FxHashSet;
 use spin::Mutex;
 
 use crate::tracing::*;
 
-use rustc_hash::FxHashSet;
-
 pub mod csr;
 pub mod hart;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::interrupts::PlatformInterruptController;
-use crate::mem::mmio::MMIOKind;
-use crate::mem::{self, Memory};
-use crate::ty::{HartId, RiscvExtensions};
+use crate::{
+	cpu::hart::WhiskerHart,
+	interrupts::PlatformInterruptController,
+	mem::{self, Memory, mmio::MMIOKind},
+	ty::{HartId, RiscvExtensions},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WhiskerExecState {

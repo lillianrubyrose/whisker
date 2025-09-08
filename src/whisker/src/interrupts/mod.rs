@@ -1,14 +1,18 @@
-use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::{
+	Arc,
+	mpsc::{self, Receiver, Sender, TryRecvError},
+};
 
-use crate::tracing::*;
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
 use spin::Mutex;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::mem::mmio::MMIODevice;
-use crate::ty::{HartId, TrapIdx};
+use crate::{
+	cpu::hart::WhiskerHart,
+	mem::mmio::MMIODevice,
+	tracing::*,
+	ty::{HartId, TrapIdx},
+};
 
 /// INVARIANT: a valid interrupt source in range 1..=1023
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -55,8 +55,10 @@ const KNOWN_TERMINALS: &[&str] = &["xterm", "alacritty", "ghostty", "konsole", "
 
 #[cfg(unix)]
 pub fn find_terminal() -> Result<String, ()> {
-	use std::env;
-	use std::process::{Command, Stdio};
+	use std::{
+		env,
+		process::{Command, Stdio},
+	};
 
 	let test_term = |term: &str| -> bool {
 		let Ok(mut child) = Command::new(term)

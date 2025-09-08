@@ -3,24 +3,28 @@
 	reason = "ordering the register offsets makes intent match docs"
 )]
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, OnceLock};
-use std::thread;
+use std::{
+	fs::{File, OpenOptions},
+	io::{Read, Seek, SeekFrom, Write},
+	path::Path,
+	sync::{
+		Arc, OnceLock,
+		mpsc::{self, Receiver, Sender},
+	},
+	thread,
+};
 
-use crate::tracing::*;
 use bitflags::bitflags;
 use num_conv::prelude::*;
 use spin::Mutex;
 
-use crate::cpu::MEMORY;
-use crate::cpu::hart::WhiskerHart;
-use crate::interrupts::{InterruptMessage, InterruptSource};
-use crate::mem::Memory;
-use crate::mem::mmio::MMIODevice;
-use crate::virtio::{InterruptStatus, VirtQueue, VirtioDeviceStatus, VirtioFeatures};
+use crate::{
+	cpu::{MEMORY, hart::WhiskerHart},
+	interrupts::{InterruptMessage, InterruptSource},
+	mem::{Memory, mmio::MMIODevice},
+	tracing::*,
+	virtio::{InterruptStatus, VirtQueue, VirtioDeviceStatus, VirtioFeatures},
+};
 
 pub const VIRTIO_BLOCK_BASE: u64 = 0x10001000;
 

@@ -17,27 +17,31 @@ mod virtio;
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("whisker only supports 64bit architectures");
 
-use std::fmt::Write as _;
-use std::io::Cursor;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::{fs, panic};
+use std::{
+	fmt::Write as _,
+	fs,
+	io::Cursor,
+	panic,
+	path::{Path, PathBuf},
+	sync::Arc,
+};
 
 use ::tracing::level_filters::LevelFilter;
 use clap::{Parser, Subcommand, command};
 use elfie::{Class, ElfFile, Endianness, ISA, ProgramHeaderType};
-use gdbstub::conn::ConnectionExt;
-use gdbstub::stub::GdbStub;
-use tracing_subscriber::layer::SubscriberExt as _;
-use tracing_subscriber::util::SubscriberInitExt as _;
+use gdbstub::{conn::ConnectionExt, stub::GdbStub};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-use crate::cpu::{WhiskerCpu, WhiskerExecState, csr};
-use crate::gdb::WhiskerEventLoop;
-use crate::interrupts::{PLIC_BASE, PLIC_LEN};
-use crate::mem::mmio::virtio_block::VIRTIO_BLOCK_BASE;
-use crate::mem::mmio::{MMIOKind, UART_BASE};
-use crate::mem::{AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion};
-use crate::ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions};
+use crate::{
+	cpu::{WhiskerCpu, WhiskerExecState, csr},
+	gdb::WhiskerEventLoop,
+	interrupts::{PLIC_BASE, PLIC_LEN},
+	mem::{
+		AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion,
+		mmio::{MMIOKind, UART_BASE, virtio_block::VIRTIO_BLOCK_BASE},
+	},
+	ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions},
+};
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -112,11 +116,7 @@ macro_rules! error {
 }
 
 pub mod tracing {
-	pub use crate::debug;
-	pub use crate::error;
-	pub use crate::info;
-	pub use crate::trace;
-	pub use crate::warn;
+	pub use crate::{debug, error, info, trace, warn};
 }
 
 fn main() {

@@ -1,9 +1,8 @@
+use super::Instruction;
 use crate::{
 	soft::RoundingMode,
 	ty::{FPRegisterIndex, GPRegisterIndex},
 };
-
-use super::Instruction;
 
 #[derive(Debug, Clone, Copy)]
 pub enum FloatInstruction {

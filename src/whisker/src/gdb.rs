@@ -1,26 +1,42 @@
-use std::fmt::Display;
-use std::net::{TcpListener, TcpStream};
-use std::num::NonZeroUsize;
+use std::{
+	fmt::Display,
+	net::{TcpListener, TcpStream},
+	num::NonZeroUsize,
+};
 
-use gdbstub::arch::{Arch, Registers};
-use gdbstub::common::{Signal, Tid};
-use gdbstub::conn::{Connection, ConnectionExt};
-use gdbstub::stub::MultiThreadStopReason;
-use gdbstub::stub::run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError};
-use gdbstub::target::ext::base::BaseOps;
-use gdbstub::target::ext::base::multithread::{
-	MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep, MultiThreadSingleStepOps,
+use gdbstub::{
+	arch::{Arch, Registers},
+	common::{Signal, Tid},
+	conn::{Connection, ConnectionExt},
+	stub::{
+		MultiThreadStopReason,
+		run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError},
+	},
+	target::{
+		Target, TargetError, TargetResult,
+		ext::{
+			base::{
+				BaseOps,
+				multithread::{
+					MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep,
+					MultiThreadSingleStepOps,
+				},
+			},
+			breakpoints::{
+				Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint,
+				SwBreakpointOps,
+			},
+		},
+	},
 };
-use gdbstub::target::ext::breakpoints::{
-	Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint, SwBreakpointOps,
-};
-use gdbstub::target::{Target, TargetError, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
-use crate::WhiskerCpu;
-use crate::cpu::{MEMORY, WhiskerExecState, WhiskerExecStatus};
-use crate::mem::{ReadKind, WriteKind};
-use crate::tracing::*;
+use crate::{
+	WhiskerCpu,
+	cpu::{MEMORY, WhiskerExecState, WhiskerExecStatus},
+	mem::{ReadKind, WriteKind},
+	tracing::*,
+};
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
 	let sockaddr = format!("127.0.0.1:{}", 2424);

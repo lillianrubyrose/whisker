@@ -1,5 +1,4 @@
-use crate::ty::RegisterIndex;
-use crate::{insn::*, insn32::RType, soft::RoundingMode};
+use crate::{insn::*, insn32::RType, soft::RoundingMode, ty::RegisterIndex};
 
 /// Returns the parsed instruction if it was valid, or None if the instruction could not be decoded.
 /// Caller is responsible for error handling in the None case, including producing exceptions.

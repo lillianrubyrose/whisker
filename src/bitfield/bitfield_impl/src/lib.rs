@@ -1,8 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned};
-use syn::spanned::Spanned;
-use syn::{DeriveInput, Error, Field, ItemEnum, ItemStruct};
+use syn::{DeriveInput, Error, Field, ItemEnum, ItemStruct, spanned::Spanned};
 
 #[proc_macro]
 pub fn generate_basic_types(_: TokenStream) -> TokenStream {

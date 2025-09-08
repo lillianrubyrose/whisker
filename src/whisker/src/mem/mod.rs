@@ -1,25 +1,25 @@
-use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::fmt::Debug;
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
 
-use crate::tracing::*;
 use bitflags::bitflags;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::FxHashMap;
 
+use crate::tracing::*;
+
 pub mod mmio;
 
 mod paging;
 
-use crate::cpu::hart::WhiskerHart;
-use crate::mem::mmio::MMIOKind;
-use crate::soft::double::SoftDouble;
-use crate::soft::float::SoftFloat;
-use crate::ty::{HartId, TrapIdx, TrapRequestGuaranteed};
-use crate::util::extract_bits_32;
-use crate::{DRAM_BASE, DRAM_SIZE};
+use crate::{
+	DRAM_BASE, DRAM_SIZE,
+	cpu::hart::WhiskerHart,
+	mem::mmio::MMIOKind,
+	soft::{double::SoftDouble, float::SoftFloat},
+	ty::{HartId, TrapIdx, TrapRequestGuaranteed},
+	util::extract_bits_32,
+};
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
 

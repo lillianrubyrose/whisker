@@ -1,6 +1,4 @@
-use crate::cpu::csr::CSRIndex;
-use crate::insn::Instruction;
-use crate::ty::GPRegisterIndex;
+use crate::{cpu::csr::CSRIndex, insn::Instruction, ty::GPRegisterIndex};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::enum_variant_names, reason = "All CSR instructions read")]

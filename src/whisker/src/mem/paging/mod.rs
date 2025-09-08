@@ -1,11 +1,11 @@
 mod sv39;
 
-use crate::tracing::*;
-
-use crate::cpu::csr::AddressTranslationMode;
-use crate::cpu::hart::WhiskerHart;
-use crate::mem::{Memory, MemoryOpKind};
-use crate::ty::{HartMode, TrapIdx, TrapRequestGuaranteed};
+use crate::{
+	cpu::{csr::AddressTranslationMode, hart::WhiskerHart},
+	mem::{Memory, MemoryOpKind},
+	tracing::*,
+	ty::{HartMode, TrapIdx, TrapRequestGuaranteed},
+};
 
 pub const PAGE_SIZE: u64 = 4096;
 

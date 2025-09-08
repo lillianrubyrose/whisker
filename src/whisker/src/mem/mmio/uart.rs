@@ -1,20 +1,23 @@
-use std::collections::VecDeque;
-use std::io::{Read, Write};
-use std::process::{Command, Stdio};
-use std::sync::Arc;
-use std::sync::mpsc::Sender;
-use std::thread;
+use std::{
+	collections::VecDeque,
+	io::{Read, Write},
+	process::{Command, Stdio},
+	sync::{Arc, mpsc::Sender},
+	thread,
+};
 
 use bitfield::prelude::*;
 use num_conv::Truncate;
 use socketpair::socketpair_stream;
 use spin::Mutex;
 
-use crate::{tracing::*, util};
-
-use crate::cpu::hart::WhiskerHart;
-use crate::interrupts::{InterruptMessage, InterruptSource};
-use crate::mem::mmio::MMIODevice;
+use crate::{
+	cpu::hart::WhiskerHart,
+	interrupts::{InterruptMessage, InterruptSource},
+	mem::mmio::MMIODevice,
+	tracing::*,
+	util,
+};
 
 pub const UART_BASE: u64 = 0x1000_0000;
 
@@ -50,8 +53,9 @@ pub struct UART {
 
 #[cfg(target_family = "unix")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
-	use command_fds::{CommandFdExt as _, FdMapping};
 	use std::os::fd::{AsFd, RawFd};
+
+	use command_fds::{CommandFdExt as _, FdMapping};
 
 	const REMOTE_FD_NUM: RawFd = 4;
 	let (local, other) = socketpair_stream().map_err(|_| "unable to create socket pair")?;

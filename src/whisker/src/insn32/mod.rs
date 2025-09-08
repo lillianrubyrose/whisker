@@ -93,8 +93,7 @@ pub fn parse(parcel: u32) -> Option<Instruction> {
 /// here to prevent things from using the fields directly
 mod ty {
 	use crate::{
-		ty::RegisterIndex,
-		ty::UnknownRegisterIndex,
+		ty::{RegisterIndex, UnknownRegisterIndex},
 		util::{extract_bits_32, sign_ext_imm},
 	};
 

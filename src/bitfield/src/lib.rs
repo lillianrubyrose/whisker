@@ -68,7 +68,7 @@ pub mod private_impl {
 		// handle least significant byte
 		if start_idx == end_idx {
 			// if the indices are the same, make sure to only get T::SIZE bits
-			let mask = ((1_u8 << T::SIZE) - 1) << start_bit_idx;
+			let mask = (1_u8.unbounded_shl(T::SIZE as u32).wrapping_sub(1)) << start_bit_idx;
 			collector.push_bits((bytes[start_idx] & mask) >> start_bit_idx, T::SIZE);
 		} else {
 			// if the indices are not the same, get from start_bit_idx to the end of the byte
@@ -95,7 +95,7 @@ pub mod private_impl {
 		// handle least significant byte
 		if start_idx == end_idx {
 			// if the indices are the same, make sure to only set T::SIZE bits
-			let mask = !(((1_u8 << T::SIZE) - 1) << start_bit_idx);
+			let mask = !((1_u8.unbounded_shl(T::SIZE as u32).wrapping_sub(1)) << start_bit_idx);
 			bytes[start_idx] &= mask;
 			bytes[start_idx] |= bit_reader.read_bits(T::SIZE) << start_bit_idx;
 		} else {
@@ -142,7 +142,8 @@ pub mod private_impl {
 		    $(impl BitCollectorImpl for BitCollector<$ty> {
 				#[inline]
 				fn push_bits(&mut self, bits: u8, num_bits: usize) {
-					self.0 = (self.0 << num_bits) | <$ty>::from(bits);
+				    debug_assert!(num_bits <= 8, "can only push up to 8 bits at a time");
+					self.0 = (self.0.unbounded_shl(num_bits as u32)) | <$ty>::from(bits);
 				}
 			})+
 		};
@@ -163,9 +164,9 @@ pub mod private_impl {
             $(impl BitReaderImpl for BitReader<$ty> {
                 #[inline]
                 fn read_bits(&mut self, num_bits: usize) -> u8 {
-                    let mask = ((1_u16 << num_bits) - 1) as u8;
+                    let mask = 1_u8.unbounded_shl(num_bits as u32).wrapping_sub(1);
                     let ret = self.0 as u8 & mask;
-                    self.0 >>= num_bits;
+                    self.0 = self.0.unbounded_shr(num_bits as u32);
                     ret
                 }
             })+

@@ -1,8 +1,6 @@
 use crate::tracing::*;
 
-use crate::cpu::hart::WhiskerHart;
 use crate::insn16::ty::CWideImmType;
-use crate::ty::RiscvExtensions;
 use crate::{
 	insn::*,
 	insn16::ty::{CAType, CBArithType, CBranchType, CImmType, CJType, CLoadType, CRType, CStackStoreType, CStoreType},

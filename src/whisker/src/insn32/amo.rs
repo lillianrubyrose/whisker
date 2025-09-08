@@ -1,10 +1,4 @@
-use crate::cpu::hart::WhiskerHart;
-use crate::{
-	insn::*,
-	insn32::RType,
-	ty::{RegisterIndex, RiscvExtensions},
-	util::extract_bits_8,
-};
+use crate::{insn::*, insn32::RType, ty::RegisterIndex, util::extract_bits_8};
 
 impl AtomicInstruction {}
 

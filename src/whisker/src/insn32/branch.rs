@@ -1,4 +1,3 @@
-use crate::cpu::hart::WhiskerHart;
 use crate::{insn::*, insn32::BType};
 
 macro_rules! parse_branch {

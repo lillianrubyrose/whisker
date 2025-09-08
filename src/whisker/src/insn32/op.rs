@@ -1,5 +1,4 @@
-use crate::cpu::hart::WhiskerHart;
-use crate::{insn::*, insn32::RType, ty::RiscvExtensions};
+use crate::{insn::*, insn32::RType};
 
 pub fn parse_op(parcel: u32) -> Option<Instruction> {
 	use consts::*;

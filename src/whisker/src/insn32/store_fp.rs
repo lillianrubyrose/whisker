@@ -1,5 +1,3 @@
-use crate::cpu::hart::WhiskerHart;
-use crate::ty::RiscvExtensions;
 use crate::{insn::*, insn32::SType};
 
 pub fn parse_store_fp(parcel: u32) -> Option<Instruction> {

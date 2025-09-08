@@ -1,6 +1,5 @@
-use crate::cpu::hart::WhiskerHart;
 use crate::ty::RegisterIndex;
-use crate::{insn::*, insn32::RType, soft::RoundingMode, ty::RiscvExtensions};
+use crate::{insn::*, insn32::RType, soft::RoundingMode};
 
 /// Returns the parsed instruction if it was valid, or None if the instruction could not be decoded.
 /// Caller is responsible for error handling in the None case, including producing exceptions.

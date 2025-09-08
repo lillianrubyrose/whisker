@@ -1,5 +1,4 @@
-use crate::cpu::hart::WhiskerHart;
-use crate::{insn::*, insn32::R4Type, soft::RoundingMode, ty::RiscvExtensions};
+use crate::{insn::*, insn32::R4Type, soft::RoundingMode};
 
 pub fn parse_madd(parcel: u32) -> Option<Instruction> {
 	use crate::insn32::consts::*;

@@ -1,5 +1,5 @@
 use crate::util::extract_bits_32;
-use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType};
+use crate::{insn::*, insn32::IType};
 
 pub fn parse_op_imm_32(parcel: u32) -> Option<Instruction> {
 	use consts::*;

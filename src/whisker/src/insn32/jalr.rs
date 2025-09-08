@@ -1,4 +1,3 @@
-use crate::cpu::hart::WhiskerHart;
 use crate::{insn::*, insn32::IType};
 
 pub fn parse_jalr(parcel: u32) -> Option<Instruction> {

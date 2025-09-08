@@ -19,7 +19,7 @@ pub mod system;
 
 pub use ty::*;
 
-use crate::{cpu::hart::WhiskerHart, insn::*, util::extract_bits_32};
+use crate::{insn::*, util::extract_bits_32};
 
 pub fn parse(parcel: u32) -> Option<Instruction> {
 	use consts::opcode::*;

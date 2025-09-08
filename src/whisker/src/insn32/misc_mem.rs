@@ -1,4 +1,4 @@
-use crate::{cpu::hart::WhiskerHart, insn::*, insn32::IType};
+use crate::{insn::*, insn32::IType};
 
 pub fn parse_misc_mem(parcel: u32) -> Option<Instruction> {
 	use consts::*;

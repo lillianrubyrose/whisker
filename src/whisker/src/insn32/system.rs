@@ -1,7 +1,6 @@
 use crate::tracing::*;
 
 use crate::cpu::csr::CSRIndex;
-use crate::cpu::hart::WhiskerHart;
 use crate::ty::GPRegisterIndex;
 use crate::{insn::*, insn32::IType};
 

@@ -15,11 +15,11 @@ use bitflags::bitflags;
 use num_conv::prelude::*;
 use spin::Mutex;
 
-use crate::cpu::hart::WhiskerHart;
 use crate::cpu::MEMORY;
+use crate::cpu::hart::WhiskerHart;
 use crate::interrupts::{InterruptMessage, InterruptSource};
-use crate::mem::mmio::MMIODevice;
 use crate::mem::Memory;
+use crate::mem::mmio::MMIODevice;
 use crate::virtio::{InterruptStatus, VirtQueue, VirtioDeviceStatus, VirtioFeatures};
 
 pub const VIRTIO_BLOCK_BASE: u64 = 0x10001000;

@@ -22,11 +22,7 @@ pub struct RegisterIndex<T>(u8, PhantomData<T>);
 
 impl<T> RegisterIndex<T> {
 	pub fn new(idx: u8) -> Option<Self> {
-		if idx <= 31 {
-			Some(Self(idx, PhantomData))
-		} else {
-			None
-		}
+		if idx <= 31 { Some(Self(idx, PhantomData)) } else { None }
 	}
 
 	pub fn as_usize(&self) -> usize {

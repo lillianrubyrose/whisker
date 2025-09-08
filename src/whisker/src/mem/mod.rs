@@ -450,8 +450,7 @@ impl Memory {
 		if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
 			trace!(
 				"PTE access not in misaligned region: {:?} at {:#018X}",
-				region,
-				phys_addr
+				region, phys_addr
 			);
 			// FIXME: use effective addr
 			return Err(pte_fault(hart, kind, phys_addr));
@@ -657,10 +656,7 @@ fn check_read_access(
 ) -> Result<(), TrapRequestGuaranteed> {
 	trace!(
 		"checking {:?} at {:#018X} for size {:02X} in region {:?}",
-		kind,
-		phys_addr,
-		size,
-		region
+		kind, phys_addr, size, region
 	);
 	let access_kinds = region.attrs.access_kinds;
 	let max_size = region.attrs.max_size;
@@ -714,10 +710,7 @@ fn check_write_access(
 ) -> Result<(), TrapRequestGuaranteed> {
 	trace!(
 		"checking {:?} at {:#018X} for size {:02X} in region {:?}",
-		kind,
-		phys_addr,
-		size,
-		region
+		kind, phys_addr, size, region
 	);
 	let access_kinds = region.attrs.access_kinds;
 	let max_size = region.attrs.max_size;

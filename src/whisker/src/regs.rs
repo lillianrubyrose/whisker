@@ -15,11 +15,7 @@ impl GPRegisters {
 
 	pub fn get(&self, index: GPRegisterIndex) -> u64 {
 		let index = index.as_usize();
-		if index == 0 {
-			0
-		} else {
-			self.x[index]
-		}
+		if index == 0 { 0 } else { self.x[index] }
 	}
 
 	pub fn set(&mut self, index: GPRegisterIndex, value: u64) {

@@ -1,5 +1,5 @@
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
 use crate::tracing::*;
 use bytemuck::from_bytes_mut;
@@ -159,9 +159,7 @@ impl MMIODevice for PlatformInterruptController {
 
 				trace!(
 					"setting context {:?} enabled idx {:#04X} to {:#032b}",
-					context,
-					idx,
-					val
+					context, idx, val
 				);
 
 				self.context_info.get_mut(context).unwrap().enabled[idx] = val;
@@ -195,8 +193,7 @@ impl PlatformInterruptController {
 
 		trace!(
 			"getting best irq for context {:?} prio threshold {}",
-			context,
-			best_prio
+			context, best_prio
 		);
 
 		for idx in 0..(MAX_IRQ_SOURCES / 32) {
@@ -205,11 +202,7 @@ impl PlatformInterruptController {
 			let claimed = self.claimed[idx];
 			trace!(
 				"context {:?} idx {} pend {:#010X} enabled {:#010X} claimed {:#010X}",
-				context,
-				idx,
-				pending,
-				enabled,
-				claimed
+				context, idx, pending, enabled, claimed
 			);
 
 			let avail = pending & enabled & !claimed;

@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 #![feature(assert_matches)]
 #![feature(cold_path)]
 
@@ -25,14 +24,14 @@ use std::sync::Arc;
 use std::{fs, panic};
 
 use ::tracing::level_filters::LevelFilter;
-use clap::{command, Parser, Subcommand};
-use elfie::{Class, ElfFile, Endianness, ProgramHeaderType, ISA};
+use clap::{Parser, Subcommand, command};
+use elfie::{Class, ElfFile, Endianness, ISA, ProgramHeaderType};
 use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::GdbStub;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
-use crate::cpu::{csr, WhiskerCpu, WhiskerExecState};
+use crate::cpu::{WhiskerCpu, WhiskerExecState, csr};
 use crate::gdb::WhiskerEventLoop;
 use crate::interrupts::{PLIC_BASE, PLIC_LEN};
 use crate::mem::mmio::virtio_block::VIRTIO_BLOCK_BASE;

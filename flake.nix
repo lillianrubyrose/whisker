@@ -47,7 +47,7 @@
             config = "riscv64-elf";
           };
         };
-        rust-toolchain = (fenix.packages.${system}.fromToolchainName { name = (lib.importTOML ./rust-toolchain.toml).toolchain.channel; sha256 = "sha256-LpkTSfBZY2eJP74wAUUkutiVF6y8m7oUV0ho2SS0W08="; });
+        rust-toolchain = (fenix.packages.${system}.fromToolchainName { name = (lib.importTOML ./rust-toolchain.toml).toolchain.channel; sha256 = "sha256-NA6etr3jsxN0qsePBrtfv1OzG31Qp+xJQehlyGniEPE="; });
         pre-commit-hooks = inputs.pre-commit-hooks.lib.${system};
         craneLib = crane.mkLib pkgs;
         commonArgs = {

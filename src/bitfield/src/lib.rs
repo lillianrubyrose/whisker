@@ -1,5 +1,3 @@
-#![feature(unbounded_shifts)]
-
 pub use bitfield_impl::{BitFieldRepr, bitfields};
 
 pub mod prelude {

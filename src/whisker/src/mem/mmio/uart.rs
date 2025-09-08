@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 use std::thread;
 
 use bitfield::prelude::*;

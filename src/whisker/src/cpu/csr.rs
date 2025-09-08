@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 use crate::tracing::*;
-use bitfield::{prelude::*, BitField};
+use bitfield::{BitField, prelude::*};
 use num_conv::prelude::*;
 
 use crate::cpu::hart::{MStatus, WhiskerHart};

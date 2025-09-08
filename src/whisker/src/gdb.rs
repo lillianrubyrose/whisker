@@ -5,22 +5,22 @@ use std::num::NonZeroUsize;
 use gdbstub::arch::{Arch, Registers};
 use gdbstub::common::{Signal, Tid};
 use gdbstub::conn::{Connection, ConnectionExt};
-use gdbstub::stub::run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError};
 use gdbstub::stub::MultiThreadStopReason;
+use gdbstub::stub::run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError};
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::multithread::{
 	MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep, MultiThreadSingleStepOps,
 };
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::{
 	Breakpoints, BreakpointsOps, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint, SwBreakpointOps,
 };
 use gdbstub::target::{Target, TargetError, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
-use crate::cpu::{WhiskerExecState, WhiskerExecStatus, MEMORY};
+use crate::WhiskerCpu;
+use crate::cpu::{MEMORY, WhiskerExecState, WhiskerExecStatus};
 use crate::mem::{ReadKind, WriteKind};
 use crate::tracing::*;
-use crate::WhiskerCpu;
 
 pub fn wait_for_tcp() -> Result<TcpStream, std::io::Error> {
 	let sockaddr = format!("127.0.0.1:{}", 2424);

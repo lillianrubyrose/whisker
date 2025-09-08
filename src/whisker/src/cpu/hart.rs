@@ -461,8 +461,7 @@ impl WhiskerHart {
 			} else {
 				warn!(
 					"  tried to execute compressed instruction {:#06X} at {:#018X} when compressed instructions were disabled",
-					parcel_u16,
-					self.pc
+					parcel_u16, self.pc
 				);
 				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
 			}

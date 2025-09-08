@@ -136,7 +136,7 @@ impl WhiskerCpu {
 			warn!("hart {:?} requested break: {:?}", hart_id, kind);
 			match kind {
 				hart::HartBreakKind::Watchpoint(watch_kind, addr) => {
-					return Err(WhiskerExecStatus::HitWatchpoint(hart_id, watch_kind, addr))
+					return Err(WhiskerExecStatus::HitWatchpoint(hart_id, watch_kind, addr));
 				}
 			}
 		}

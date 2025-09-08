@@ -88,6 +88,7 @@
               pkgs.llvmPackages.libcxxClang
               pkgs.cmake
               pkgs.socat
+              pkgs.linuxKernel.packages.linux_latest_libre.perf
 
               # riscv-tests
               pkgs.autoconf

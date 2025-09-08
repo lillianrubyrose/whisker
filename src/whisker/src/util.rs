@@ -1,4 +1,20 @@
+use num_conv::{CastSigned, CastUnsigned};
+
 use crate::tracing::*;
+
+pub trait ExtendExt {
+	fn sign_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastUnsigned,
+		Self: sealed::SignExtendTarget<Dst>;
+
+	fn zero_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastUnsigned>::Unsigned as CastSigned>::Signed
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastSigned,
+		Self: sealed::ZeroExtendTarget<Dst>;
+}
 
 /// extracts bits start..=end from val
 pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
@@ -90,4 +106,71 @@ pub fn find_terminal() -> Result<String, ()> {
 	}
 
 	Err(())
+}
+
+impl<T> ExtendExt for T {
+	fn sign_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastUnsigned,
+		Self: sealed::SignExtendTarget<Dst>,
+	{
+		sealed::SignExtendTarget::sign_extend(self)
+	}
+
+	fn zero_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastUnsigned>::Unsigned as CastSigned>::Signed
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastSigned,
+		Self: sealed::ZeroExtendTarget<Dst>,
+	{
+		sealed::ZeroExtendTarget::zero_extend(self)
+	}
+}
+
+mod sealed {
+	use num_conv::{CastSigned, CastUnsigned, Extend};
+
+	pub trait SignExtendTarget<T: CastSigned>
+	where
+		<T as CastSigned>::Signed: CastUnsigned,
+	{
+		fn sign_extend(self) -> <<T as CastSigned>::Signed as CastUnsigned>::Unsigned;
+	}
+
+	pub trait ZeroExtendTarget<T: CastSigned + CastUnsigned>
+	where
+		<T as CastSigned>::Signed: CastUnsigned,
+		<T as CastUnsigned>::Unsigned: CastSigned,
+	{
+		fn zero_extend(self) -> <<T as CastUnsigned>::Unsigned as CastSigned>::Signed;
+	}
+
+	impl<Dst: CastSigned + CastUnsigned, Src: CastSigned + CastUnsigned> SignExtendTarget<Dst> for Src
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastUnsigned,
+		<Src as CastSigned>::Signed: num_conv::Extend,
+		<Src as CastSigned>::Signed: num_conv::ExtendTarget<<Dst as CastSigned>::Signed>,
+	{
+		fn sign_extend(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned {
+			self.cast_signed()
+				.extend::<<Dst as CastSigned>::Signed>()
+				.cast_unsigned()
+		}
+	}
+
+	impl<Dst: CastSigned + CastUnsigned, Src: CastSigned + CastUnsigned> ZeroExtendTarget<Dst> for Src
+	where
+		<Dst as CastSigned>::Signed: CastUnsigned,
+		<Dst as CastUnsigned>::Unsigned: CastSigned,
+		<Src as CastUnsigned>::Unsigned: num_conv::Extend,
+		<Src as CastUnsigned>::Unsigned: num_conv::ExtendTarget<<Dst as CastUnsigned>::Unsigned>,
+	{
+		fn zero_extend(self) -> <<Dst as CastUnsigned>::Unsigned as CastSigned>::Signed {
+			self.cast_unsigned()
+				.extend::<<Dst as CastUnsigned>::Unsigned>()
+				.cast_signed()
+		}
+	}
 }

@@ -724,9 +724,9 @@ impl WhiskerHart {
 				self.registers.set(dst, lhs.wrapping_shr(rhs as u32));
 			}
 			IntInstruction::ShiftRightArithmetic { dst, lhs, rhs } => {
-				let lhs = self.registers.get(lhs) as i64;
+				let lhs = self.registers.get(lhs).cast_signed();
 				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, lhs.wrapping_shr(rhs as u32) as u64);
+				self.registers.set(dst, lhs.wrapping_shr(rhs as u32).cast_unsigned());
 			}
 			IntInstruction::SetLessThan { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs) as i64;
@@ -764,8 +764,8 @@ impl WhiskerHart {
 				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
 			}
 			IntInstruction::ShiftRightArithmeticImmediate { dst, lhs, shift_amt } => {
-				let lhs = self.registers.get(lhs) as i64;
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+				let lhs = self.registers.get(lhs).cast_signed();
+				self.registers.set(dst, lhs.wrapping_shr(shift_amt).cast_unsigned());
 			}
 			IntInstruction::SetLessThanImmediate { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs) as i64;
@@ -782,17 +782,31 @@ impl WhiskerHart {
 				// sign extend
 				self.registers.set(dst, (result as i32) as i64 as u64);
 			}
+			// shift word instructions all do the shift as 32 bits, and then sign extend the result
 			IntInstruction::ShiftLeftLogicalImmediateWord { dst, lhs, shift_amt } => {
-				let lhs = self.registers.get(lhs) as u32;
-				self.registers.set(dst, lhs.wrapping_shl(shift_amt) as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				self.registers.set(
+					dst,
+					lhs.wrapping_shl(shift_amt)
+						.cast_signed()
+						.extend::<i64>()
+						.cast_unsigned(),
+				);
 			}
 			IntInstruction::ShiftRightLogicalImmediateWord { dst, lhs, shift_amt } => {
-				let lhs = self.registers.get(lhs) as u32;
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				self.registers.set(
+					dst,
+					lhs.wrapping_shr(shift_amt)
+						.cast_signed()
+						.extend::<i64>()
+						.cast_unsigned(),
+				);
 			}
 			IntInstruction::ShiftRightArithmeticImmediateWord { dst, lhs, shift_amt } => {
-				let lhs = self.registers.get(lhs) as i32;
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt) as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
+				self.registers
+					.set(dst, lhs.wrapping_shr(shift_amt).extend::<i64>().cast_unsigned());
 			}
 
 			// ============
@@ -844,27 +858,29 @@ impl WhiskerHart {
 				let rhs = self.registers.get(rhs) as u32;
 				self.registers.set(dst, lhs.wrapping_sub(rhs) as u64);
 			}
-			// These only use the lower 5 bits of the rhs register for shamt
+			// shift word with a register shift amount only use the low 5 bits of the rhs as the amount
+			// these instructions also all sign extend the 32 bit result
 			IntInstruction::ShiftLeftLogicalWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
-				let result = lhs.wrapping_shl(shamt);
-				// sign extension
-				self.registers.set(dst, (result as i32) as i64 as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
+				self.registers.set(
+					dst,
+					lhs.wrapping_shl(shamt).cast_signed().extend::<i64>().cast_unsigned(),
+				);
 			}
 			IntInstruction::ShiftRightLogicalWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
-				let result = lhs.wrapping_shr(shamt);
-				// sign extension
-				self.registers.set(dst, (result as i32) as i64 as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
+				self.registers.set(
+					dst,
+					lhs.wrapping_shr(shamt).cast_signed().extend::<i64>().cast_unsigned(),
+				);
 			}
 			IntInstruction::ShiftRightArithmeticWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i32;
-				let shamt = (self.registers.get(rhs) as u32) & 0b11111;
-				let result = lhs.wrapping_shr(shamt);
-				// sign extension
-				self.registers.set(dst, result as i64 as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
+				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
+				self.registers
+					.set(dst, lhs.wrapping_shr(shamt).extend::<i64>().cast_unsigned());
 			}
 
 			// we don't do reordering, fence is a no-op

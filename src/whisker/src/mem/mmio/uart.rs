@@ -99,7 +99,10 @@ fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), Strin
 
 impl UART {
 	pub fn init(interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
+		#[cfg(not(test))]
 		let (mut reader, writer) = spawn_io_term().expect("failed to initialize UART");
+		#[cfg(test)]
+		let (mut reader, writer) = (std::io::stdin(), std::io::stdout());
 
 		let this = Arc::new(Mutex::new(Self {
 			data_reg: 0,

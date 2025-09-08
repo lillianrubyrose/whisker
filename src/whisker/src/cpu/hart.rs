@@ -630,11 +630,9 @@ impl WhiskerHart {
 			}
 			IntInstruction::LoadByte { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as u64;
+				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as i8;
 
-				let reg_val = self.registers.get(dst);
-				let val = (reg_val & 0xFFFFFFFF_FFFFFF00) | val;
-				self.registers.set(dst, val);
+				self.registers.set(dst, val as i64 as u64);
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
@@ -847,12 +845,12 @@ impl WhiskerHart {
 			IntInstruction::AddWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs) as u32;
 				let rhs = self.registers.get(rhs) as u32;
-				self.registers.set(dst, lhs.wrapping_add(rhs) as u64);
+				self.registers.set(dst, lhs.wrapping_add(rhs) as i32 as i64 as u64);
 			}
 			IntInstruction::SubWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs) as u32;
 				let rhs = self.registers.get(rhs) as u32;
-				self.registers.set(dst, lhs.wrapping_sub(rhs) as u64);
+				self.registers.set(dst, lhs.wrapping_sub(rhs) as i32 as i64 as u64);
 			}
 			// shift word with a register shift amount only use the low 5 bits of the rhs as the amount
 			// these instructions also all sign extend the 32 bit result
@@ -1748,7 +1746,7 @@ impl WhiskerHart {
 				// div by zero returns 0b111111111...
 				let result = if rhs == 0 { u32::MAX } else { lhs.wrapping_div(rhs) };
 
-				self.registers.set(dst, result as u64);
+				self.registers.set(dst, result as i32 as i64 as u64);
 			}
 			MultiplyInstruction::RemainderWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs) as i32;
@@ -1771,7 +1769,7 @@ impl WhiskerHart {
 				// rem by zero returns dividend
 				let result = if rhs == 0 { lhs } else { lhs.wrapping_rem(rhs) };
 
-				self.registers.set(dst, result as u64);
+				self.registers.set(dst, result as i32 as i64 as u64);
 			}
 		}
 		Ok(())

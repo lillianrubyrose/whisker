@@ -349,10 +349,33 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 
 fn run_normal(mut cpu: WhiskerCpu) {
 	cpu.hart_states.fill(WhiskerExecState::Running);
+
 	loop {
 		// FIXME: handle this better
 		#[allow(unused_must_use)]
 		cpu.execute_one();
+
+		if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
+			let mem = cpu::MEMORY.wait();
+			let bits = mem
+				.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
+				.unwrap();
+			mem.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+				.unwrap();
+
+			let mut cmd = RiscTestCommand::new();
+			cmd.set_inner(bits.to_le_bytes());
+
+			// FIXME: This currently panics in debug mode due to the bitfield checks causing shl overflow
+			if let Some(chr) = cmd.get_print_char() {
+				// TODO: We should handle this like we do UART probably
+				print!("{}", chr);
+				stdout().flush().unwrap();
+			} else if let Some(passed) = cmd.passed_test() {
+				assert!(passed, "{}", cpu.harts[0].dump());
+				break;
+			}
+		}
 	}
 }
 
@@ -448,15 +471,21 @@ mod tests {
 					print!("{}", chr);
 					stdout().flush().unwrap();
 				} else if let Some(passed) = cmd.passed_test() {
-					assert!(passed, "{test} failed");
+					assert!(
+						passed,
+						"{test} failed: \n{}",
+						cpu.harts
+							.iter_mut()
+							.map(|v| v.dump())
+							.fold(String::new(), |acc, v| format!("{acc}\n{v}"))
+					);
 					break;
 				}
 			}
 		}
 	}
 
-	#[test]
-	fn atomic_tests() {
+	fn run_tests(prefix: &str, excludes: &[&str]) {
 		let bootrom = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
 			.join("target")
 			.join("boot.bin");
@@ -474,7 +503,8 @@ mod tests {
 
 			let name = ele.file_name();
 			let name = name.to_string_lossy();
-			if name.contains('.') || !name.starts_with("rv64ua-p-") {
+			if name.contains('.') || !name.starts_with(prefix) || excludes.iter().any(|exclude| name.contains(exclude))
+			{
 				continue;
 			}
 
@@ -483,5 +513,28 @@ mod tests {
 
 			run_test(&mut cpu, &name);
 		}
+	}
+
+	#[test]
+	fn atomic_tests() {
+		run_tests("rv64ua", &[]);
+	}
+
+	#[test]
+	fn compressed_tests() {
+		run_tests("rv64uc", &[]);
+	}
+
+	#[test]
+	fn integer_tests() {
+		// ignore misaligned tests for now
+		run_tests("rv64ui", &["ma_data"]);
+		run_tests("rv64um", &[]);
+		run_tests("rv64si", &["csr", "dirty", "icache-alias"]);
+	}
+
+	#[test]
+	fn multiply_tests() {
+		run_tests("rv64um", &[]);
 	}
 }

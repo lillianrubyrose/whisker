@@ -228,6 +228,13 @@ fn init_cpu(
 			0x1000,
 			MMIOKind::VirtioBlock,
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
+		))
+		// FIXME: hook this up to actual clock and timers
+		.add_region(MemoryRegion::new_main_mem(
+			0x2000000,
+			0x10000,
+			vec![0_u8; 0x10000].into_boxed_slice(),
+			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC),
 		));
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();

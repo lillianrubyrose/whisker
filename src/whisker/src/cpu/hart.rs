@@ -119,7 +119,6 @@ const _: () = {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HartBreakKind {
-	BreakpointException,
 	Watchpoint(WatchKind, u64),
 }
 
@@ -503,8 +502,12 @@ impl WhiskerHart {
 			Instruction::Zicsr(insn) => self.execute_csr_insn(insn),
 			// We don't have to check compressed here as we handle that in the caller.
 			Instruction::Compressed(insn) => self.execute_compressed_insn(insn),
-			Instruction::Atomic(insn) if self.supports_extensions(RiscvExtensions::ATOMIC) => self.execute_atomic_insn(insn),
-			Instruction::Multipliy(insn) if self.supports_extensions(RiscvExtensions::MULTIPLY) => self.execute_multiply_insn(insn),
+			Instruction::Atomic(insn) if self.supports_extensions(RiscvExtensions::ATOMIC) => {
+				self.execute_atomic_insn(insn)
+			}
+			Instruction::Multipliy(insn) if self.supports_extensions(RiscvExtensions::MULTIPLY) => {
+				self.execute_multiply_insn(insn)
+			}
 			// FIXME for asquared31415
 			Instruction::Privileged(insn) => self.execute_privileged_insn(insn),
 			// FIXME: Supposed to be the bits of the instruction instead of zero

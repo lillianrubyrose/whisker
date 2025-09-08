@@ -135,7 +135,6 @@ impl WhiskerCpu {
 		if let Some(kind) = hart.requested_break.take() {
 			warn!("hart {:?} requested break: {:?}", hart_id, kind);
 			match kind {
-				hart::HartBreakKind::BreakpointException => return Err(WhiskerExecStatus::HitBreakpoint(hart_id)),
 				hart::HartBreakKind::Watchpoint(watch_kind, addr) => {
 					return Err(WhiskerExecStatus::HitWatchpoint(hart_id, watch_kind, addr))
 				}

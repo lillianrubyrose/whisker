@@ -532,6 +532,15 @@ impl HartMode {
 			_ => panic!("invalid mode bits {:#010b}", bits),
 		}
 	}
+
+	pub fn bits(self) -> u8 {
+		match self {
+			HartMode::User => 0b00,
+			HartMode::Supervisor => 0b01,
+			HartMode::Hypervisor => 0b10,
+			HartMode::Machine => 0b11,
+		}
+	}
 }
 
 /// these exist to allow the generic `RegisterIndex` to derive things without needing the underlying register

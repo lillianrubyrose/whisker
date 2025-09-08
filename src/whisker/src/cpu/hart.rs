@@ -1,3 +1,9 @@
+#![forbid(
+	clippy::as_conversions,
+	reason = "confusion with sign extension and zero extension has repeatedly caused bugs.
+	use `truncate`, `extend`, `cast_signed`, `cast_unsigned`, `sign_extend`, and `zero_extend` instead."
+)]
+
 use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _};
 
 use bitfield::{bitfields, prelude::*};
@@ -319,7 +325,7 @@ impl WhiskerHart {
 		mstatus.set_spie(sie);
 		mstatus.set_sie(false);
 		// save previous mode in SPP for restoring in xRET
-		mstatus.set_spp(self.mode() as u8);
+		mstatus.set_spp(self.mode().bits());
 		self.mstatus = mstatus;
 
 		// save interrupted PC for return
@@ -351,7 +357,7 @@ impl WhiskerHart {
 		let highest_bit = 63 - to_trap.leading_zeros();
 		// implementation specific interrupts have priority from most significant bit to least
 		if highest_bit >= 16 {
-			self.request_trap(TrapIdx::interrupt(highest_bit as u64), 0);
+			self.request_trap(TrapIdx::interrupt(highest_bit.extend::<u64>()), 0);
 			return true;
 		}
 
@@ -603,24 +609,24 @@ impl WhiskerHart {
 	fn execute_i_insn(&mut self, insn: IntInstruction) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			IntInstruction::LoadUpperImmediate { dst, val } => {
-				self.registers.set(dst, val as u64);
+				self.registers.set(dst, val.cast_unsigned());
 			}
 			IntInstruction::AddUpperImmediateToPc { dst, val } => {
 				self.registers.set(dst, self.pc.wrapping_add_signed(val));
 			}
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src) as u8;
+				let val = self.registers.get(src).truncate::<u8>();
 				write_mem_u8!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreHalf { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src) as u16;
+				let val = self.registers.get(src).truncate::<u16>();
 				write_mem_u16!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.registers.get(src) as u32;
+				let val = self.registers.get(src).truncate::<u32>();
 				write_mem_u32!(self, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreDoubleWord { dst, dst_offset, src } => {
@@ -630,21 +636,18 @@ impl WhiskerHart {
 			}
 			IntInstruction::LoadByte { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as i8;
-
-				self.registers.set(dst, val as i64 as u64);
+				let val = read_mem_u8!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				// LH sign extends to XLEN
-				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as i16 as u64;
-				self.registers.set(dst, val);
+				let val = read_mem_u16!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				// LW sign extends to XLEN
-				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as i32 as u64;
-				self.registers.set(dst, val);
+				let val = read_mem_u32!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
@@ -653,18 +656,18 @@ impl WhiskerHart {
 			}
 			IntInstruction::LoadByteZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset, ReadKind::Normal)? as u64;
-				self.registers.set(dst, val);
+				let val = read_mem_u8!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::LoadHalfZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset, ReadKind::Normal)? as u64;
-				self.registers.set(dst, val);
+				let val = read_mem_u16!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::LoadWordZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset, ReadKind::Normal)? as u64;
-				self.registers.set(dst, val);
+				let val = read_mem_u32!(self, offset, ReadKind::Normal)?;
+				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
 				self.registers.set(link_reg, self.next_pc);
@@ -709,28 +712,33 @@ impl WhiskerHart {
 			}
 			IntInstruction::ShiftLeftLogical { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, lhs.wrapping_shl(rhs as u32));
+				let rhs = self.registers.get(rhs).truncate::<u32>();
+				let val = lhs.wrapping_shl(rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::ShiftRightLogical { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, lhs.wrapping_shr(rhs as u32));
+				let rhs = self.registers.get(rhs).truncate::<u32>();
+				let val = lhs.wrapping_shr(rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::ShiftRightArithmetic { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs).cast_signed();
-				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, lhs.wrapping_shr(rhs as u32).cast_unsigned());
+				let rhs = self.registers.get(rhs).truncate::<u32>();
+				let val = lhs.wrapping_shr(rhs);
+				self.registers.set(dst, val.cast_unsigned());
 			}
 			IntInstruction::SetLessThan { dst, lhs, rhs } => {
-				let lhs = self.registers.get(lhs) as i64;
-				let rhs = self.registers.get(rhs) as i64;
-				self.registers.set(dst, (lhs < rhs) as u64);
+				let lhs = self.registers.get(lhs).cast_signed();
+				let rhs = self.registers.get(rhs).cast_signed();
+				let val = u64::from(lhs < rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::SetLessThanUnsigned { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
 				let rhs = self.registers.get(rhs);
-				self.registers.set(dst, (lhs < rhs) as u64);
+				let val = u64::from(lhs < rhs);
+				self.registers.set(dst, val);
 			}
 
 			IntInstruction::AddImmediate { dst, lhs, rhs } => {
@@ -739,142 +747,156 @@ impl WhiskerHart {
 			}
 			IntInstruction::XorImmediate { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs ^ (rhs as u64));
+				let rhs = rhs.cast_unsigned();
+				let val = lhs ^ rhs;
+				self.registers.set(dst, val);
 			}
 			IntInstruction::OrImmediate { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs | (rhs as u64));
+				let rhs = rhs.cast_unsigned();
+				let val = lhs | rhs;
+				self.registers.set(dst, val);
 			}
 			IntInstruction::AndImmediate { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs & (rhs as u64));
+				let rhs = rhs.cast_unsigned();
+				let val = lhs & rhs;
+				self.registers.set(dst, val);
 			}
 			IntInstruction::ShiftLeftLogicalImmediate { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs.wrapping_shl(shift_amt));
+				let rhs = shift_amt & 0b111111;
+				let val = lhs.wrapping_shl(rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::ShiftRightLogicalImmediate { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs);
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt));
+				let rhs = shift_amt & 0b111111;
+				let val = lhs.wrapping_shr(rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::ShiftRightArithmeticImmediate { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs).cast_signed();
-				self.registers.set(dst, lhs.wrapping_shr(shift_amt).cast_unsigned());
+				let rhs = shift_amt & 0b111111;
+				let val = lhs.wrapping_shr(rhs);
+				self.registers.set(dst, val.cast_unsigned());
 			}
 			IntInstruction::SetLessThanImmediate { dst, lhs, rhs } => {
-				let lhs = self.registers.get(lhs) as i64;
-				self.registers.set(dst, (lhs < rhs) as u64);
+				let lhs = self.registers.get(lhs).cast_signed();
+				let val = u64::from(lhs < rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::SetLessThanUnsignedImmediate { dst, lhs, rhs } => {
 				let lhs = self.registers.get(lhs);
-				let rhs = rhs as u64;
-				self.registers.set(dst, (lhs < rhs) as u64);
+				let rhs = rhs.cast_unsigned();
+				let val = u64::from(lhs < rhs);
+				self.registers.set(dst, val);
 			}
 			IntInstruction::AddImmediateWord { dst, lhs, rhs } => {
-				let lhs = self.registers.get(lhs) as u32;
+				let lhs = self.registers.get(lhs).truncate::<u32>();
 				let result = lhs.wrapping_add_signed(rhs);
-				// sign extend
-				self.registers.set(dst, (result as i32) as i64 as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			// shift word instructions all do the shift as 32 bits, and then sign extend the result
 			IntInstruction::ShiftLeftLogicalImmediateWord { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>();
-				self.registers.set(
-					dst,
-					lhs.wrapping_shl(shift_amt)
-						.cast_signed()
-						.extend::<i64>()
-						.cast_unsigned(),
-				);
+				let result = lhs.wrapping_shl(shift_amt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			IntInstruction::ShiftRightLogicalImmediateWord { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>();
-				self.registers.set(
-					dst,
-					lhs.wrapping_shr(shift_amt)
-						.cast_signed()
-						.extend::<i64>()
-						.cast_unsigned(),
-				);
+				let result = lhs.wrapping_shr(shift_amt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			IntInstruction::ShiftRightArithmeticImmediateWord { dst, lhs, shift_amt } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
-				self.registers
-					.set(dst, lhs.wrapping_shr(shift_amt).extend::<i64>().cast_unsigned());
+				let result = lhs.wrapping_shr(shift_amt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 
 			// ============
 			// BRANCH
 			// ============
 			IntInstruction::BranchEqual { lhs, rhs, imm } => {
-				if self.registers.get(lhs) == self.registers.get(rhs) {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				if lhs == rhs {
+					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchNotEqual { lhs, rhs, imm } => {
-				if self.registers.get(lhs) != self.registers.get(rhs) {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				if lhs != rhs {
 					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThan { lhs, rhs, imm } => {
-				if (self.registers.get(lhs) as i64) < self.registers.get(rhs) as i64 {
+				let lhs = self.registers.get(lhs).cast_signed();
+				let rhs = self.registers.get(rhs).cast_signed();
+				if lhs < rhs {
 					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqual { lhs, rhs, imm } => {
-				if (self.registers.get(lhs) as i64) >= self.registers.get(rhs) as i64 {
+				let lhs = self.registers.get(lhs).cast_signed();
+				let rhs = self.registers.get(rhs).cast_signed();
+				if lhs >= rhs {
 					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchLessThanUnsigned { lhs, rhs, imm } => {
-				if self.registers.get(lhs) < self.registers.get(rhs) {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				if lhs < rhs {
 					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 			IntInstruction::BranchGreaterEqualUnsigned { lhs, rhs, imm } => {
-				if self.registers.get(lhs) >= self.registers.get(rhs) {
+				let lhs = self.registers.get(lhs);
+				let rhs = self.registers.get(rhs);
+				if lhs >= rhs {
 					// FIXME: if C extension is not enabled, check alignment
 					self.next_pc = self.pc.wrapping_add_signed(imm);
 				}
 			}
 
 			IntInstruction::AddWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let rhs = self.registers.get(rhs) as u32;
-				self.registers.set(dst, lhs.wrapping_add(rhs) as i32 as i64 as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let rhs = self.registers.get(rhs).truncate::<u32>();
+				let result = lhs.wrapping_add(rhs);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			IntInstruction::SubWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let rhs = self.registers.get(rhs) as u32;
-				self.registers.set(dst, lhs.wrapping_sub(rhs) as i32 as i64 as u64);
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let rhs = self.registers.get(rhs).truncate::<u32>();
+				let result = lhs.wrapping_sub(rhs);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			// shift word with a register shift amount only use the low 5 bits of the rhs as the amount
 			// these instructions also all sign extend the 32 bit result
 			IntInstruction::ShiftLeftLogicalWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>();
 				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
-				self.registers.set(
-					dst,
-					lhs.wrapping_shl(shamt).cast_signed().extend::<i64>().cast_unsigned(),
-				);
+				let result = lhs.wrapping_shl(shamt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			IntInstruction::ShiftRightLogicalWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>();
 				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
-				self.registers.set(
-					dst,
-					lhs.wrapping_shr(shamt).cast_signed().extend::<i64>().cast_unsigned(),
-				);
+				let result = lhs.wrapping_shr(shamt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			IntInstruction::ShiftRightArithmeticWord { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
 				let shamt = (self.registers.get(rhs) & 0b11111).truncate::<u32>();
-				self.registers
-					.set(dst, lhs.wrapping_shr(shamt).extend::<i64>().cast_unsigned());
+				let result = lhs.wrapping_shr(shamt);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 
 			// we don't do reordering, fence is a no-op
@@ -1094,13 +1116,7 @@ impl WhiskerHart {
 			}
 			FloatInstruction::MoveSingleToInteger { dst, src } => {
 				// the high 32 bits of the destination register are filled with copies of the float's sign bit
-				let val = self
-					.fp_registers
-					.get_raw(src)
-					.truncate::<u32>()
-					.cast_signed()
-					.extend::<i64>()
-					.cast_unsigned();
+				let val = self.fp_registers.get_raw(src).truncate::<u32>().sign_extend::<u64>();
 				self.registers.set(dst, val);
 			}
 			FloatInstruction::MoveIntegerToSingle { dst, src } => {
@@ -1238,7 +1254,7 @@ impl WhiskerHart {
 					return Err(self.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, addr));
 				}
 
-				let val = self.registers.get(src2) as u32;
+				let val = self.registers.get(src2).truncate::<u32>();
 
 				let memory = MEMORY.wait();
 				let success = memory.store_conditional_word(self, addr, val)?;
@@ -1257,11 +1273,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |hart, word| {
 					// swap src2 to (src1)
-					let src2_val = hart.registers.get(src2);
+					let src2_val = hart.registers.get(src2).truncate::<u32>();
 
 					// put (src1) value into rd
-					hart.registers.set(dst, word as i32 as i64 as u64);
-					Some(src2_val as u32)
+					hart.registers.set(dst, word.sign_extend::<u64>());
+					Some(src2_val)
 				})?;
 			}
 			AtomicInstruction::AddWord {
@@ -1276,11 +1292,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// add src2 value to (src1)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = word.wrapping_add(src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1297,11 +1313,11 @@ impl WhiskerHart {
 
 				mem.atomic_op_word(self, addr, |this, word| {
 					// xor src2 value with (src1)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = word ^ src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1317,11 +1333,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// and src2 value with (src1)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = word & src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1337,11 +1353,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// or src2 value with (src1)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = word | src2_val;
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1357,11 +1373,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// min of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i32;
-					let new_val = std::cmp::min(word as i32, src2_val) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>().cast_signed();
+					let new_val = std::cmp::min(word.cast_signed(), src2_val).cast_unsigned();
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1377,11 +1393,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// max of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i32;
-					let new_val = std::cmp::max(word as i32, src2_val) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>().cast_signed();
+					let new_val = std::cmp::max(word.cast_signed(), src2_val).cast_unsigned();
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1397,11 +1413,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// min of src2 value and (src1) (unsigned)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = std::cmp::min(word, src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1417,11 +1433,11 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// max of src2 value and (src1) (unsigned)
-					let src2_val = this.registers.get(src2) as u32;
+					let src2_val = this.registers.get(src2).truncate::<u32>();
 					let new_val = std::cmp::max(word, src2_val);
 
 					// put (src1) value into rd
-					this.registers.set(dst, word as i32 as i64 as u64);
+					this.registers.set(dst, word.sign_extend::<u64>());
 					Some(new_val)
 				})?;
 			}
@@ -1557,8 +1573,8 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// min of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i64;
-					let new_val = std::cmp::min(dword as i64, src2_val) as u64;
+					let src2_val = this.registers.get(src2).cast_signed();
+					let new_val = std::cmp::min(dword.cast_signed(), src2_val).cast_unsigned();
 
 					// put (src1) value into rd
 					this.registers.set(dst, dword);
@@ -1577,8 +1593,8 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// max of src2 value and (src1) (signed)
-					let src2_val = this.registers.get(src2) as i64;
-					let new_val = std::cmp::max(dword as i64, src2_val) as u64;
+					let src2_val = this.registers.get(src2).cast_signed();
+					let new_val = std::cmp::max(dword.cast_signed(), src2_val).cast_unsigned();
 
 					// put (src1) value into rd
 					this.registers.set(dst, dword);
@@ -1639,38 +1655,36 @@ impl WhiskerHart {
 				self.registers.set(dst, lhs.wrapping_mul(rhs));
 			}
 			MultiplyInstruction::MultiplyHigh { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i64;
-				let rhs = self.registers.get(rhs) as i64;
+				let lhs = self.registers.get(lhs).cast_signed().extend::<i128>();
+				let rhs = self.registers.get(rhs).cast_signed().extend::<i128>();
 
 				// full 128bit signed mul
-				let product = (lhs as i128) * (rhs as i128);
-				let hi_bits = (product >> 64) as u64;
+				let product = lhs * rhs;
+				let hi_bits = (product >> 64).cast_unsigned().truncate::<u64>();
 
 				self.registers.set(dst, hi_bits);
 			}
 			MultiplyInstruction::MultiplyHighSignedUnsigned { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i64;
-				let rhs = self.registers.get(rhs);
+				let lhs = self.registers.get(lhs).cast_signed().extend::<i128>();
+				let rhs = self.registers.get(rhs).zero_extend::<i128>();
 
-				// full 128bit signed x unsigned mul. i think this is right????
-				let product = (lhs as i128) * (rhs as u128 as i128);
-				let hi_bits = (product >> 64) as u64;
+				let product = lhs * rhs;
+				let hi_bits = (product >> 64).cast_unsigned().truncate::<u64>();
 
 				self.registers.set(dst, hi_bits);
 			}
 			MultiplyInstruction::MultiplyHighUnsigned { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs);
-				let rhs = self.registers.get(rhs);
+				let lhs = self.registers.get(lhs).extend::<u128>();
+				let rhs = self.registers.get(rhs).extend::<u128>();
 
-				// full 128bit unsigned mul
-				let product = (lhs as u128) * (rhs as u128);
-				let hi_bits = (product >> 64) as u64;
+				let product = lhs * rhs;
+				let hi_bits = (product >> 64).truncate::<u64>();
 
 				self.registers.set(dst, hi_bits);
 			}
 			MultiplyInstruction::Divide { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i64;
-				let rhs = self.registers.get(rhs) as i64;
+				let lhs = self.registers.get(lhs).cast_signed();
+				let rhs = self.registers.get(rhs).cast_signed();
 
 				let result = if rhs == 0 {
 					-1i64 // div by zero returns -1
@@ -1680,7 +1694,7 @@ impl WhiskerHart {
 					lhs.wrapping_div(rhs)
 				};
 
-				self.registers.set(dst, result as u64);
+				self.registers.set(dst, result.cast_unsigned());
 			}
 			MultiplyInstruction::DivideUnsigned { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs);
@@ -1692,8 +1706,8 @@ impl WhiskerHart {
 				self.registers.set(dst, result);
 			}
 			MultiplyInstruction::Remainder { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i64;
-				let rhs = self.registers.get(rhs) as i64;
+				let lhs = self.registers.get(lhs).cast_signed();
+				let rhs = self.registers.get(rhs).cast_signed();
 
 				let result = if rhs == 0 {
 					lhs // rem by zero returns dividend
@@ -1703,7 +1717,7 @@ impl WhiskerHart {
 					lhs.wrapping_rem(rhs)
 				};
 
-				self.registers.set(dst, result as u64);
+				self.registers.set(dst, result.cast_unsigned());
 			}
 			MultiplyInstruction::RemainderUnsigned { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs);
@@ -1716,18 +1730,16 @@ impl WhiskerHart {
 			}
 
 			MultiplyInstruction::MultiplyWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let rhs = self.registers.get(rhs) as u32;
+				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
+				let rhs = self.registers.get(rhs).truncate::<u32>().cast_signed();
 
-				// TODO: babygirl is this right? lily is only like, half sure of this.
-				// ty in advance~ <3
-				let result = ((lhs as i32).wrapping_mul(rhs as i32)) as i64;
+				let result = lhs * rhs;
 
-				self.registers.set(dst, result as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			MultiplyInstruction::DivideWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i32;
-				let rhs = self.registers.get(rhs) as i32;
+				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
+				let rhs = self.registers.get(rhs).truncate::<u32>().cast_signed();
 
 				let result = if rhs == 0 {
 					-1i32 // div by zero returns -1
@@ -1737,20 +1749,20 @@ impl WhiskerHart {
 					lhs.wrapping_div(rhs)
 				};
 
-				self.registers.set(dst, result as i64 as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			MultiplyInstruction::DivideUnsignedWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let rhs = self.registers.get(rhs) as u32;
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let rhs = self.registers.get(rhs).truncate::<u32>();
 
 				// div by zero returns 0b111111111...
 				let result = if rhs == 0 { u32::MAX } else { lhs.wrapping_div(rhs) };
 
-				self.registers.set(dst, result as i32 as i64 as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			MultiplyInstruction::RemainderWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as i32;
-				let rhs = self.registers.get(rhs) as i32;
+				let lhs = self.registers.get(lhs).truncate::<u32>().cast_signed();
+				let rhs = self.registers.get(rhs).truncate::<u32>().cast_signed();
 
 				let result = if rhs == 0 {
 					lhs // rem by zero returns dividend
@@ -1760,16 +1772,16 @@ impl WhiskerHart {
 					lhs.wrapping_rem(rhs)
 				};
 
-				self.registers.set(dst, result as i64 as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 			MultiplyInstruction::RemainderUnsignedWord { lhs, rhs, dst } => {
-				let lhs = self.registers.get(lhs) as u32;
-				let rhs = self.registers.get(rhs) as u32;
+				let lhs = self.registers.get(lhs).truncate::<u32>();
+				let rhs = self.registers.get(rhs).truncate::<u32>();
 
 				// rem by zero returns dividend
 				let result = if rhs == 0 { lhs } else { lhs.wrapping_rem(rhs) };
 
-				self.registers.set(dst, result as i32 as i64 as u64);
+				self.registers.set(dst, result.sign_extend::<u64>());
 			}
 		}
 		Ok(())
@@ -1873,7 +1885,7 @@ impl WhiskerHart {
 		writeln!(&mut out, "    pc: {:#018X}\n", self.pc).unwrap();
 		let regs = self.registers.regs();
 		for idx in 0..32 {
-			let val = regs[idx as usize];
+			let val = regs[usize::from(idx)];
 			// we do this for pretty display purposes
 			let idx = GPRegisterIndex::new(idx).unwrap();
 			writeln!(&mut out, "  {:>4}: {val:#018X} ({val:})", idx.display(),).unwrap();

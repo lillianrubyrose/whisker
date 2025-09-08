@@ -56,13 +56,14 @@ impl Memory {
 			.map(|position| RwLockWriteGuard::map(regions, |regions| &mut regions[position]))
 	}
 
-	fn is_watchpoint(&self, addr: u64) -> Option<WatchKind> {
-		trace!("checking watchpoint for {:#018X}", addr);
+	fn is_watchpoint(&self, addr: u64, size: u8) -> Option<WatchKind> {
+		trace!("checking watchpoint for {:#018X} size {}", addr, size);
+		let addr_end = addr + u64::from(size);
 		if let Ok(idx) = self.watchpoints.read().binary_search_by(|(start, len, _)| {
 			let region_end = start + len - 1;
 			if addr > region_end {
 				Ordering::Greater
-			} else if addr < *start {
+			} else if addr_end <= *start {
 				Ordering::Less
 			} else {
 				Ordering::Equal
@@ -99,13 +100,14 @@ macro_rules! impl_mem_read_write {
 						};
 						return Err(e);
 					};
-					check_read_access(hart, &*region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
+					let size = ::core::mem::size_of::<$ty>();
+					check_read_access(hart, &*region, phys_addr, kind, size as u8)?;
 
 					let ret = match region.kind {
 						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
-							ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<$ty>()]);
+							ret.copy_from_slice(&backing[offset as usize..][..size]);
 							Ok(<$ty>::from_le_bytes(ret))
 						}
 						MemoryKind::MMIO(kind) => {
@@ -117,7 +119,7 @@ macro_rules! impl_mem_read_write {
 
 					// watchpoints should only happen if the read actually happens
 					// but should use the virtual address rather than physical
-					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr) {
+					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
 						if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
 							hart.request_watchpoint(watch_kind, effective_addr);
 						}
@@ -144,13 +146,14 @@ macro_rules! impl_mem_read_write {
 						return Err(e);
 					};
 					let region = &mut *region_guard;
-					check_write_access(hart, &*region, phys_addr, kind, core::mem::size_of::<$ty>() as u8)?;
+					let size = ::core::mem::size_of::<$ty>();
+					check_write_access(hart, &*region, phys_addr, kind, size as u8)?;
 
 					let ret = match region.kind {
 						MemoryKind::MainMemory { ref mut backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
-							backing[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&bytes);
+							backing[offset as usize..][..size].copy_from_slice(&bytes);
 							Ok(())
 						}
 						MemoryKind::MMIO(kind) => {
@@ -162,7 +165,7 @@ macro_rules! impl_mem_read_write {
 
 					// watchpoints should only happen if the write actually happens
 					// but should use the virtual address rather than physical
-					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr) {
+					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
 						if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
 							hart.request_watchpoint(watch_kind, effective_addr);
 						}
@@ -187,19 +190,14 @@ impl Memory {
 		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 		};
-		check_read_access(
-			hart,
-			&region,
-			phys_addr,
-			ReadKind::LoadReserved,
-			core::mem::size_of::<u32>() as u8,
-		)?;
+		let size = core::mem::size_of::<u32>();
+		check_read_access(hart, &region, phys_addr, ReadKind::LoadReserved, size as u8)?;
 
 		let ret = match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u32::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u32>()]);
+				ret.copy_from_slice(&backing[offset as usize..][..size]);
 				Ok(u32::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(kind) => {
@@ -210,7 +208,7 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
 				hart.request_watchpoint(watch_kind, phys_addr);
@@ -226,19 +224,14 @@ impl Memory {
 		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
 		};
-		check_read_access(
-			hart,
-			&region,
-			phys_addr,
-			ReadKind::LoadReserved,
-			core::mem::size_of::<u64>() as u8,
-		)?;
+		let size = core::mem::size_of::<u64>();
+		check_read_access(hart, &region, phys_addr, ReadKind::LoadReserved, size as u8)?;
 
 		let ret = match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
+				ret.copy_from_slice(&backing[offset as usize..][..size]);
 				Ok(u64::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(kind) => {
@@ -249,7 +242,7 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
 				hart.request_watchpoint(watch_kind, phys_addr);
@@ -275,20 +268,15 @@ impl Memory {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 		};
 		let region = &mut *region_guard;
-		check_write_access(
-			hart,
-			region,
-			phys_addr,
-			WriteKind::Atomic,
-			core::mem::size_of::<u32>() as u8,
-		)?;
+		let size = core::mem::size_of::<u32>();
+		check_write_access(hart, region, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
 			match region.kind {
 				MemoryKind::MainMemory { ref mut backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
-					backing[offset as usize..][..core::mem::size_of::<u32>()].copy_from_slice(&bytes);
+					backing[offset as usize..][..size].copy_from_slice(&bytes);
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
@@ -313,7 +301,7 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
 				hart.request_watchpoint(watch_kind, phys_addr);
@@ -338,20 +326,15 @@ impl Memory {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
 		};
 		let region = &mut *region_guard;
-		check_write_access(
-			hart,
-			region,
-			phys_addr,
-			WriteKind::Atomic,
-			core::mem::size_of::<u64>() as u8,
-		)?;
+		let size = core::mem::size_of::<u64>();
+		check_write_access(hart, region, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
 			match region.kind {
 				MemoryKind::MainMemory { ref mut backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
-					backing[offset as usize..][..core::mem::size_of::<u64>()].copy_from_slice(&bytes);
+					backing[offset as usize..][..size].copy_from_slice(&bytes);
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
@@ -367,6 +350,15 @@ impl Memory {
 				.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 			self.reservations.write().unreserve_hart(hart.hart_id());
+
+			if !hart.debug
+				&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
+			{
+				if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+					hart.request_watchpoint(watch_kind, phys_addr);
+				}
+			}
+
 			Ok(true)
 		} else {
 			drop(region_guard);
@@ -374,14 +366,6 @@ impl Memory {
 			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
 		};
-
-		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
-		{
-			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, phys_addr);
-			}
-		}
 
 		ret
 	}
@@ -461,7 +445,7 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr)
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size)
 		{
 			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
 				hart.request_watchpoint(watch_kind, phys_addr);

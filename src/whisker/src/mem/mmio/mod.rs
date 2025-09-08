@@ -23,7 +23,7 @@ pub enum MMIOKind {
 }
 
 #[allow(clippy::type_complexity)]
-static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send>>>>> =
+pub static MMIO_DEVICES: LazyLock<Mutex<FxHashMap<MMIOKind, Arc<Mutex<dyn MMIODevice + Send>>>>> =
 	LazyLock::new(|| Mutex::new(FxHashMap::default()));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -41,7 +41,8 @@ pub static MEMORY: OnceLock<Arc<Memory>> = OnceLock::new();
 #[derive(Debug)]
 pub struct WhiskerCpu {
 	/// the number of execution steps that have happened
-	steps: u64,
+	pub steps: u64,
+	pub tohost_addr: u64,
 
 	/// the index into `harts` which will be executed next
 	current_hart_id: HartId,
@@ -94,6 +95,7 @@ impl WhiskerCpu {
 
 		Self {
 			steps: 0,
+			tohost_addr: 0,
 			breakpoints: FxHashSet::default(),
 
 			current_hart_id: HartId::new(0),

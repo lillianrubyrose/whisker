@@ -9,6 +9,7 @@ mod insn32;
 mod interrupts;
 mod mem;
 mod regs;
+mod riscv_tests;
 mod soft;
 mod ty;
 mod util;
@@ -20,7 +21,7 @@ compile_error!("whisker only supports 64bit architectures");
 use std::{
 	fmt::Write as _,
 	fs,
-	io::Cursor,
+	io::{Cursor, Write, stdout},
 	panic,
 	path::{Path, PathBuf},
 	sync::Arc,
@@ -37,9 +38,10 @@ use crate::{
 	gdb::WhiskerEventLoop,
 	interrupts::{PLIC_BASE, PLIC_LEN},
 	mem::{
-		AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion,
-		mmio::{MMIOKind, UART_BASE, virtio_block::VIRTIO_BLOCK_BASE},
+		AccessAttrs, AccessKind, Memory, MemoryBuilder, MemoryRegion, ReadKind, WriteKind,
+		mmio::{MMIO_DEVICES, MMIOKind, UART_BASE, virtio_block::VIRTIO_BLOCK_BASE},
 	},
+	riscv_tests::RiscTestCommand,
 	ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions},
 };
 
@@ -144,7 +146,15 @@ fn main() {
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
-			let cpu = init_cpu(&bootrom, &kernel, raw_kernel, logfile, NUM_HARTS, fs_img.as_deref());
+			let cpu = init_cpu(
+				&bootrom,
+				&kernel,
+				raw_kernel,
+				logfile,
+				NUM_HARTS,
+				fs_img.as_deref(),
+				false,
+			);
 			if gdb {
 				run_gdb(cpu);
 			} else {
@@ -170,6 +180,7 @@ fn init_cpu(
 	logfile: Option<PathBuf>,
 	num_harts: u16,
 	fs_img: Option<&Path>,
+	is_test: bool,
 ) -> WhiskerCpu {
 	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
 
@@ -221,13 +232,15 @@ fn init_cpu(
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
 
-	if raw_kernel {
+	let tohost_addr = if raw_kernel {
 		main_mem[..kernel_data.len()].copy_from_slice(kernel_data.as_slice());
+		0
 	} else {
-		load_elf(kernel.as_path(), kernel_data.as_slice(), &mut main_mem);
-	}
+		load_elf(kernel.as_path(), kernel_data.as_slice(), &mut main_mem)
+	};
 
-	let dtb = fs::read("assets/whisker.dtb").unwrap();
+	let dtb = include_bytes!("../../../assets/whisker.dtb");
+	// let dtb = fs::read("assets/whisker.dtb").unwrap();
 	assert!(dtb.len() > 0, "potentially corrupt dtb");
 	let dtb_ptr = 0xF000_0000;
 	main_mem[(dtb_ptr - DRAM_BASE as usize)..][..dtb.len()].copy_from_slice(dtb.as_slice());
@@ -241,9 +254,21 @@ fn init_cpu(
 			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
 		),
 	));
+
+	if is_test && cpu::MEMORY.get().is_some() {
+		MMIO_DEVICES.lock().clear();
+
+		// HACK: please don't kill me babygirl <3
+		unsafe {
+			let ptr = &raw const cpu::MEMORY;
+			let ptr = ptr.cast_mut();
+			(*ptr).take();
+		}
+	}
 	cpu::MEMORY.get_or_init(|| Arc::new(mem_builder.build()));
 
 	let mut cpu = WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img);
+	cpu.tohost_addr = tohost_addr;
 	for (hart_id, hart) in cpu.harts.iter_mut().enumerate() {
 		hart.registers.set(GPRegisterIndex::new(10).unwrap(), hart_id as u64);
 		hart.registers.set(GPRegisterIndex::new(11).unwrap(), dtb_ptr as u64);
@@ -251,7 +276,7 @@ fn init_cpu(
 	cpu
 }
 
-fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) {
+fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) -> u64 {
 	let elf = ElfFile::parse(Cursor::new(&kernel_data))
 		.unwrap_or_else(|err| panic!("could not parse kernel ELF file {} | {err}", kernel_path.display()));
 
@@ -283,6 +308,8 @@ fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) {
 			);
 		}
 	}
+
+	elf.section(".tohost").map_or(0, |section| section.virtual_address)
 }
 
 fn run_gdb(mut cpu: WhiskerCpu) {
@@ -380,4 +407,81 @@ fn generate_gdb_xml() -> String {
 	xml.push_str("</target>\n");
 
 	xml
+}
+
+#[cfg(test)]
+mod tests {
+	use std::{
+		io::{Write, stdout},
+		path::PathBuf,
+	};
+
+	use crate::{
+		cpu::{MEMORY, WhiskerCpu, WhiskerExecState},
+		init_cpu,
+		mem::{ReadKind, WriteKind},
+		riscv_tests::RiscTestCommand,
+	};
+
+	fn run_test(cpu: &mut WhiskerCpu, test: &str) {
+		cpu.hart_states.fill(WhiskerExecState::Running);
+
+		loop {
+			// FIXME: handle this better
+			#[allow(unused_must_use)]
+			cpu.execute_one();
+
+			if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
+				let mem = MEMORY.wait();
+				let bits = mem
+					.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
+					.unwrap();
+				mem.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+					.unwrap();
+
+				let mut cmd = RiscTestCommand::new();
+				cmd.set_inner(bits.to_le_bytes());
+
+				// FIXME: This currently panics in debug mode due to the bitfield checks causing shl overflow
+				if let Some(chr) = cmd.get_print_char() {
+					// TODO: We should handle this like we do UART probably
+					print!("{}", chr);
+					stdout().flush().unwrap();
+				} else if let Some(passed) = cmd.passed_test() {
+					assert!(passed, "{test} failed");
+					break;
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn atomic_tests() {
+		let bootrom = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+			.join("target")
+			.join("boot.bin");
+		let dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+			.join("riscv-tests")
+			.join("isa");
+		dbg!(&dir);
+		let dir = std::fs::read_dir(dir).unwrap();
+		for ele in dir {
+			let ele = ele.unwrap();
+			let ft = ele.file_type().unwrap();
+			if ft.is_dir() {
+				continue;
+			}
+
+			let name = ele.file_name();
+			let name = name.to_string_lossy();
+			if name.contains('.') || !name.starts_with("rv64ua-p-") {
+				continue;
+			}
+
+			let mut cpu = init_cpu(&bootrom, &ele.path(), false, None, 1, None, true);
+			assert!(cpu.tohost_addr != 0, "tohost addr not set for test binary?");
+
+			run_test(&mut cpu, &name);
+		}
+	}
 }

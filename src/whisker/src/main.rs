@@ -26,7 +26,6 @@ use std::{
 	path::{Path, PathBuf},
 	sync::Arc,
 };
-
 use ::tracing::level_filters::LevelFilter;
 use clap::{Parser, Subcommand, command};
 use elfie::{Class, ElfFile, Endianness, ISA, ProgramHeaderType};
@@ -262,19 +261,11 @@ fn init_cpu(
 		),
 	));
 
-	if is_test && cpu::MEMORY.get().is_some() {
+	if is_test {
 		MMIO_DEVICES.lock().clear();
-
-		// HACK: please don't kill me babygirl <3
-		unsafe {
-			let ptr = &raw const cpu::MEMORY;
-			let ptr = ptr.cast_mut();
-			(*ptr).take();
-		}
 	}
-	cpu::MEMORY.get_or_init(|| Arc::new(mem_builder.build()));
 
-	let mut cpu = WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img);
+	let mut cpu = WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img, Arc::new(mem_builder.build()));
 	cpu.tohost_addr = tohost_addr;
 	for (hart_id, hart) in cpu.harts.iter_mut().enumerate() {
 		hart.registers.set(GPRegisterIndex::new(10).unwrap(), hart_id as u64);
@@ -363,11 +354,10 @@ fn run_normal(mut cpu: WhiskerCpu) {
 		cpu.execute_one();
 
 		if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
-			let mem = cpu::MEMORY.wait();
-			let bits = mem
+			let bits = cpu.memory
 				.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
 				.unwrap();
-			mem.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+			cpu.memory.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
 				.unwrap();
 
 			let mut cmd = RiscTestCommand::new();
@@ -447,7 +437,7 @@ mod tests {
 	};
 
 	use crate::{
-		cpu::{MEMORY, WhiskerCpu, WhiskerExecState},
+		cpu::{WhiskerCpu, WhiskerExecState},
 		init_cpu,
 		mem::{ReadKind, WriteKind},
 		riscv_tests::RiscTestCommand,
@@ -461,12 +451,11 @@ mod tests {
 			#[allow(unused_must_use)]
 			cpu.execute_one();
 
-			if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
-				let mem = MEMORY.wait();
-				let bits = mem
+			if cpu.steps.is_multiple_of(5000) {
+				let bits = cpu.memory
 					.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
 					.unwrap();
-				mem.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+				cpu.memory.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
 					.unwrap();
 
 				let mut cmd = RiscTestCommand::new();
@@ -516,7 +505,7 @@ mod tests {
 			}
 
 			let mut cpu = init_cpu(&bootrom, &ele.path(), false, None, 1, None, true);
-			assert!(cpu.tohost_addr != 0, "tohost addr not set for test binary?");
+			assert_ne!(cpu.tohost_addr, 0, "tohost addr not set for test binary?");
 
 			run_test(&mut cpu, &name);
 		}

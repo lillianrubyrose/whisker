@@ -5,9 +5,8 @@
 )]
 
 use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _};
-
+use std::sync::Arc;
 use bitfield::{bitfields, prelude::*};
-use cpu::MEMORY;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
 
@@ -23,10 +22,12 @@ use crate::{
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
 };
+use crate::mem::Memory;
 
 #[derive(Debug)]
 pub struct WhiskerHart {
 	hart_id: HartId,
+	memory: Arc<Memory>,
 
 	extensions: RiscvExtensions,
 
@@ -124,9 +125,10 @@ pub enum HartBreakKind {
 }
 
 impl WhiskerHart {
-	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
+	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64, memory: Arc<Memory>) -> Self {
 		Self {
 			hart_id,
+			memory,
 			extensions,
 
 			mode: HartMode::Machine,
@@ -222,12 +224,13 @@ impl WhiskerHart {
 			return;
 		}
 
-		match self.fetch_instruction() {
+		let mem = self.memory.clone();
+		match self.fetch_instruction(&mem) {
 			Ok((inst, size)) => {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
 				self.last_instruction = Some(inst);
-				self.execute_instruction(inst);
+				self.execute_instruction(inst, &mem);
 			}
 			// trap was requested during decoding
 			Err(TrapRequestGuaranteed { .. }) => {}
@@ -434,10 +437,8 @@ impl WhiskerHart {
 
 impl WhiskerHart {
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
-	fn fetch_instruction(&mut self) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
+	fn fetch_instruction(&mut self, mem: &Memory) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
 		let support_compressed = self.supports_extensions(RiscvExtensions::COMPRESSED);
-
-		let mem = cpu::MEMORY.wait();
 
 		let (is_compressed, parcel) = mem.read_instruction_parcel(self, self.pc)?;
 		let parcel_u16 = parcel.truncate::<u16>();
@@ -493,22 +494,22 @@ impl WhiskerHart {
 		}
 	}
 
-	fn execute_instruction(&mut self, insn: Instruction) {
+	fn execute_instruction(&mut self, insn: Instruction, mem: &Memory) {
 		let _ = match insn {
-			Instruction::Int(insn) => self.execute_i_insn(insn),
-			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => self.execute_f_insn(insn),
+			Instruction::Int(insn) => self.execute_i_insn(insn, mem),
+			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => self.execute_f_insn(insn, mem),
 			// FIXME: Figure out what the official ISA defined bit pattern is for Zicsr
-			Instruction::Zicsr(insn) => self.execute_csr_insn(insn),
+			Instruction::Zicsr(insn) => self.execute_csr_insn(insn, mem),
 			// We don't have to check compressed here as we handle that in the caller.
-			Instruction::Compressed(insn) => self.execute_compressed_insn(insn),
+			Instruction::Compressed(insn) => self.execute_compressed_insn(insn, mem),
 			Instruction::Atomic(insn) if self.supports_extensions(RiscvExtensions::ATOMIC) => {
-				self.execute_atomic_insn(insn)
+				self.execute_atomic_insn(insn, mem)
 			}
 			Instruction::Multipliy(insn) if self.supports_extensions(RiscvExtensions::MULTIPLY) => {
-				self.execute_multiply_insn(insn)
+				self.execute_multiply_insn(insn, mem)
 			}
 			// FIXME for asquared31415
-			Instruction::Privileged(insn) => self.execute_privileged_insn(insn),
+			Instruction::Privileged(insn) => self.execute_privileged_insn(insn, mem),
 			// FIXME: Supposed to be the bits of the instruction instead of zero
 			_ => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0)),
 		};
@@ -520,93 +521,81 @@ impl WhiskerHart {
 // ===========================
 
 macro_rules! read_mem_u8 {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mem = MEMORY.wait();
-		mem.read_u8($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_u8($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u16 {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mem = MEMORY.wait();
-		mem.read_u16($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_u16($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u32 {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mem = MEMORY.wait();
-		mem.read_u32($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_u32($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_u64 {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mem = MEMORY.wait();
-		mem.read_u64($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_u64($self, $offset, $kind)
 	}};
 }
 
 macro_rules! read_mem_float {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mem = MEMORY.wait();
-		mem.read_soft_float($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_soft_float($self, $offset, $kind)
 	}};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
-	($self:ident, $offset:ident, $kind:path) => {{
-		let mut mem = MEMORY.wait();
-		mem.read_soft_double($self, $offset, $kind)
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
+		$mem.read_soft_double($self, $offset, $kind)
 	}};
 }
 
 macro_rules! write_mem_u8 {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mem = MEMORY.wait();
-		mem.write_u8($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_u8($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u16 {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mem = MEMORY.wait();
-		mem.write_u16($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_u16($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u32 {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mem = MEMORY.wait();
-		mem.write_u32($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_u32($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_u64 {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mem = MEMORY.wait();
-		mem.write_u64($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_u64($self, $offset, $kind, $val)
 	}};
 }
 
 macro_rules! write_mem_float {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mem = MEMORY.wait();
-		mem.write_soft_float($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_soft_float($self, $offset, $kind, $val)
 	}};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
-	($self:ident, $offset:ident, $kind:path, $val:expr) => {{
-		let mut mem = MEMORY.wait();
-		mem.write_soft_double($self, $offset, $kind, $val)
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
+		$mem.write_soft_double($self, $offset, $kind, $val)
 	}};
 }
 
 impl WhiskerHart {
-	fn execute_i_insn(&mut self, insn: IntInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_i_insn(&mut self, insn: IntInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			IntInstruction::LoadUpperImmediate { dst, val } => {
 				self.registers.set(dst, val.cast_unsigned());
@@ -617,56 +606,56 @@ impl WhiskerHart {
 			IntInstruction::StoreByte { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src).truncate::<u8>();
-				write_mem_u8!(self, offset, WriteKind::Normal, val)?;
+				write_mem_u8!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreHalf { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src).truncate::<u16>();
-				write_mem_u16!(self, offset, WriteKind::Normal, val)?;
+				write_mem_u16!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src).truncate::<u32>();
-				write_mem_u32!(self, offset, WriteKind::Normal, val)?;
+				write_mem_u32!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::StoreDoubleWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.registers.get(src);
-				write_mem_u64!(self, offset, WriteKind::Normal, val)?;
+				write_mem_u64!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			IntInstruction::LoadByte { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u8!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadHalf { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u16!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u32!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			IntInstruction::LoadDoubleWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u64!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u64!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val);
 			}
 			IntInstruction::LoadByteZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u8!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u8!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::LoadHalfZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u16!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u16!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::LoadWordZeroExtend { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_u32!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_u32!(self, mem, offset, ReadKind::Normal)?;
 				self.registers.set(dst, val.extend::<u64>());
 			}
 			IntInstruction::JumpAndLink { link_reg, jmp_off } => {
@@ -902,7 +891,7 @@ impl WhiskerHart {
 			// we don't do reordering, fence is a no-op
 			IntInstruction::Fence { .. } => {}
 			IntInstruction::InstructionFence => {
-				MEMORY.wait().instruction_parcel_cache.write().clear();
+				mem.instruction_parcel_cache.write().clear();
 			}
 
 			// =========
@@ -926,17 +915,17 @@ impl WhiskerHart {
 	}
 
 	#[allow(unused_variables, reason = "FIXME: Implement unfinished instructions")]
-	fn execute_f_insn(&mut self, insn: FloatInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_f_insn(&mut self, insn: FloatInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			FloatInstruction::LoadWord { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = read_mem_float!(self, offset, ReadKind::Normal)?;
+				let val = read_mem_float!(self, mem, offset, ReadKind::Normal)?;
 				self.fp_registers.set_float(dst, val);
 			}
 			FloatInstruction::StoreWord { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.fp_registers.get_float(src);
-				write_mem_float!(self, offset, WriteKind::Normal, val)?;
+				write_mem_float!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
@@ -1132,7 +1121,7 @@ impl WhiskerHart {
 		Ok(())
 	}
 
-	fn execute_csr_insn(&mut self, insn: CSRInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_csr_insn(&mut self, insn: CSRInstruction, _mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		// FIXME: ordering of effects on registers and traps???
 		match insn {
 			CSRInstruction::CSRReadWrite { dst, src, csr } => {
@@ -1218,7 +1207,7 @@ impl WhiskerHart {
 		clippy::unused_self,
 		reason = "Consistency with other execute functions"
 	)]
-	fn execute_compressed_insn(&mut self, insn: CompressedInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_compressed_insn(&mut self, insn: CompressedInstruction, _mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			// this nop is special in that it's designated as an explicit NOP for future standard use
 			// so it cannot be combined into an integer instruction
@@ -1228,7 +1217,7 @@ impl WhiskerHart {
 		Ok(())
 	}
 
-	fn execute_atomic_insn(&mut self, insn: AtomicInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_atomic_insn(&mut self, insn: AtomicInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		// TODO(atomic): For now we'll be ignoring the aq: _ and rl: _ bits as it requires fencing logic
 		// and other things we do not currently implement.
 		match insn {
@@ -1238,8 +1227,7 @@ impl WhiskerHart {
 					return Err(self.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, addr));
 				}
 
-				let memory = MEMORY.wait();
-				let val = memory.load_reserved_word(self, addr)?;
+				let val = mem.load_reserved_word(self, addr)?;
 				self.registers.set(dst, val.extend());
 			}
 			AtomicInstruction::StoreConditionalWord {
@@ -1256,8 +1244,7 @@ impl WhiskerHart {
 
 				let val = self.registers.get(src2).truncate::<u32>();
 
-				let memory = MEMORY.wait();
-				let success = memory.store_conditional_word(self, addr, val)?;
+				let success = mem.store_conditional_word(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
 
@@ -1268,8 +1255,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |hart, word| {
 					// swap src2 to (src1)
@@ -1287,8 +1272,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// add src2 value to (src1)
@@ -1307,8 +1290,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 
 				mem.atomic_op_word(self, addr, |this, word| {
@@ -1328,8 +1309,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// and src2 value with (src1)
@@ -1348,8 +1327,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// or src2 value with (src1)
@@ -1368,8 +1345,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// min of src2 value and (src1) (signed)
@@ -1388,8 +1363,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// max of src2 value and (src1) (signed)
@@ -1408,8 +1381,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// min of src2 value and (src1) (unsigned)
@@ -1428,8 +1399,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_word(self, addr, |this, word| {
 					// max of src2 value and (src1) (unsigned)
@@ -1443,8 +1412,7 @@ impl WhiskerHart {
 			}
 			AtomicInstruction::LoadReservedDoubleWord { src, dst, _aq, _rl } => {
 				let addr = self.registers.get(src);
-				let memory = MEMORY.wait();
-				let val = memory.load_reserved_dword(self, addr)?;
+				let val = mem.load_reserved_dword(self, addr)?;
 				self.registers.set(dst, val);
 			}
 			AtomicInstruction::StoreConditionalDoubleWord {
@@ -1457,8 +1425,7 @@ impl WhiskerHart {
 				let addr = self.registers.get(src1);
 				let val = self.registers.get(src2);
 
-				let memory = MEMORY.wait();
-				let success = memory.store_conditional_dword(self, addr, val)?;
+				let success = mem.store_conditional_dword(self, addr, val)?;
 				self.registers.set(dst, u64::from(!success));
 			}
 
@@ -1469,8 +1436,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// swap src2 to (src1)
@@ -1488,8 +1453,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// add src2 value to (src1)
@@ -1508,8 +1471,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// xor src2 value with (src1)
@@ -1528,8 +1489,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// and src2 value with (src1)
@@ -1548,8 +1507,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// or src2 value with (src1)
@@ -1568,8 +1525,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// min of src2 value and (src1) (signed)
@@ -1588,8 +1543,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// max of src2 value and (src1) (signed)
@@ -1608,8 +1561,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// min of src2 value and (src1) (unsigned)
@@ -1628,8 +1579,6 @@ impl WhiskerHart {
 				_aq,
 				_rl,
 			} => {
-				let mem = MEMORY.wait();
-
 				let addr = self.registers.get(src1);
 				mem.atomic_op_dword(self, addr, |this, dword| {
 					// max of src2 value and (src1) (unsigned)
@@ -1646,7 +1595,7 @@ impl WhiskerHart {
 	}
 
 	#[allow(clippy::unnecessary_wraps, reason = "Consistency with other execute functions")]
-	fn execute_multiply_insn(&mut self, insn: MultiplyInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_multiply_insn(&mut self, insn: MultiplyInstruction, _mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			MultiplyInstruction::Multiply { lhs, rhs, dst } => {
 				let lhs = self.registers.get(lhs);
@@ -1788,7 +1737,7 @@ impl WhiskerHart {
 	}
 
 	#[allow(clippy::unnecessary_wraps, reason = "Consistency with other execute functions")]
-	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			PrivilegedInstruction::Mret => {
 				if self.mode() < HartMode::Machine {
@@ -1856,7 +1805,7 @@ impl WhiskerHart {
 				let vaddr = self.registers.get(vaddr);
 				let asid = self.registers.get(asid);
 
-				MEMORY.wait().clear_vm_cache(asid, vaddr);
+				mem.clear_vm_cache(asid, vaddr);
 			}
 		}
 		Ok(())

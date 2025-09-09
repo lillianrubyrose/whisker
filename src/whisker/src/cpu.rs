@@ -36,13 +36,12 @@ pub enum WhiskerExecStatus {
 	Paused,
 }
 
-pub static MEMORY: OnceLock<Arc<Memory>> = OnceLock::new();
-
 #[derive(Debug)]
 pub struct WhiskerCpu {
 	/// the number of execution steps that have happened
 	pub steps: u64,
 	pub tohost_addr: u64,
+	pub memory: Arc<Memory>,
 
 	/// the index into `harts` which will be executed next
 	current_hart_id: HartId,
@@ -63,6 +62,7 @@ impl WhiskerCpu {
 		num_harts: u16,
 		initial_pc: u64,
 		fs_img: Option<&Path>,
+		memory: Arc<Memory>,
 	) -> Self {
 		assert!(0 < num_harts && num_harts <= HartId::MAX_NUM_HARTS);
 
@@ -76,7 +76,7 @@ impl WhiskerCpu {
 		});
 
 		let harts = (0..num_harts)
-			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc))
+			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc, memory.clone()))
 			.collect();
 
 		// FIXME: interrupt controller refactor
@@ -88,7 +88,7 @@ impl WhiskerCpu {
 		if let Some(fs_img) = fs_img {
 			mem::mmio::register_mmio(
 				MMIOKind::VirtioBlock,
-				mem::mmio::virtio_block::VirtioBlockDevice::init(fs_img, int_tx.clone()) as _,
+				mem::mmio::virtio_block::VirtioBlockDevice::init(memory.clone(), fs_img, int_tx.clone()) as _,
 			)
 			.unwrap();
 		}
@@ -96,6 +96,8 @@ impl WhiskerCpu {
 		Self {
 			steps: 0,
 			tohost_addr: 0,
+			memory,
+
 			breakpoints: FxHashSet::default(),
 
 			current_hart_id: HartId::new(0),

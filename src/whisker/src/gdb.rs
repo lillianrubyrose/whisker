@@ -33,7 +33,7 @@ use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
 use crate::{
 	WhiskerCpu,
-	cpu::{MEMORY, WhiskerExecState, WhiskerExecStatus},
+	cpu::{WhiskerExecState, WhiskerExecStatus},
 	mem::{ReadKind, WriteKind},
 	tracing::*,
 };
@@ -186,12 +186,11 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &mut [u8],
 		tid: Tid,
 	) -> TargetResult<usize, Self> {
-		let mem = MEMORY.wait();
 		let hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
-			if let Ok(val) = mem.read_u8(hart, addr, ReadKind::Normal) {
+			if let Ok(val) = self.memory.read_u8(hart, addr, ReadKind::Normal) {
 				data[idx] = val;
 			} else {
 				if idx == 0 {
@@ -215,13 +214,12 @@ impl MultiThreadBase for WhiskerCpu {
 		data: &[u8],
 		tid: Tid,
 	) -> TargetResult<(), Self> {
-		let mem = MEMORY.wait();
 		let hart = &mut self.harts[tid.get() - 1];
 		hart.debug = true;
 
 		for (idx, addr) in (start_addr..(start_addr + data.len() as u64)).enumerate() {
 			let val = data[idx];
-			if mem.write_u8(hart, addr, WriteKind::Normal, val).is_err() {
+			if self.memory.write_u8(hart, addr, WriteKind::Normal, val).is_err() {
 				hart.debug = false;
 				// if writing failed for any reason, return an error
 				return Err(TargetError::Errno(0x0E));
@@ -324,7 +322,7 @@ impl HwWatchpoint for WhiskerCpu {
 		kind: gdbstub::target::ext::breakpoints::WatchKind,
 	) -> TargetResult<bool, Self> {
 		warn!("adding watchpoint for {:#018X} len {}", addr, len);
-		let mut watchpoints = MEMORY.wait().watchpoints.write();
+		let mut watchpoints = self.memory.watchpoints.write();
 
 		watchpoints.push((addr, len, kind));
 		watchpoints.sort_by_key(|(addr, _, _)| *addr);
@@ -338,7 +336,7 @@ impl HwWatchpoint for WhiskerCpu {
 		kind: gdbstub::target::ext::breakpoints::WatchKind,
 	) -> TargetResult<bool, Self> {
 		warn!("removing watchpoint for {:#018X} len {}", addr, len);
-		let mut watchpoints = MEMORY.wait().watchpoints.write();
+		let mut watchpoints = self.memory.watchpoints.write();
 		match watchpoints.iter().position(|e| e == &(addr, len, kind)) {
 			Some(idx) => {
 				watchpoints.remove(idx);

@@ -9,15 +9,18 @@ use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, 
 use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
+use softfloat_pure::{float32_t, softfloat::init_detectTininess};
 
 use crate::{
-	cpu,
-	cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector},
+	cpu::{
+		self,
+		csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector},
+	},
 	insn::*,
 	insn16, insn32,
 	mem::{Memory, ReadKind, WriteKind},
 	regs::{FPRegisters, GPRegisters},
-	soft::{FloatStatusControl, float::SoftFloat},
+	soft::{ExceptionFlags, FloatStatusControl, float::SoftFloat},
 	tracing::*,
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
@@ -1065,17 +1068,81 @@ impl WhiskerHart {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
-			FloatInstruction::ConvertSingleToWord { dst, src, rm } => todo!("convert single to word"),
-			FloatInstruction::ConvertSingleToWordUnsigned { dst, src, rm } => todo!("convert single to word unsigned"),
-			FloatInstruction::ConvertSingleToDoubleWord { dst, src, rm } => todo!("convert single to double word"),
-			FloatInstruction::ConvertSingleToDoubleWordUnsigned { dst, src, rm } => {
-				todo!("convert single to double word unsigned")
+			FloatInstruction::ConvertSingleToWord { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src).truncate::<u32>();
+				let (res, eflags) = softfloat_pure::softfloat::f32_to_i32(
+					float32_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertWordToSingle { dst, src, rm } => todo!("convert word to single"),
-			FloatInstruction::ConvertWordUnsignedToSingle { dst, src, rm } => todo!("convert word unsigned to single"),
-			FloatInstruction::ConvertDoubleWordToSingle { dst, src, rm } => todo!("convert double word to single"),
+			FloatInstruction::ConvertSingleToWordUnsigned { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src).truncate::<u32>();
+				let (res, eflags) = softfloat_pure::softfloat::f32_to_ui32(
+					float32_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertSingleToDoubleWord { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src).truncate::<u32>();
+				let (res, eflags) = softfloat_pure::softfloat::f32_to_i64(
+					float32_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertSingleToDoubleWordUnsigned { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src).truncate::<u32>();
+				let (res, eflags) = softfloat_pure::softfloat::f32_to_ui64(
+					float32_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertWordToSingle { dst, src, rm } => {
+				let src = self.registers.get(src).truncate::<u32>().cast_signed();
+				let (res, eflags) =
+					softfloat_pure::softfloat::i32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertWordUnsignedToSingle { dst, src, rm } => {
+				let src = self.registers.get(src).truncate::<u32>();
+				let (res, eflags) =
+					softfloat_pure::softfloat::ui32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertDoubleWordToSingle { dst, src, rm } => {
+				let src = self.registers.get(src).cast_signed();
+				let (res, eflags) =
+					softfloat_pure::softfloat::i64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
 			FloatInstruction::ConvertDoubleWordUnsignedToSingle { dst, src, rm } => {
-				todo!("convert double word unsigned to single")
+				let src = self.registers.get(src);
+				let (res, eflags) =
+					softfloat_pure::softfloat::ui64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
 			}
 			FloatInstruction::MoveSingleToInteger { dst, src } => {
 				// the high 32 bits of the destination register are filled with copies of the float's sign bit

@@ -18,18 +18,10 @@ pub struct FloatStatusControl {
 
 impl FloatStatusControl {
 	pub fn set_from_fpu(&mut self, eflags: softfloat_pure::ExceptionFlags) {
-		if eflags.is_inexact() {
-			self.set_inexact(true);
-		}
-		if eflags.is_underflow() {
-			self.set_underflow(true);
-		}
-		if eflags.is_overflow() {
-			self.set_overflow(true);
-		}
-		if eflags.is_invalid() {
-			self.set_invalid_operation(true);
-		}
+		self.set_inexact(eflags.is_inexact());
+		self.set_underflow(eflags.is_underflow());
+		self.set_overflow(eflags.is_overflow());
+		self.set_invalid_operation(eflags.is_invalid());
 	}
 }
 
@@ -122,7 +114,7 @@ impl RoundingMode {
 		}
 	}
 
-	fn to_sf(self, hart: &WhiskerHart) -> softfloat_pure::RoundingMode {
+	pub fn to_sf(self, hart: &WhiskerHart) -> softfloat_pure::RoundingMode {
 		match self {
 			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode().to_sf(hart),
 			RoundingMode::RoundToNearestTieEven => softfloat_pure::RoundingMode::RneTiesToEven,
@@ -164,9 +156,5 @@ impl ExceptionFlags {
 
 	pub fn is_invalid(self) -> bool {
 		self.0 & Self::FLAG_INVALID != 0
-	}
-
-	pub fn update_hart(self, hart: &mut WhiskerHart) {
-		todo!()
 	}
 }

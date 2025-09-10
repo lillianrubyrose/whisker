@@ -76,7 +76,7 @@ impl WhiskerCpu {
 		});
 
 		let harts = (0..num_harts)
-			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc, memory.clone()))
+			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc))
 			.collect();
 
 		// FIXME: interrupt controller refactor
@@ -131,7 +131,7 @@ impl WhiskerCpu {
 			return Err(WhiskerExecStatus::HitBreakpoint(hart_id));
 		}
 
-		hart.step();
+		hart.step(&self.memory);
 
 		if let Some(f) = &mut self.logfile {
 			let dump = hart.dump();

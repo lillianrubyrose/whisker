@@ -26,7 +26,6 @@ use crate::{
 #[derive(Debug)]
 pub struct WhiskerHart {
 	hart_id: HartId,
-	memory: Arc<Memory>,
 
 	extensions: RiscvExtensions,
 
@@ -124,10 +123,9 @@ pub enum HartBreakKind {
 }
 
 impl WhiskerHart {
-	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64, memory: Arc<Memory>) -> Self {
+	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
 		Self {
 			hart_id,
-			memory,
 			extensions,
 
 			mode: HartMode::Machine,
@@ -200,7 +198,7 @@ impl WhiskerHart {
 		self.pc
 	}
 
-	pub fn step(&mut self) {
+	pub fn step(&mut self, mem: &Memory) {
 		if self.debug {
 			error!("{:?} still in debug mode at start of step", self.hart_id);
 		}
@@ -223,7 +221,6 @@ impl WhiskerHart {
 			return;
 		}
 
-		let mem = self.memory.clone();
 		match self.fetch_instruction(&mem) {
 			Ok((inst, size)) => {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);

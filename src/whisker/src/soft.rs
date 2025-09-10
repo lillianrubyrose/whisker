@@ -152,12 +152,4 @@ impl ExceptionFlags {
 	pub fn update_hart(self, hart: &mut WhiskerHart) {
 		todo!()
 	}
-
-	pub fn get_from_softfloat() -> Self {
-		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-		let val = unsafe { softfloat_sys::softfloat_exceptionFlags_read_helper() };
-		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-		let val = 0;
-		Self(val)
-	}
 }

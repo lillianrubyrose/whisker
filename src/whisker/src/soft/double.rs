@@ -172,12 +172,10 @@ impl Default for SoftDouble {
 
 impl PartialEq for SoftDouble {
 	fn eq(&self, other: &Self) -> bool {
-		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-		unsafe {
-			softfloat_sys::f64_eq(self.0.into(), other.0.into())
-		}
-		#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-		self.to_f64().eq(&other.to_f64())
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		fpu.eq(lhs, rhs)
 	}
 }
 
@@ -188,14 +186,10 @@ impl PartialOrd for SoftDouble {
 		} else if self.eq(other) {
 			Some(Ordering::Equal)
 		} else if {
-			#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-			unsafe {
-				softfloat_sys::f64_lt(self.0.into(), other.0.into())
-			}
-			#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-			{
-				self.to_f64() < other.to_f64()
-			}
+			let mut fpu = FPU::default();
+			let lhs = float64_t::from_bits(self.0);
+			let rhs = float64_t::from_bits(other.0);
+			fpu.lt(lhs, rhs)
 		} {
 			Some(Ordering::Less)
 		} else {

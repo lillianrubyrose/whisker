@@ -16,6 +16,23 @@ pub struct FloatStatusControl {
 	pub rounding_mode: RoundingMode,
 }
 
+impl FloatStatusControl {
+	pub fn set_from_fpu(&mut self, eflags: softfloat_pure::ExceptionFlags) {
+		if eflags.is_inexact() {
+			self.set_inexact(true);
+		}
+		if eflags.is_underflow() {
+			self.set_underflow(true);
+		}
+		if eflags.is_overflow() {
+			self.set_overflow(true);
+		}
+		if eflags.is_invalid() {
+			self.set_invalid_operation(true);
+		}
+	}
+}
+
 /// Defined on unpriv isa page 119
 #[derive(Debug, Clone, Copy)]
 pub enum FClass {

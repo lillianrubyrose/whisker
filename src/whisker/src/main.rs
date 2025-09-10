@@ -487,6 +487,7 @@ mod tests {
 							.map(|v| v.dump())
 							.fold(String::new(), |acc, v| format!("{acc}\n{v}"))
 					);
+					println!("[PASS] {test}");
 					break;
 				}
 			}
@@ -543,5 +544,10 @@ mod tests {
 	#[test]
 	fn multiply_tests() {
 		run_tests("rv64um", &[]);
+	}
+
+	#[test]
+	fn float_tests() {
+		run_tests("rv64uf", &[]);
 	}
 }

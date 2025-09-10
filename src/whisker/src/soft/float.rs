@@ -16,7 +16,7 @@ impl SoftFloat {
 		let lhs = float32_t::from_bits(self.0);
 		let rhs = float32_t::from_bits(other.0);
 		let result = fpu.add(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -25,7 +25,7 @@ impl SoftFloat {
 		let lhs = float32_t::from_bits(self.0);
 		let rhs = float32_t::from_bits(other.0);
 		let result = fpu.sub(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -34,7 +34,7 @@ impl SoftFloat {
 		let lhs = float32_t::from_bits(self.0);
 		let rhs = float32_t::from_bits(other.0);
 		let result = fpu.mul(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -43,7 +43,7 @@ impl SoftFloat {
 		let lhs = float32_t::from_bits(self.0);
 		let rhs = float32_t::from_bits(other.0);
 		let result = fpu.div(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -52,7 +52,7 @@ impl SoftFloat {
 		let lhs = float32_t::from_bits(self.0);
 		let rhs = float32_t::from_bits(other.0);
 		let result = fpu.rem(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -62,7 +62,7 @@ impl SoftFloat {
 		let mul = float32_t::from_bits(mul.0);
 		let add = float32_t::from_bits(add.0);
 		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 
@@ -70,7 +70,7 @@ impl SoftFloat {
 		let mut fpu = FPU::default();
 		let lhs = float32_t::from_bits(self.0);
 		let result = fpu.sqrt(lhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
 	}
 }

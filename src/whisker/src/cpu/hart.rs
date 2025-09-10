@@ -949,10 +949,10 @@ impl WhiskerHart {
 				add,
 				rm,
 			} => {
-				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
+				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let add = self.fp_registers.get_float(add);
-				let result = mul_lhs.mul_add(mul_rhs, add, rm, self);
+				let result = mul_lhs.mul_add(mul_rhs, add, rm, self).neg(self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::NegMulSubSingle {
@@ -962,10 +962,10 @@ impl WhiskerHart {
 				sub,
 				rm,
 			} => {
-				let mul_lhs = self.fp_registers.get_float(mul_lhs).set_sign(false);
+				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let sub = self.fp_registers.get_float(sub);
-				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self);
+				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self).neg(self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::MulSingle { dst, lhs, rhs, rm } => {

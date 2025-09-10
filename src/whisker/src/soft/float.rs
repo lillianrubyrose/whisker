@@ -152,7 +152,7 @@ impl SoftFloat {
 
 	// FIXME: This is probably fine?
 	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		self.mul_add(mul, sub.set_sign(!sub.sign()), rm, hart)
+		self.mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
 	/// Returns if the sign is positive
@@ -163,6 +163,16 @@ impl SoftFloat {
 	// TODO: Maybe rename? I'm not sure. - Lily
 	pub fn set_sign(self, sign: bool) -> Self {
 		Self::from_u32(self.to_u32() | ((sign as u32) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+	}
+
+	pub fn neg(self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() {
+			if self.is_snan() {
+				hart.float_status_control.set_invalid_operation(true);
+			}
+			return self;
+		}
+		Self(self.0 ^ (1 << (u32::BITS - 1)))
 	}
 }
 

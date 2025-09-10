@@ -144,7 +144,7 @@ impl SoftFloat {
 	}
 
 	pub fn is_snan(self) -> bool {
-		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK != 0)
+		softfloat_pure::softfloat::softfloat_isSigNaNF32UI(self.0)
 	}
 	pub fn is_qnan(self) -> bool {
 		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)

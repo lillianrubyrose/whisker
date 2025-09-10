@@ -26,6 +26,7 @@ use std::{
 	path::{Path, PathBuf},
 	sync::Arc,
 };
+
 use ::tracing::level_filters::LevelFilter;
 use clap::{Parser, Subcommand, command};
 use elfie::{Class, ElfFile, Endianness, ISA, ProgramHeaderType};
@@ -265,7 +266,14 @@ fn init_cpu(
 		MMIO_DEVICES.lock().clear();
 	}
 
-	let mut cpu = WhiskerCpu::new(supported, logfile, num_harts, BOOTROM_OFFSET, fs_img, Arc::new(mem_builder.build()));
+	let mut cpu = WhiskerCpu::new(
+		supported,
+		logfile,
+		num_harts,
+		BOOTROM_OFFSET,
+		fs_img,
+		Arc::new(mem_builder.build()),
+	);
 	cpu.tohost_addr = tohost_addr;
 	for (hart_id, hart) in cpu.harts.iter_mut().enumerate() {
 		hart.registers.set(GPRegisterIndex::new(10).unwrap(), hart_id as u64);
@@ -354,10 +362,12 @@ fn run_normal(mut cpu: WhiskerCpu) {
 		cpu.execute_one();
 
 		if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
-			let bits = cpu.memory
+			let bits = cpu
+				.memory
 				.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
 				.unwrap();
-			cpu.memory.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+			cpu.memory
+				.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
 				.unwrap();
 
 			let mut cmd = RiscTestCommand::new();
@@ -452,10 +462,12 @@ mod tests {
 			cpu.execute_one();
 
 			if cpu.steps.is_multiple_of(5000) {
-				let bits = cpu.memory
+				let bits = cpu
+					.memory
 					.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
 					.unwrap();
-				cpu.memory.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
+				cpu.memory
+					.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
 					.unwrap();
 
 				let mut cmd = RiscTestCommand::new();

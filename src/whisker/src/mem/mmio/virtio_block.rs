@@ -19,7 +19,7 @@ use num_conv::prelude::*;
 use spin::Mutex;
 
 use crate::{
-	cpu::{hart::WhiskerHart},
+	cpu::hart::WhiskerHart,
 	interrupts::{InterruptMessage, InterruptSource},
 	mem::{Memory, mmio::MMIODevice},
 	tracing::*,

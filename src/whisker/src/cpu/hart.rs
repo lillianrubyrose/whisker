@@ -4,8 +4,8 @@
 	use `truncate`, `extend`, `cast_signed`, `cast_unsigned`, `sign_extend`, and `zero_extend` instead."
 )]
 
-use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _};
-use std::sync::Arc;
+use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _, sync::Arc};
+
 use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
@@ -15,14 +15,13 @@ use crate::{
 	cpu::csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector},
 	insn::*,
 	insn16, insn32,
-	mem::{ReadKind, WriteKind},
+	mem::{Memory, ReadKind, WriteKind},
 	regs::{FPRegisters, GPRegisters},
 	soft::{FloatStatusControl, float::SoftFloat},
 	tracing::*,
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
 };
-use crate::mem::Memory;
 
 #[derive(Debug)]
 pub struct WhiskerHart {
@@ -497,7 +496,9 @@ impl WhiskerHart {
 	fn execute_instruction(&mut self, insn: Instruction, mem: &Memory) {
 		let _ = match insn {
 			Instruction::Int(insn) => self.execute_i_insn(insn, mem),
-			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => self.execute_f_insn(insn, mem),
+			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => {
+				self.execute_f_insn(insn, mem)
+			}
 			// FIXME: Figure out what the official ISA defined bit pattern is for Zicsr
 			Instruction::Zicsr(insn) => self.execute_csr_insn(insn, mem),
 			// We don't have to check compressed here as we handle that in the caller.
@@ -521,77 +522,53 @@ impl WhiskerHart {
 // ===========================
 
 macro_rules! read_mem_u8 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_u8($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_u8($self, $offset, $kind) }};
 }
 
 macro_rules! read_mem_u16 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_u16($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_u16($self, $offset, $kind) }};
 }
 
 macro_rules! read_mem_u32 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_u32($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_u32($self, $offset, $kind) }};
 }
 
 macro_rules! read_mem_u64 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_u64($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_u64($self, $offset, $kind) }};
 }
 
 macro_rules! read_mem_float {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_soft_float($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_soft_float($self, $offset, $kind) }};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
-	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{
-		$mem.read_soft_double($self, $offset, $kind)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_soft_double($self, $offset, $kind) }};
 }
 
 macro_rules! write_mem_u8 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_u8($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_u8($self, $offset, $kind, $val) }};
 }
 
 macro_rules! write_mem_u16 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_u16($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_u16($self, $offset, $kind, $val) }};
 }
 
 macro_rules! write_mem_u32 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_u32($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_u32($self, $offset, $kind, $val) }};
 }
 
 macro_rules! write_mem_u64 {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_u64($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_u64($self, $offset, $kind, $val) }};
 }
 
 macro_rules! write_mem_float {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_soft_float($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_soft_float($self, $offset, $kind, $val) }};
 }
 
 #[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
-	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{
-		$mem.write_soft_double($self, $offset, $kind, $val)
-	}};
+	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_soft_double($self, $offset, $kind, $val) }};
 }
 
 impl WhiskerHart {
@@ -1207,7 +1184,11 @@ impl WhiskerHart {
 		clippy::unused_self,
 		reason = "Consistency with other execute functions"
 	)]
-	fn execute_compressed_insn(&mut self, insn: CompressedInstruction, _mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_compressed_insn(
+		&mut self,
+		insn: CompressedInstruction,
+		_mem: &Memory,
+	) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			// this nop is special in that it's designated as an explicit NOP for future standard use
 			// so it cannot be combined into an integer instruction
@@ -1737,7 +1718,11 @@ impl WhiskerHart {
 	}
 
 	#[allow(clippy::unnecessary_wraps, reason = "Consistency with other execute functions")]
-	fn execute_privileged_insn(&mut self, insn: PrivilegedInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+	fn execute_privileged_insn(
+		&mut self,
+		insn: PrivilegedInstruction,
+		mem: &Memory,
+	) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
 			PrivilegedInstruction::Mret => {
 				if self.mode() < HartMode::Machine {

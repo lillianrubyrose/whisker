@@ -1,6 +1,6 @@
 use bitfield::prelude::*;
 
-use crate::cpu::hart::WhiskerHart;
+use crate::cpu::{csr::CSRReadToken, hart::WhiskerHart};
 
 pub mod double;
 pub mod float;
@@ -105,27 +105,16 @@ impl RoundingMode {
 		}
 	}
 
-	fn to_sf_u8(self) -> u8 {
+	fn to_sf(self, hart: &WhiskerHart) -> softfloat_pure::RoundingMode {
 		match self {
-			RoundingMode::Dynamic => unreachable!("dynamic should read from a CSR"),
-			rm => rm.as_u8(),
-			_ => unreachable!(),
+			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode().to_sf(hart),
+			RoundingMode::RoundToNearestTieEven => softfloat_pure::RoundingMode::RneTiesToEven,
+			RoundingMode::RoundTowardsZero => softfloat_pure::RoundingMode::RtzTowardZero,
+			RoundingMode::RoundDown => softfloat_pure::RoundingMode::RdnTowardNegative,
+			RoundingMode::RoundUp => softfloat_pure::RoundingMode::RupTowardPositive,
+			RoundingMode::RoundToNearestTiesMaxMagnitude => softfloat_pure::RoundingMode::RmmTiesToAway,
 		}
 	}
-
-	#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-	fn write_thread_local(self, hart: &mut WhiskerHart) {
-		let rm = match self {
-			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode(),
-			rm => rm,
-		};
-		unsafe {
-			softfloat_sys::softfloat_roundingMode_write_helper(rm.to_sf_u8());
-		}
-	}
-
-	#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-	fn write_thread_local(self, hart: &mut WhiskerHart) {}
 }
 
 #[derive(Debug, Clone, Copy)]

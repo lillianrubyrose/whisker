@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use softfloat_pure::{FPU, float64_t};
+
 use super::{FClass, RoundingMode};
 use crate::cpu::hart::WhiskerHart;
 
@@ -73,73 +75,68 @@ impl SoftDouble {
 	}
 }
 
-#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl SoftDouble {
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_add(self.0.into(), other.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		let result = fpu.add(lhs, rhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_sub(self.0.into(), other.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		let result = fpu.sub(lhs, rhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_mul(self.0.into(), other.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		let result = fpu.mul(lhs, rhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_div(self.0.into(), other.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		let result = fpu.div(lhs, rhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_rem(self.0.into(), other.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let rhs = float64_t::from_bits(other.0);
+		let result = fpu.rem(lhs, rhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_mulAdd(self.0.into(), mul.0.into(), add.0.into()) }.v)
+		let mut fpu = FPU::default();
+		let this = float64_t::from_bits(self.0);
+		let mul = float64_t::from_bits(mul.0);
+		let add = float64_t::from_bits(add.0);
+		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		rm.write_thread_local(hart);
-		Self(unsafe { softfloat_sys::f64_sqrt(self.0.into()) }.v)
-	}
-}
-
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-impl SoftDouble {
-	pub fn add(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() + other.to_f64())
-	}
-
-	pub fn sub(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() - other.to_f64())
-	}
-
-	pub fn mul(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() * other.to_f64())
-	}
-
-	pub fn div(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() / other.to_f64())
-	}
-
-	pub fn rem(self, other: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() % other.to_f64())
-	}
-
-	pub fn mul_add(self, mul: Self, add: Self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64() * mul.to_f64() + add.to_f64())
-	}
-
-	pub fn sqrt(self, _rm: RoundingMode, _hart: &mut WhiskerHart) -> Self {
-		Self::from_f64(self.to_f64().sqrt())
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let result = fpu.sqrt(lhs, rm.to_sf(hart));
+		// TODO: exception flags
+		Self::from_u64(result.v)
 	}
 }
 

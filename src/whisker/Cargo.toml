@@ -29,13 +29,10 @@ bytemuck = { version = "1.23.1", features = ["derive"] }
 bitfield = { path = "../bitfield" }
 spin = "0.10.0"
 
+softfloat_pure = { git = "https://github.com/whisker-emu/softfloat-pure.git" }
+
 [target.'cfg(unix)'.dependencies]
 command-fds = "0.3.2"
-
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-softfloat-sys = { git = "https://github.com/whisker-emu/softfloat-sys.git", tag = "v0.2.1", default-features = false, features = [
-    "riscv",
-] }
 
 [features]
 tracing = []

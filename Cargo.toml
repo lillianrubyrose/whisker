@@ -5,6 +5,7 @@ members = [
     "src/elfie",
     "src/bitfield",
     "src/bitfield/bitfield_impl",
+    "src/iee-754-2019",
 ]
 resolver = "2"
 

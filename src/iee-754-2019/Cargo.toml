@@ -1,0 +1,10 @@
+[package]
+name = "iee-754-2019"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+num-conv = "0.1.0"
+
+[lints]
+workspace = true

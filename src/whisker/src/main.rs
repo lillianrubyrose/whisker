@@ -449,7 +449,6 @@ mod tests {
 		io::{Write, stdout},
 		path::PathBuf,
 	};
-
 	use crate::{
 		cpu::{WhiskerCpu, WhiskerExecState},
 		init_cpu,
@@ -457,19 +456,20 @@ mod tests {
 		riscv_tests::RiscTestCommand,
 	};
 
-	fn run_test(cpu: &mut WhiskerCpu, test: &str) {
+	fn run_test(cpu: &mut WhiskerCpu, test_name: &str) -> Result<(), String> {
 		cpu.hart_states.fill(WhiskerExecState::Running);
-
 		loop {
-			// FIXME: handle this better
 			#[allow(unused_must_use)]
 			cpu.execute_one();
-
 			if cpu.steps.is_multiple_of(5000) {
 				let bits = cpu
 					.memory
 					.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
 					.unwrap();
+				if bits == 0 {
+					continue;
+				}
+
 				cpu.memory
 					.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
 					.unwrap();
@@ -477,83 +477,124 @@ mod tests {
 				let mut cmd = RiscTestCommand::new();
 				cmd.set_inner(bits.to_le_bytes());
 
-				// FIXME: This currently panics in debug mode due to the bitfield checks causing shl overflow
 				if let Some(chr) = cmd.get_print_char() {
-					// TODO: We should handle this like we do UART probably
 					print!("{}", chr);
 					stdout().flush().unwrap();
 				} else if let Some(passed) = cmd.passed_test() {
-					assert!(
-						passed,
-						"{test} failed: \n{}",
-						cpu.harts
+					return if passed {
+						println!("[PASS] {test_name}");
+						Ok(())
+					} else {
+						println!("[FAIL] {test_name}");
+						let dump = cpu
+							.harts
 							.iter_mut()
 							.map(|v| v.dump())
-							.fold(String::new(), |acc, v| format!("{acc}\n{v}"))
-					);
-					println!("[PASS] {test}");
-					break;
+							.fold(String::new(), |acc, v| format!("{acc}\n{v}"));
+						Err(format!("{test_name}\n{dump}"))
+					};
 				}
 			}
 		}
 	}
 
-	fn run_tests(prefix: &str, excludes: &[&str]) {
+	fn run_isa_tests(prefix: &str, excludes: &[&str], fail_dumps: &mut Vec<String>, successes: &mut i32) {
 		let bootrom = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
 			.join("target")
 			.join("boot.bin");
-		let dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+		let isa_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
 			.join("riscv-tests")
 			.join("isa");
-		let dir = std::fs::read_dir(dir).unwrap();
+		let dir = std::fs::read_dir(isa_dir).expect("Failed to read riscv-tests/isa directory");
+
 		for ele in dir {
 			let ele = ele.unwrap();
-			let ft = ele.file_type().unwrap();
-			if ft.is_dir() {
+			if ele.file_type().unwrap().is_dir() {
 				continue;
 			}
 
 			let name = ele.file_name();
-			let name = name.to_string_lossy();
-			if name.contains('.') || !name.starts_with(prefix) || excludes.iter().any(|exclude| name.contains(exclude))
+			let name_str = name.to_string_lossy();
+			if name_str.contains('.')
+				|| !name_str.starts_with(prefix)
+				|| excludes.iter().any(|exclude| name_str.contains(exclude))
 			{
 				continue;
 			}
 
 			let mut cpu = init_cpu(&bootrom, &ele.path(), false, None, 1, None, true);
-			assert_ne!(cpu.tohost_addr, 0, "tohost addr not set for test binary?");
+			assert_ne!(cpu.tohost_addr, 0, "tohost address not set for test binary: {name_str}");
 
-			run_test(&mut cpu, &name);
+			if let Err(msg) = run_test(&mut cpu, &name_str) {
+				fail_dumps.push(msg);
+			} else {
+				*successes += 1;
+			}
 		}
 	}
 
 	#[test]
-	fn atomic_tests() {
-		run_tests("rv64ua-p", &[]);
-	}
+	fn isa_tests() {
+		let mut failures = Vec::new();
+		let mut successes = 0;
 
-	#[test]
-	fn compressed_tests() {
-		run_tests("rv64uc-p", &[]);
-	}
+		run_isa_tests("rv32ua-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64ua-p", &[], &mut failures, &mut successes);
 
-	#[test]
-	fn integer_tests() {
-		run_tests("rv64ui-p", &[]);
-		run_tests("rv64si-p", &["csr", "dirty", "icache-alias"]);
-		run_tests(
+		println!();
+
+		run_isa_tests("rv32uc-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64uc-p", &[], &mut failures, &mut successes);
+
+		println!();
+
+		run_isa_tests("rv32ui-p", &[], &mut failures, &mut successes);
+		run_isa_tests(
+			"rv32si-p",
+			&["csr", "dirty", "icache-alias"],
+			&mut failures,
+			&mut successes,
+		);
+		run_isa_tests(
+			"rv32mi-p",
+			&["breakpoint", "csr", "illegal", "instret_overflow", "pmpaddr", "zicntr"],
+			&mut failures,
+			&mut successes,
+		);
+		run_isa_tests("rv64ui-p", &[], &mut failures, &mut successes);
+		run_isa_tests(
+			"rv64si-p",
+			&["csr", "dirty", "icache-alias"],
+			&mut failures,
+			&mut successes,
+		);
+		run_isa_tests(
 			"rv64mi-p",
 			&["breakpoint", "csr", "illegal", "instret_overflow", "pmpaddr", "zicntr"],
+			&mut failures,
+			&mut successes,
 		);
-	}
 
-	#[test]
-	fn multiply_tests() {
-		run_tests("rv64um-p", &[]);
-	}
+		println!();
 
-	#[test]
-	fn float_tests() {
-		run_tests("rv64uf-p", &[]);
+		run_isa_tests("rv32um-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64um-p", &[], &mut failures, &mut successes);
+
+		println!();
+
+		run_isa_tests("rv32uf-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64uf-p", &[], &mut failures, &mut successes);
+
+		println!();
+
+		if !failures.is_empty() {
+			eprintln!("\n\n\tFailures\n");
+			for failure in &failures {
+				eprintln!("{failure}\n");
+			}
+		}
+
+		println!("{}/{} succeeded.", successes, successes - failures.len().cast_signed() as i32);
+		assert!(failures.is_empty());
 	}
 }

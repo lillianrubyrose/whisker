@@ -501,7 +501,6 @@ mod tests {
 		let dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
 			.join("riscv-tests")
 			.join("isa");
-		dbg!(&dir);
 		let dir = std::fs::read_dir(dir).unwrap();
 		for ele in dir {
 			let ele = ele.unwrap();
@@ -526,28 +525,28 @@ mod tests {
 
 	#[test]
 	fn atomic_tests() {
-		run_tests("rv64ua", &[]);
+		run_tests("rv64ua-p", &[]);
 	}
 
 	#[test]
 	fn compressed_tests() {
-		run_tests("rv64uc", &[]);
+		run_tests("rv64uc-p", &[]);
 	}
 
 	#[test]
 	fn integer_tests() {
 		// ignore misaligned tests for now
-		run_tests("rv64ui", &["ma_data"]);
-		run_tests("rv64si", &["csr", "dirty", "icache-alias"]);
+		run_tests("rv64ui-p", &["ma_data"]);
+		run_tests("rv64si-p", &["csr", "dirty", "icache-alias"]);
 	}
 
 	#[test]
 	fn multiply_tests() {
-		run_tests("rv64um", &[]);
+		run_tests("rv64um-p", &[]);
 	}
 
 	#[test]
 	fn float_tests() {
-		run_tests("rv64uf", &[]);
+		run_tests("rv64uf-p", &["move"]);
 	}
 }

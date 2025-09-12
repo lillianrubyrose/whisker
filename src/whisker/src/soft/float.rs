@@ -164,7 +164,10 @@ impl SoftFloat {
 	}
 
 	pub fn set_sign(self, sign: u32) -> Self {
-		Self::from_u32(self.to_u32() | (sign << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+		Self::from_u32(
+			(self.to_u32() & !(1 << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+				| ((sign & 1) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)),
+		)
 	}
 
 	pub fn neg(self, hart: &mut WhiskerHart) -> Self {

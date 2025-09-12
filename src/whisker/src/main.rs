@@ -547,6 +547,6 @@ mod tests {
 
 	#[test]
 	fn float_tests() {
-		run_tests("rv64uf-p", &["move"]);
+		run_tests("rv64uf-p", &[]);
 	}
 }

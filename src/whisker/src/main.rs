@@ -262,7 +262,7 @@ fn init_cpu(
 		main_mem,
 		AccessAttrs::new(
 			ACCESS_MAX_U64,
-			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
+			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC | AccessKind::MISALIGNED,
 		),
 	));
 
@@ -541,6 +541,10 @@ mod tests {
 	fn integer_tests() {
 		run_tests("rv64ui-p", &[]);
 		run_tests("rv64si-p", &["csr", "dirty", "icache-alias"]);
+		run_tests(
+			"rv64mi-p",
+			&["breakpoint", "csr", "illegal", "instret_overflow", "pmpaddr", "zicntr"],
+		);
 	}
 
 	#[test]

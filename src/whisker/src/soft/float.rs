@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use softfloat_pure::{FPU, float32_t};
 
 use super::{FClass, RoundingMode};
-use crate::cpu::hart::WhiskerHart;
+use crate::cpu::hart::{self, WhiskerHart};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
@@ -156,7 +156,7 @@ impl SoftFloat {
 	}
 
 	/// Returns if the sign is positive
-	pub fn sign(self) -> bool {
+	pub fn is_positive(self) -> bool {
 		Self::get_sign(self.to_u32()) == 0
 	}
 
@@ -173,6 +173,58 @@ impl SoftFloat {
 			return self;
 		}
 		Self(self.0 ^ (1 << (u32::BITS - 1)))
+	}
+
+	fn min_max_handle_nan(lhs: SoftFloat, rhs: SoftFloat, hart: &mut WhiskerHart) -> SoftFloat {
+		if lhs.is_snan() || rhs.is_snan() {
+			hart.float_status_control.set_invalid_operation(true);
+		}
+
+		if lhs.is_nan() {
+			if rhs.is_nan() {
+				SoftFloat((SoftFloat::EXPONENT_MASK << SoftFloat::MANTISSA_BITS) | SoftFloat::QUIET_NAN_MASK)
+			} else {
+				rhs
+			}
+		} else {
+			lhs
+		}
+	}
+
+	pub fn max(self, other: Self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() || other.is_nan() {
+			return Self::min_max_handle_nan(self, other, hart);
+		}
+
+		let lhs_positive = self.is_positive();
+		let rhs_positive = other.is_positive();
+
+		if lhs_positive != rhs_positive {
+			if !lhs_positive {
+				return other;
+			}
+			return self;
+		}
+
+		if self.gt(&other) { self } else { other }
+	}
+
+	pub fn min(self, other: Self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() || other.is_nan() {
+			return Self::min_max_handle_nan(self, other, hart);
+		}
+
+		let lhs_positive = self.is_positive();
+		let rhs_positive = other.is_positive();
+
+		if lhs_positive != rhs_positive {
+			if !lhs_positive {
+				return self;
+			}
+			return other;
+		}
+
+		if self.lt(&other) { self } else { other }
 	}
 }
 

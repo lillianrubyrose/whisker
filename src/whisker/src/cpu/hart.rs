@@ -987,41 +987,30 @@ impl WhiskerHart {
 			FloatInstruction::SignInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.set_sign(rhs.sign()));
+				self.fp_registers.set_float(dst, lhs.set_sign(rhs.is_positive()));
 			}
 			FloatInstruction::SignNotInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.sign()));
+				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.is_positive()));
 			}
 			FloatInstruction::SignXorInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
+				self.fp_registers
+					.set_float(dst, lhs.set_sign(lhs.is_positive() ^ rhs.is_positive()));
 			}
 			FloatInstruction::MinSingle { dst, lhs, rhs } => {
-				// TODO: Fix this implementation
-				// PAGE: 115
-				warn!("FMIN.S Implementation is incorrect");
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				if lhs < rhs {
-					self.fp_registers.set_float(dst, lhs);
-				} else {
-					self.fp_registers.set_float(dst, rhs);
-				}
+				let res = lhs.min(rhs, self);
+				self.fp_registers.set_float(dst, res);
 			}
 			FloatInstruction::MaxSingle { dst, lhs, rhs } => {
-				// TODO: Fix this implementation
-				// PAGE: 115
-				warn!("FMAX.S Implementation is incorrect");
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				if lhs > rhs {
-					self.fp_registers.set_float(dst, lhs);
-				} else {
-					self.fp_registers.set_float(dst, rhs);
-				}
+				let res = lhs.max(rhs, self);
+				self.fp_registers.set_float(dst, res);
 			}
 			FloatInstruction::EqualSingle { dst, lhs, rhs } => {
 				//FEQ.S performs a quiet comparison:

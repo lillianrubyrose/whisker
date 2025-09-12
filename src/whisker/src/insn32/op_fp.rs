@@ -228,7 +228,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			move_class_single::MOVE if rtype.src2().as_u8() == 0 => Some(
 				FloatInstruction::MoveIntegerToSingle {
 					dst: rtype.dst().to_fp(),
-					src: rtype.dst().to_gp(),
+					src: rtype.src1().to_gp(),
 				}
 				.into(),
 			),

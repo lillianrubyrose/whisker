@@ -116,9 +116,15 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		// float status
 		csrs, fflags, 0x001, rw (
 									|hart| read_fcsr(hart) & 0b11111,
-									|hart, val| write_fcsr(hart, val & 0b11111)
+									|hart, val| {
+									     let pre = read_fcsr(hart);
+									     write_fcsr(hart, (pre & !0b11111) | (val & 0b11111));
+									}
 								);
-		csrs, frm,    0x002, rw (|hart| read_fcsr(hart) >> 5, |hart, val| write_fcsr(hart, val >> 5));
+		csrs, frm,    0x002, rw (|hart| read_fcsr(hart) >> 5, |hart, val| {
+		     let pre = read_fcsr(hart);
+               write_fcsr(hart, (pre & !0b11100000) | ((val & 0b111) << 5));
+		});
 		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
 	);
 

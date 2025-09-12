@@ -1220,7 +1220,7 @@ impl WhiskerHart {
 					let token = self.csr_require_rw(csr)?;
 					let val = self.read_csr(&token);
 					self.registers.set(dst, val);
-					self.write_csr(&token, val & mask);
+					self.write_csr(&token, val & !mask);
 				} else {
 					let token = self.csr_require_ro(csr)?;
 					let val = self.read_csr(&token);

@@ -295,7 +295,7 @@ fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) ->
 		ISA::RiscV,
 		"Only RISC-V architecture kernel ELF files are supported"
 	);
-	assert_eq!(elf.class, Class::X64, "Only 64-bit kernel ELF files are supported");
+	// assert_eq!(elf.class, Class::X64, "Only 64-bit kernel ELF files are supported");
 	assert_eq!(
 		elf.endianness,
 		Endianness::Little,

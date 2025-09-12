@@ -503,7 +503,6 @@ impl ElfFile {
 				));
 			}
 		};
-		assert_eq!(class, Class::X64, "We dont support 32-bit ELF files");
 
 		let endianness = match reader.read_u8()? {
 			1 => Endianness::Little,
@@ -545,9 +544,19 @@ impl ElfFile {
 			));
 		}
 
-		let entrypoint = reader.read_64(endianness)?;
-		let program_header_table_offset = reader.read_64(endianness)?;
-		let section_header_table_offset = reader.read_64(endianness)?;
+		let (entrypoint, program_header_table_offset, section_header_table_offset) = match class {
+			Class::X32 => (
+				u64::from(reader.read_32(endianness)?),
+				u64::from(reader.read_32(endianness)?),
+				u64::from(reader.read_32(endianness)?),
+			),
+			Class::X64 => (
+				reader.read_64(endianness)?,
+				reader.read_64(endianness)?,
+				reader.read_64(endianness)?,
+			),
+		};
+
 		let flags = reader.read_32(endianness)?;
 		let header_size = reader.read_16(endianness)?;
 
@@ -561,46 +570,102 @@ impl ElfFile {
 		reader.seek(SeekFrom::Start(program_header_table_offset))?;
 
 		for _ in 0..program_header_table_entry_count {
-			program_headers.push(ProgramHeader {
-				ty: ProgramHeaderType::from_value(reader.read_32(endianness)?).ok_or(std::io::Error::new(
-					std::io::ErrorKind::InvalidData,
-					"Invalid program header type",
-				))?,
-				flags: reader.read_32(endianness)?,
-				offset: reader.read_64(endianness)?,
-				virtual_address: reader.read_64(endianness)?,
-				physical_address: reader.read_64(endianness)?,
-				size_in_file: reader.read_64(endianness)?,
-				size_in_memory: reader.read_64(endianness)?,
-				alignment: reader.read_64(endianness)?,
+			program_headers.push(match class {
+				Class::X32 => {
+					let ty = ProgramHeaderType::from_value(reader.read_32(endianness)?).ok_or_else(|| {
+						std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid program header type")
+					})?;
+					let offset = u64::from(reader.read_32(endianness)?);
+					let virtual_address = u64::from(reader.read_32(endianness)?);
+					let physical_address = u64::from(reader.read_32(endianness)?);
+					let size_in_file = u64::from(reader.read_32(endianness)?);
+					let size_in_memory = u64::from(reader.read_32(endianness)?);
+					let flags = reader.read_32(endianness)?;
+					let alignment = u64::from(reader.read_32(endianness)?);
+					ProgramHeader {
+						ty,
+						flags,
+						offset,
+						virtual_address,
+						physical_address,
+						size_in_file,
+						size_in_memory,
+						alignment,
+					}
+				}
+				Class::X64 => {
+					let ty = ProgramHeaderType::from_value(reader.read_32(endianness)?).ok_or_else(|| {
+						std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid program header type")
+					})?;
+					let flags = reader.read_32(endianness)?;
+					let offset = reader.read_64(endianness)?;
+					let virtual_address = reader.read_64(endianness)?;
+					let physical_address = reader.read_64(endianness)?;
+					let size_in_file = reader.read_64(endianness)?;
+					let size_in_memory = reader.read_64(endianness)?;
+					let alignment = reader.read_64(endianness)?;
+					ProgramHeader {
+						ty,
+						flags,
+						offset,
+						virtual_address,
+						physical_address,
+						size_in_file,
+						size_in_memory,
+						alignment,
+					}
+				}
 			});
 
-			// minimum entry size for elf64
-			reader.seek_relative((program_header_table_entry_size.cast_signed() as i64).saturating_sub(0x38))?;
+			let min_entry_size = match class {
+				Class::X32 => 0x20, // Elf32_Phdr
+				Class::X64 => 0x38, // Elf64_Phdr
+			};
+			reader
+				.seek_relative((program_header_table_entry_size.cast_signed() as i64).saturating_sub(min_entry_size))?;
 		}
 
 		let mut section_headers: Vec<PartialSectionHeader> = Vec::new();
 		reader.seek(SeekFrom::Start(section_header_table_offset))?;
 
 		for _ in 0..section_header_table_entry_count {
-			section_headers.push(PartialSectionHeader {
-				name_offset: reader.read_32(endianness)?,
-				ty: SectionHeaderType::from_value(reader.read_32(endianness)?).ok_or(std::io::Error::new(
-					std::io::ErrorKind::InvalidData,
-					"Invalid section header type",
-				))?,
-				flags: SectionHeaderFlags(reader.read_64(endianness)?),
-				virtual_address: reader.read_64(endianness)?,
-				offset: reader.read_64(endianness)?,
-				size: reader.read_64(endianness)?,
-				link: reader.read_32(endianness)?,
-				info: reader.read_32(endianness)?,
-				alignment: reader.read_64(endianness)?,
-				entry_size: reader.read_64(endianness)?,
+			section_headers.push(match class {
+				Class::X32 => PartialSectionHeader {
+					name_offset: reader.read_32(endianness)?,
+					ty: SectionHeaderType::from_value(reader.read_32(endianness)?).ok_or_else(|| {
+						std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid section header type")
+					})?,
+					flags: SectionHeaderFlags(u64::from(reader.read_32(endianness)?)),
+					virtual_address: u64::from(reader.read_32(endianness)?),
+					offset: u64::from(reader.read_32(endianness)?),
+					size: u64::from(reader.read_32(endianness)?),
+					link: reader.read_32(endianness)?,
+					info: reader.read_32(endianness)?,
+					alignment: u64::from(reader.read_32(endianness)?),
+					entry_size: u64::from(reader.read_32(endianness)?),
+				},
+				Class::X64 => PartialSectionHeader {
+					name_offset: reader.read_32(endianness)?,
+					ty: SectionHeaderType::from_value(reader.read_32(endianness)?).ok_or_else(|| {
+						std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid section header type")
+					})?,
+					flags: SectionHeaderFlags(reader.read_64(endianness)?),
+					virtual_address: reader.read_64(endianness)?,
+					offset: reader.read_64(endianness)?,
+					size: reader.read_64(endianness)?,
+					link: reader.read_32(endianness)?,
+					info: reader.read_32(endianness)?,
+					alignment: reader.read_64(endianness)?,
+					entry_size: reader.read_64(endianness)?,
+				},
 			});
 
-			// minimum entry size for elf64
-			reader.seek_relative((section_header_table_entry_size.cast_signed() as i64).saturating_sub(0x40))?;
+			let min_entry_size = match class {
+				Class::X32 => 0x28,
+				Class::X64 => 0x40,
+			};
+			reader
+				.seek_relative((section_header_table_entry_size.cast_signed() as i64).saturating_sub(min_entry_size))?;
 		}
 
 		let string_table_section_offset = section_headers[section_name_string_table_index as usize].offset;

@@ -155,14 +155,16 @@ impl SoftFloat {
 		self.mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
-	/// Returns if the sign is positive
 	pub fn is_positive(self) -> bool {
 		Self::get_sign(self.to_u32()) == 0
 	}
 
-	// TODO: Maybe rename? I'm not sure. - Lily
-	pub fn set_sign(self, sign: bool) -> Self {
-		Self::from_u32(self.to_u32() | ((sign as u32) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+	pub fn sign(self) -> u32 {
+		Self::get_sign(self.to_u32())
+	}
+
+	pub fn set_sign(self, sign: u32) -> Self {
+		Self::from_u32(self.to_u32() | (sign << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
 	}
 
 	pub fn neg(self, hart: &mut WhiskerHart) -> Self {

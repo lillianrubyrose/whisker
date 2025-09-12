@@ -987,18 +987,17 @@ impl WhiskerHart {
 			FloatInstruction::SignInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.set_sign(rhs.is_positive()));
+				self.fp_registers.set_float(dst, lhs.set_sign(rhs.sign()));
 			}
 			FloatInstruction::SignNotInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.is_positive()));
+				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.sign()));
 			}
 			FloatInstruction::SignXorInjectionSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
-				self.fp_registers
-					.set_float(dst, lhs.set_sign(lhs.is_positive() ^ rhs.is_positive()));
+				self.fp_registers.set_float(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
 			}
 			FloatInstruction::MinSingle { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);

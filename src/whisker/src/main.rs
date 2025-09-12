@@ -39,7 +39,11 @@ use crate::{
 	interrupts::{PLIC_BASE, PLIC_LEN},
 	mem::{
 		AccessAttrs, AccessKind, Memory, MemoryBuilder, MemoryRegion, ReadKind, WriteKind,
-		mmio::{MMIO_DEVICES, MMIOKind, UART_BASE, virtio_block::VIRTIO_BLOCK_BASE},
+		mmio::{
+			MMIO_DEVICES, MMIOKind, UART_BASE,
+			clint::{CLINT_BASE, CLINT_SIZE},
+			virtio_block::VIRTIO_BLOCK_BASE,
+		},
 	},
 	riscv_tests::RiscTestCommand,
 	ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions},
@@ -230,11 +234,11 @@ fn init_cpu(
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		))
 		// FIXME: hook this up to actual clock and timers
-		.add_region(MemoryRegion::new_main_mem(
-			0x2000000,
-			0x10000,
-			vec![0_u8; 0x10000].into_boxed_slice(),
-			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC),
+		.add_region(MemoryRegion::new_mmio(
+			CLINT_BASE,
+			CLINT_SIZE,
+			MMIOKind::Clint,
+			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
 		));
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();

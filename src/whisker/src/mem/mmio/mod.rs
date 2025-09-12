@@ -3,6 +3,7 @@ use std::sync::{Arc, LazyLock};
 use rustc_hash::FxHashMap;
 use spin::Mutex;
 
+pub mod clint;
 pub mod uart;
 pub mod virtio_block;
 
@@ -20,6 +21,7 @@ pub enum MMIOKind {
 	UART,
 	PLIC,
 	VirtioBlock,
+	Clint,
 }
 
 #[allow(clippy::type_complexity)]

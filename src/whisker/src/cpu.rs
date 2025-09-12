@@ -9,7 +9,10 @@ use gdbstub::target::ext::breakpoints::WatchKind;
 use rustc_hash::FxHashSet;
 use spin::Mutex;
 
-use crate::tracing::*;
+use crate::{
+	mem::mmio::{MMIO_DEVICES, clint::Clint},
+	tracing::*,
+};
 
 pub mod csr;
 pub mod hart;
@@ -51,6 +54,7 @@ pub struct WhiskerCpu {
 	pub breakpoints: FxHashSet<u64>,
 
 	pub interrupt_controller: Arc<Mutex<PlatformInterruptController>>,
+	pub clint: Arc<Mutex<Clint>>,
 
 	logfile: Option<File>,
 }
@@ -81,9 +85,11 @@ impl WhiskerCpu {
 
 		// FIXME: interrupt controller refactor
 		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
+		let clint = Arc::new(Mutex::new(Clint::default()));
 
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();
+		mem::mmio::register_mmio(MMIOKind::Clint, clint.clone() as _).unwrap();
 
 		if let Some(fs_img) = fs_img {
 			mem::mmio::register_mmio(
@@ -105,6 +111,7 @@ impl WhiskerCpu {
 			hart_states: vec![WhiskerExecState::Paused; num_harts as usize],
 
 			interrupt_controller,
+			clint,
 			logfile,
 		}
 	}
@@ -125,6 +132,7 @@ impl WhiskerCpu {
 		}
 
 		let hart = &mut self.harts[hart_id.as_idx()];
+		self.clint.lock().step(hart);
 
 		if self.breakpoints.contains(&hart.pc()) {
 			debug!("reached breakpoint at {:#018X} on {:?}", hart.pc(), hart.hart_id());

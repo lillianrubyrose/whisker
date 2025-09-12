@@ -126,6 +126,11 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
                write_fcsr(hart, (pre & !0b11100000) | ((val & 0b111) << 5));
 		});
 		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
+
+		csrs, time, 0xc01, rw (
+			|hart| read_time(hart),
+			|hart, val| write_time(hart, val)
+		);
 	);
 
 	define_pmp_cfg_regs!(&mut csrs, 0 2 4 6 8 10 12 14);
@@ -345,6 +350,12 @@ fn read_fcsr(hart: &mut WhiskerHart) -> u64 {
 fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
 	let val = val.truncate::<u8>();
 	hart.float_status_control.set_inner([val]);
+}
+fn read_time(hart: &mut WhiskerHart) -> u64 {
+	hart.cycles
+}
+fn write_time(hart: &mut WhiskerHart, val: u64) {
+	hart.cycles = val;
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

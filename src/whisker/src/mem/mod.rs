@@ -94,18 +94,37 @@ macro_rules! impl_mem_read_write {
 					effective_addr: u64,
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
+					let size = ::core::mem::size_of::<$ty>();
+					let is_misaligned = effective_addr % (size as u64) != 0;
+
+					// atomics and instruction fetches must be aligned which is handled by `check_read_access`.
+					if kind == ReadKind::Normal && is_misaligned {
+						let mut bytes = <$ty>::default().to_le_bytes();
+						for i in 0..size {
+							bytes[i] = self.read_u8(hart, effective_addr + i as u64, kind)?;
+						}
+						let result = <$ty>::from_le_bytes(bytes);
+
+						if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
+							if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
+								hart.request_watchpoint(watch_kind, effective_addr);
+							}
+						}
+						return Ok(result);
+					}
+
 					let phys_addr = self.translate_addr(hart, effective_addr, kind.as_mem_op())?;
 
 					let Some(region) = self.region_for_addr(phys_addr) else {
 						let e = match kind {
-							ReadKind::Normal | ReadKind::LoadReserved => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr),
-							ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr),
-							ReadKind::AMO => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
+							ReadKind::Normal | ReadKind::LoadReserved => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr),
+							ReadKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr),
+							ReadKind::AMO => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr),
 						};
 						return Err(e);
 					};
-					let size = ::core::mem::size_of::<$ty>();
-					check_read_access(hart, &*region, phys_addr, kind, size as u8)?;
+
+					check_read_access(hart, &*region, effective_addr, phys_addr, kind, size as u8)?;
 
 					let ret = match region.kind {
 						MemoryKind::MainMemory { ref backing } => {
@@ -121,8 +140,6 @@ macro_rules! impl_mem_read_write {
 						}
 					};
 
-					// watchpoints should only happen if the read actually happens
-					// but should use the virtual address rather than physical
 					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
 						if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
 							hart.request_watchpoint(watch_kind, effective_addr);
@@ -139,19 +156,32 @@ macro_rules! impl_mem_read_write {
 					kind: WriteKind,
 					val: $ty,
 				) -> Result<(), TrapRequestGuaranteed> {
+					let size = ::core::mem::size_of::<$ty>();
+					let is_misaligned = effective_addr % (size as u64) != 0;
+
+					if kind == WriteKind::Normal && is_misaligned {
+						let bytes = val.to_le_bytes();
+						for i in 0..size {
+							self.write_u8(hart, effective_addr + i as u64, kind, bytes[i])?;
+						}
+
+						if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
+							if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
+								hart.request_watchpoint(watch_kind, effective_addr);
+							}
+						}
+						self.reservations.write().unreserve_addr_other_harts(hart.hart_id(), self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?);
+						return Ok(());
+					}
+
 					let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 
 					let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
-						// FIXME: these are the same, is this always the case? should this be inline?
-						let e = match kind {
-							WriteKind::Normal => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
-							WriteKind::Atomic => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr),
-						};
+						let e = hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr);
 						return Err(e);
 					};
 					let region = &mut *region_guard;
-					let size = ::core::mem::size_of::<$ty>();
-					check_write_access(hart, &*region, phys_addr, kind, size as u8)?;
+					check_write_access(hart, &*region, effective_addr, phys_addr, kind, size as u8)?;
 
 					let ret = match region.kind {
 						MemoryKind::MainMemory { ref mut backing } => {
@@ -167,8 +197,6 @@ macro_rules! impl_mem_read_write {
 						}
 					};
 
-					// watchpoints should only happen if the write actually happens
-					// but should use the virtual address rather than physical
 					if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
 						if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
 							hart.request_watchpoint(watch_kind, effective_addr);
@@ -212,13 +240,24 @@ impl Memory {
 		Ok((false, parcel))
 	}
 
-	// FIXME: is this really a phys addr??? i dont think so
-	pub fn load_reserved_word(&self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u32, TrapRequestGuaranteed> {
+	pub fn load_reserved_word(
+		&self,
+		hart: &mut WhiskerHart,
+		effective_addr: u64,
+	) -> Result<u32, TrapRequestGuaranteed> {
+		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Load)?;
 		let Some(region) = self.region_for_addr(phys_addr) else {
-			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 		};
 		let size = core::mem::size_of::<u32>();
-		check_read_access(hart, &region, phys_addr, ReadKind::LoadReserved, size as u8)?;
+		check_read_access(
+			hart,
+			&region,
+			effective_addr,
+			phys_addr,
+			ReadKind::LoadReserved,
+			size as u8,
+		)?;
 
 		let ret = match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
@@ -235,10 +274,10 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
+			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, phys_addr);
+				hart.request_watchpoint(watch_kind, effective_addr);
 			}
 		}
 
@@ -246,13 +285,24 @@ impl Memory {
 		ret
 	}
 
-	// FIXME: is this really a phys addr??? i dont think so
-	pub fn load_reserved_dword(&self, hart: &mut WhiskerHart, phys_addr: u64) -> Result<u64, TrapRequestGuaranteed> {
+	pub fn load_reserved_dword(
+		&self,
+		hart: &mut WhiskerHart,
+		effective_addr: u64,
+	) -> Result<u64, TrapRequestGuaranteed> {
+		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Load)?;
 		let Some(region) = self.region_for_addr(phys_addr) else {
-			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 		};
 		let size = core::mem::size_of::<u64>();
-		check_read_access(hart, &region, phys_addr, ReadKind::LoadReserved, size as u8)?;
+		check_read_access(
+			hart,
+			&region,
+			effective_addr,
+			phys_addr,
+			ReadKind::LoadReserved,
+			size as u8,
+		)?;
 
 		let ret = match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
@@ -269,10 +319,10 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
+			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, phys_addr);
+				hart.request_watchpoint(watch_kind, effective_addr);
 			}
 		}
 
@@ -280,23 +330,23 @@ impl Memory {
 		ret
 	}
 
-	// FIXME: i dont think this is actually meant to be a phys addr
 	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_word(
 		&self,
 		hart: &mut WhiskerHart,
-		phys_addr: u64,
+		effective_addr: u64,
 		val: u32,
 	) -> Result<bool, TrapRequestGuaranteed> {
+		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 		let is_reserved = self.reservations.read().is_reserved_by_hart(phys_addr, hart.hart_id());
 
 		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
-			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 		};
 		let region = &mut *region_guard;
 		let size = core::mem::size_of::<u32>();
-		check_write_access(hart, region, phys_addr, WriteKind::Atomic, size as u8)?;
+		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
 			match region.kind {
@@ -328,33 +378,33 @@ impl Memory {
 		};
 
 		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
+			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
 		{
 			if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, phys_addr);
+				hart.request_watchpoint(watch_kind, effective_addr);
 			}
 		}
 
 		ret
 	}
 
-	// FIXME: i dont think this is actually a phys addr
 	/// returns Ok(true) if the store succeeded, Ok(false) if the address was not reserved,
 	/// and Err if a trap occurred while storing
 	pub fn store_conditional_dword(
 		&self,
 		hart: &mut WhiskerHart,
-		phys_addr: u64,
+		effective_addr: u64,
 		val: u64,
 	) -> Result<bool, TrapRequestGuaranteed> {
+		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 		let is_reserved = self.reservations.read().is_reserved_by_hart(phys_addr, hart.hart_id());
 
 		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
-			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 		};
 		let region = &mut *region_guard;
 		let size = core::mem::size_of::<u64>();
-		check_write_access(hart, region, phys_addr, WriteKind::Atomic, size as u8)?;
+		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
 			match region.kind {
@@ -379,10 +429,10 @@ impl Memory {
 			self.reservations.write().unreserve_hart(hart.hart_id());
 
 			if !hart.debug
-				&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size as u8)
+				&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
 			{
 				if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-					hart.request_watchpoint(watch_kind, phys_addr);
+					hart.request_watchpoint(watch_kind, effective_addr);
 				}
 			}
 
@@ -501,22 +551,29 @@ macro_rules! impl_hw_read_write {
 					&self,
 					phys_addr: u64,
 				) -> Result<$ty, ()> {
+					let size = ::core::mem::size_of::<$ty>();
+					let is_misaligned = phys_addr % (size as u64) != 0;
+
+					if is_misaligned {
+						let mut bytes = <$ty>::default().to_le_bytes();
+						for i in 0..size {
+							bytes[i] = self.read_hw_u8(phys_addr + i as u64)?;
+						}
+						return Ok(<$ty>::from_le_bytes(bytes));
+					}
+
 					let Some(region) = self.region_for_addr(phys_addr) else {
 						return Err(());
 					};
 
 					let access_kinds = region.attrs.access_kinds;
 					let max_size = region.attrs.max_size;
-					let size = core::mem::size_of::<$ty>() as u8;
-					if !access_kinds.contains(AccessKind::READ) {
-						trace!("HW access not in read region: {:?} at {:#018X}", region, phys_addr);
+
+					if !access_kinds.contains(AccessKind::READ) || (size as u8) > max_size {
+						trace!("HW access not in read region or size is greater than max: {:?} at {:#018X}", region, phys_addr);
 						return Err(());
 					}
-					if size > max_size {
-						trace!("HW access of size {:?} greater than region max: {:?}", size, region);
-						return Err(());
-					}
-					if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+					if !access_kinds.contains(AccessKind::MISALIGNED) && is_misaligned {
 						trace!(
 							"HW access for size {:?} not in misaligned region: {:?} at {:#018X}",
 							size,
@@ -530,7 +587,7 @@ macro_rules! impl_hw_read_write {
 						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
-							ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<$ty>()]);
+							ret.copy_from_slice(&backing[offset as usize..][..size]);
 							Ok(<$ty>::from_le_bytes(ret))
 						}
 						MemoryKind::MMIO(_kind) => {
@@ -549,6 +606,17 @@ macro_rules! impl_hw_read_write {
 					phys_addr: u64,
 					val: $ty,
 				) -> Result<(), ()> {
+					let size = ::core::mem::size_of::<$ty>();
+					let is_misaligned = phys_addr % (size as u64) != 0;
+
+					if is_misaligned {
+						let bytes = val.to_le_bytes();
+						for i in 0..size {
+							self.write_hw_u8(phys_addr + i as u64, bytes[i])?;
+						}
+						return Ok(());
+					}
+
 					let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
 						return Err(());
 					};
@@ -556,16 +624,11 @@ macro_rules! impl_hw_read_write {
 
 					let access_kinds = region.attrs.access_kinds;
 					let max_size = region.attrs.max_size;
-					let size = core::mem::size_of::<$ty>() as u8;
-					if !access_kinds.contains(AccessKind::WRITE) {
-						trace!("HW access not in write region: {:?} at {:#018X}", region, phys_addr);
+					if !access_kinds.contains(AccessKind::WRITE) || (size as u8) > max_size {
+						trace!("HW access not in write region or size is greater than max: {:?} at {:#018X}", region, phys_addr);
 						return Err(());
 					}
-					if size > max_size {
-						trace!("HW access of size {:?} greater than region max: {:?}", size, region);
-						return Err(());
-					}
-					if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+					if !access_kinds.contains(AccessKind::MISALIGNED) && is_misaligned {
 						trace!(
 							"HW access for size {:?} not in misaligned region: {:?} at {:#018X}",
 							size,
@@ -579,7 +642,7 @@ macro_rules! impl_hw_read_write {
 						MemoryKind::MainMemory { ref mut backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
-							backing[offset as usize..][..core::mem::size_of::<$ty>()].copy_from_slice(&bytes);
+							backing[offset as usize..][..size].copy_from_slice(&bytes);
 							Ok(())
 						}
 						MemoryKind::MMIO(_kind) => {
@@ -650,49 +713,50 @@ impl MemoryReservations {
 fn check_read_access(
 	hart: &mut WhiskerHart,
 	region: &MemoryRegion,
+	effective_addr: u64,
 	phys_addr: u64,
 	kind: ReadKind,
 	size: u8,
 ) -> Result<(), TrapRequestGuaranteed> {
 	trace!(
-		"checking {:?} at {:#018X} for size {:02X} in region {:?}",
-		kind, phys_addr, size, region
+		"checking {:?} at {:#018X} (phys {:#018X}) in region {:?}",
+		kind, effective_addr, phys_addr, region
 	);
 	let access_kinds = region.attrs.access_kinds;
 	let max_size = region.attrs.max_size;
 	match kind {
 		ReadKind::Normal => {
 			if !access_kinds.contains(AccessKind::READ) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
+			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, effective_addr));
 			}
 		}
 		ReadKind::Instruction => {
 			if !access_kinds.contains(AccessKind::EXEC) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr));
 			}
 			// NOTE: instruction misaligned traps are generated on control flow, not when fetching
 			debug_assert!(
-				access_kinds.contains(AccessKind::MISALIGNED) || phys_addr % u64::from(size) == 0,
+				access_kinds.contains(AccessKind::MISALIGNED) || effective_addr % u64::from(size) == 0,
 				"tried to fetch misaligned instruction (THIS SHOULD NEVER HAPPEN)"
 			);
 		}
 		ReadKind::LoadReserved => {
 			if !access_kinds.contains(AccessKind::READ | AccessKind::ATOMIC) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, phys_addr));
+			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, effective_addr));
 			}
 		}
 		ReadKind::AMO => {
 			if !access_kinds.contains(AccessKind::READ | AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
+			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
 	}
@@ -704,31 +768,32 @@ fn check_read_access(
 fn check_write_access(
 	hart: &mut WhiskerHart,
 	region: &MemoryRegion,
+	effective_addr: u64,
 	phys_addr: u64,
 	kind: WriteKind,
 	size: u8,
 ) -> Result<(), TrapRequestGuaranteed> {
 	trace!(
-		"checking {:?} at {:#018X} for size {:02X} in region {:?}",
-		kind, phys_addr, size, region
+		"checking {:?} at {:#018X} (phys {:#018X}) in region {:?}",
+		kind, effective_addr, phys_addr, region
 	);
 	let access_kinds = region.attrs.access_kinds;
 	let max_size = region.attrs.max_size;
 	match kind {
 		WriteKind::Normal => {
 			if !access_kinds.contains(AccessKind::WRITE) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
+			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
 		WriteKind::Atomic => {
 			if !access_kinds.contains(AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
-				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, phys_addr));
+				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
-				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, phys_addr));
+			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
 	}
@@ -795,12 +860,6 @@ impl MemoryRegion {
 	pub fn new(start: u64, len: u64, kind: MemoryKind, attrs: AccessAttrs) -> Self {
 		assert_eq!(start % MEM_PAGE_SIZE, 0);
 		assert_eq!(len % MEM_PAGE_SIZE, 0);
-
-		// FIXME: implement this
-		assert!(
-			!attrs.access_kinds.contains(AccessKind::MISALIGNED),
-			"misaligned accesses not yet implemented"
-		);
 
 		if attrs.access_kinds.contains(AccessKind::EXEC) {
 			assert!(

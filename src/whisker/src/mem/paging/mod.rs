@@ -28,12 +28,11 @@ impl Memory {
 		}
 
 		let page = addr & !(PAGE_SIZE - 1);
-		let page_table_cache = self.page_table_cache.read();
+		let page_table_cache = self.page_table_cache.upgradable_read();
 		let phys_addr = if let Some(virt_base) = page_table_cache.get(&page) {
 			virt_base + (addr & (PAGE_SIZE - 1))
 		} else {
 			core::hint::cold_path();
-			drop(page_table_cache);
 			let phys_addr = match translation_mode {
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!(),
@@ -41,7 +40,9 @@ impl Memory {
 				AddressTranslationMode::Bare => unreachable!("already checked"),
 				mode => unreachable!("unimplemented addr mode {:?}", mode),
 			};
-			self.page_table_cache.write().insert(page, phys_addr & !(PAGE_SIZE - 1));
+
+			let mut page_table_cache = parking_lot::RwLockUpgradableReadGuard::upgrade(page_table_cache);
+			page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
 			phys_addr
 		};
 

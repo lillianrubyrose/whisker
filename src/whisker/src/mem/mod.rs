@@ -100,9 +100,16 @@ macro_rules! impl_mem_read_write {
 					// atomics and instruction fetches must be aligned which is handled by `check_read_access`.
 					if kind == ReadKind::Normal && is_misaligned {
 						let mut bytes = <$ty>::default().to_le_bytes();
-						for i in 0..size {
-							bytes[i] = self.read_u8(hart, effective_addr + i as u64, kind)?;
-						}
+						let aligned_addr = effective_addr & !((size as u64) - 1);
+						let offset = (effective_addr % size as u64) as usize;
+
+						let lo = self.[<read_ $ty:snake>](hart, aligned_addr, kind)?.to_le_bytes();
+						let hi = self.[<read_ $ty:snake>](hart, aligned_addr + size as u64, kind)?.to_le_bytes();
+
+						let losz = size - offset;
+						bytes[..losz].copy_from_slice(&lo[offset..]);
+						bytes[losz..].copy_from_slice(&hi[..offset]);
+
 						let result = <$ty>::from_le_bytes(bytes);
 
 						if !hart.debug && let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8) {
@@ -587,9 +594,15 @@ macro_rules! impl_hw_read_write {
 
 					if is_misaligned {
 						let mut bytes = <$ty>::default().to_le_bytes();
-						for i in 0..size {
-							bytes[i] = self.read_hw_u8(phys_addr + i as u64)?;
-						}
+						let aligned_addr = phys_addr & !((size as u64) - 1);
+						let offset = (phys_addr % size as u64) as usize;
+
+						let lo = self.[<read_hw_ $ty:snake>](aligned_addr)?.to_le_bytes();
+						let hi = self.[<read_hw_ $ty:snake>](aligned_addr + size as u64)?.to_le_bytes();
+
+						let losz = size - offset;
+						bytes[..losz].copy_from_slice(&lo[offset..]);
+						bytes[losz..].copy_from_slice(&hi[..offset]);
 						return Ok(<$ty>::from_le_bytes(bytes));
 					}
 

@@ -260,7 +260,7 @@ impl Memory {
 		}
 
 		let hi_phys = if(pc & !(MEM_PAGE_SIZE - 1)) == (pc + 2 & !(MEM_PAGE_SIZE - 1)) {
-			pc + 2
+			phys_pc + 2
 		} else {
 			self.translate_addr(hart, pc + 2, MemoryOpKind::Instruction)?
 		};

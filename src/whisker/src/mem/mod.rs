@@ -217,6 +217,29 @@ macro_rules! impl_mem_read_write {
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 impl Memory {
+	fn read_phys_u16(&self, hart: &mut WhiskerHart, phys_addr: u64, effective_addr: u64) -> Result<u16, TrapRequestGuaranteed> {
+		let size = size_of::<u16>();
+		let Some(region) = self.region_for_addr(phys_addr) else {
+			return Err(hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr));
+		};
+
+		check_read_access(hart, &*region, effective_addr, phys_addr, ReadKind::Instruction, size as u8)?;
+
+		match region.kind {
+			MemoryKind::MainMemory { ref backing } => {
+				let offset = phys_addr - region.start;
+				let mut ret = u16::default().to_le_bytes();
+				ret.copy_from_slice(&backing[offset as usize..][..size]);
+				Ok(u16::from_le_bytes(ret))
+			}
+			MemoryKind::MMIO(kind) => {
+				let mut ret = u16::default().to_le_bytes();
+				kind.read(hart, phys_addr, ret.as_mut_slice());
+				Ok(u16::from_le_bytes(ret))
+			}
+		}
+	}
+
 	// FIXME: This cache needs to be cleared on any FENCE.I instruction
 	pub fn read_instruction_parcel(
 		&self,
@@ -230,11 +253,19 @@ impl Memory {
 			}
 		}
 
-		let lo = self.read_u16(hart, pc, ReadKind::Instruction)?.extend::<u32>();
+		let phys_pc = self.translate_addr(hart, pc, MemoryOpKind::Instruction)?;
+		let lo = self.read_phys_u16(hart, phys_pc, pc)?.extend::<u32>();
 		if extract_bits_32(lo, 0, 1) != 0b11 {
 			return Ok((true, lo));
 		}
-		let hi = self.read_u16(hart, pc + 2, ReadKind::Instruction)?.extend::<u32>();
+
+		let hi_phys = if(pc & !(MEM_PAGE_SIZE - 1)) == (pc + 2 & !(MEM_PAGE_SIZE - 1)) {
+			pc + 2
+		} else {
+			self.translate_addr(hart, pc + 2, MemoryOpKind::Instruction)?
+		};
+
+		let hi = self.read_phys_u16(hart, hi_phys, pc + 2)?.extend::<u32>();
 		let parcel = hi << 16 | lo;
 		self.instruction_parcel_cache.write().insert(pc, parcel);
 		Ok((false, parcel))

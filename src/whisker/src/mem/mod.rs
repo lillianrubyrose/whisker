@@ -6,7 +6,7 @@ use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::FxHashMap;
 
-use crate::tracing::*;
+use crate::{insn::Instruction, insn16, insn32, tracing::*, ty::RiscvExtensions, util::extract_bits_16};
 
 pub mod mmio;
 
@@ -27,7 +27,7 @@ pub const MEM_PAGE_SIZE: u64 = 4096;
 pub struct Memory {
 	/// cache of page base addresses to physical addresses
 	page_table_cache: parking_lot::RwLock<BTreeMap<u64, u64>>,
-	pub instruction_parcel_cache: spin::RwLock<FxHashMap<u64, u32>>,
+	pub instruction_parcel_cache: spin::RwLock<FxHashMap<u64, (Instruction, u64)>>,
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
 	regions: parking_lot::RwLock<Vec<MemoryRegion>>,
@@ -224,13 +224,25 @@ macro_rules! impl_mem_read_write {
 impl_mem_read_write!(u8, u16, u32, u64, SoftFloat, SoftDouble);
 
 impl Memory {
-	fn read_phys_u16(&self, hart: &mut WhiskerHart, phys_addr: u64, effective_addr: u64) -> Result<u16, TrapRequestGuaranteed> {
+	fn read_phys_u16(
+		&self,
+		hart: &mut WhiskerHart,
+		phys_addr: u64,
+		effective_addr: u64,
+	) -> Result<u16, TrapRequestGuaranteed> {
 		let size = size_of::<u16>();
 		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr));
 		};
 
-		check_read_access(hart, &*region, effective_addr, phys_addr, ReadKind::Instruction, size as u8)?;
+		check_read_access(
+			hart,
+			&*region,
+			effective_addr,
+			phys_addr,
+			ReadKind::Instruction,
+			size as u8,
+		)?;
 
 		match region.kind {
 			MemoryKind::MainMemory { ref backing } => {
@@ -247,36 +259,62 @@ impl Memory {
 		}
 	}
 
-	// FIXME: This cache needs to be cleared on any FENCE.I instruction
 	pub fn read_instruction_parcel(
 		&self,
 		hart: &mut WhiskerHart,
 		pc: u64,
-	) -> Result<(bool, u32), TrapRequestGuaranteed> {
-		if (DRAM_BASE..DRAM_BASE + DRAM_SIZE).contains(&pc) {
-			if let Some(parcel) = self.instruction_parcel_cache.read().get(&pc) {
-				let parcel = *parcel;
-				return Ok((extract_bits_32(parcel, 0, 1) != 0b11, parcel));
-			}
+	) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
+		if let Some(parcel) = self.instruction_parcel_cache.read().get(&pc) {
+			return Ok(*parcel);
 		}
 
 		let phys_pc = self.translate_addr(hart, pc, MemoryOpKind::Instruction)?;
-		let lo = self.read_phys_u16(hart, phys_pc, pc)?.extend::<u32>();
-		if extract_bits_32(lo, 0, 1) != 0b11 {
-			self.instruction_parcel_cache.write().insert(pc, lo);
-			return Ok((true, lo));
+
+		let lo = self.read_phys_u16(hart, phys_pc, pc)?;
+		if lo == 0 {
+			warn!("tried to execute all 0 instruction at {:#018X}", hart.pc);
+			return Err(hart.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, lo.extend()));
 		}
 
-		let hi_phys = if(pc & !(MEM_PAGE_SIZE - 1)) == (pc + 2 & !(MEM_PAGE_SIZE - 1)) {
-			phys_pc + 2
-		} else {
-			self.translate_addr(hart, pc + 2, MemoryOpKind::Instruction)?
-		};
+		if extract_bits_16(lo, 0, 1) != 0b11 {
+			if !hart.supports_extensions(RiscvExtensions::COMPRESSED) {
+				warn!(
+					"  tried to execute compressed instruction {:#06X} at {:#018X} when compressed instructions were disabled",
+					lo, hart.pc
+				);
+				return Err(hart.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, lo.extend()));
+			}
 
-		let hi = self.read_phys_u16(hart, hi_phys, pc + 2)?.extend::<u32>();
-		let parcel = hi << 16 | lo;
-		self.instruction_parcel_cache.write().insert(pc, parcel);
-		Ok((false, parcel))
+			if let Some(insn) = insn16::parse(lo) {
+				self.instruction_parcel_cache.write().insert(pc, (insn, 2));
+				return Ok((insn, 2));
+			}
+
+			warn!("unable to parse 16 bit instruction {lo:#06X}");
+			return Err(hart.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, lo.extend()));
+		} else if extract_bits_16(lo, 2, 4) != 0b111 {
+			let hi_phys = if (pc & !(MEM_PAGE_SIZE - 1)) == (pc + 2 & !(MEM_PAGE_SIZE - 1)) {
+				phys_pc + 2
+			} else {
+				self.translate_addr(hart, pc + 2, MemoryOpKind::Instruction)?
+			};
+
+			let lo = lo.extend::<u32>();
+			let hi = self.read_phys_u16(hart, hi_phys, pc + 2)?.extend::<u32>();
+			let parcel = hi << 16 | lo;
+
+			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
+			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
+			match insn32::parse(parcel) {
+				Some(insn) => {
+					self.instruction_parcel_cache.write().insert(pc, (insn, 4));
+					return Ok((insn, 4));
+				}
+				None => return Err(hart.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend())),
+			}
+		}
+
+		unimplemented!()
 	}
 
 	pub fn load_reserved_word(

@@ -25,6 +25,7 @@ use std::{
 	panic,
 	path::{Path, PathBuf},
 	sync::Arc,
+	time::Instant,
 };
 
 use ::tracing::level_filters::LevelFilter;
@@ -449,6 +450,7 @@ mod tests {
 		io::{Write, stdout},
 		path::PathBuf,
 	};
+
 	use crate::{
 		cpu::{WhiskerCpu, WhiskerExecState},
 		init_cpu,
@@ -594,7 +596,11 @@ mod tests {
 			}
 		}
 
-		println!("{}/{} succeeded.", successes, successes - failures.len().cast_signed() as i32);
+		println!(
+			"{}/{} succeeded.",
+			successes,
+			successes - failures.len().cast_signed() as i32
+		);
 		assert!(failures.is_empty());
 	}
 }

@@ -45,7 +45,7 @@ pub struct WhiskerHart {
 	pub fp_registers: FPRegisters,
 
 	/// the program counter for the currently executing instruction
-	pc: u64,
+	pub pc: u64,
 	/// the value to set pc to at the end of processing the current cycle
 	next_pc: u64,
 
@@ -437,60 +437,61 @@ impl WhiskerHart {
 impl WhiskerHart {
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
 	fn fetch_instruction(&mut self, mem: &Memory) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
-		let support_compressed = self.supports_extensions(RiscvExtensions::COMPRESSED);
+		// FIXME: Cleanup this stuff lol
+		// please don't kill me wifey<3
+		mem.read_instruction_parcel(self, self.pc)
+		// let (is_compressed, parcel) = mem.read_instruction_parcel(self, self.pc)?;
+		// let parcel_u16 = parcel.truncate::<u16>();
 
-		let (is_compressed, parcel) = mem.read_instruction_parcel(self, self.pc)?;
-		let parcel_u16 = parcel.truncate::<u16>();
+		// // all encodings with the low 16 bits all 0s are invalid.
+		// // NOTE: the length of an all-zeros instruction is considered
+		// // to be the length of the smallest supported instruction
+		// // FIXME: currently we believe this does not matter?
+		// if parcel_u16 == 0 {
+		// 	warn!("tried to execute all 0 instruction at {:#018X}", self.pc);
+		// 	return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()));
+		// }
 
-		// all encodings with the low 16 bits all 0s are invalid.
-		// NOTE: the length of an all-zeros instruction is considered
-		// to be the length of the smallest supported instruction
-		// FIXME: currently we believe this does not matter?
-		if parcel_u16 == 0 {
-			warn!("tried to execute all 0 instruction at {:#018X}", self.pc);
-			return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()));
-		}
-
-		if is_compressed {
-			if support_compressed {
-				if let Some(insn) = insn16::parse(parcel_u16) {
-					Ok((insn, 2))
-				} else {
-					warn!("unable to parse 16 bit instruction {parcel_u16:#06X}");
-					Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
-				}
-			} else {
-				warn!(
-					"  tried to execute compressed instruction {:#06X} at {:#018X} when compressed instructions were disabled",
-					parcel_u16, self.pc
-				);
-				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
-			}
-		} else if extract_bits_16(parcel_u16, 2, 4) != 0b111 {
-			// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
-			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
-			match insn32::parse(parcel) {
-				Some(insn) => Ok((insn, 4)),
-				None => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend())),
-			}
-		} else if extract_bits_16(parcel_u16, 0, 5) == 0b011111 {
-			if support_compressed {
-				todo!("implement 48bit instruction")
-			} else {
-				// FIXME: this is probably not the right mtval
-				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
-			}
-		} else if extract_bits_16(parcel_u16, 0, 6) == 0b0111111 {
-			if support_compressed {
-				todo!("implement 64bit instruction")
-			} else {
-				// FIXME: this is probably not the right mtval
-				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
-			}
-		} else {
-			// FIXME: this is probably not the right mtval
-			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
-		}
+		// if is_compressed {
+		// 	if support_compressed {
+		// 		if let Some(insn) = insn16::parse(parcel_u16) {
+		// 			Ok((insn, 2))
+		// 		} else {
+		// 			warn!("unable to parse 16 bit instruction {parcel_u16:#06X}");
+		// 			Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
+		// 		}
+		// 	} else {
+		// 		warn!(
+		// 			"  tried to execute compressed instruction {:#06X} at {:#018X} when compressed instructions were disabled",
+		// 			parcel_u16, self.pc
+		// 		);
+		// 		Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
+		// 	}
+		// } else if extract_bits_16(parcel_u16, 2, 4) != 0b111 {
+		// 	// FIXME(alignment): parcel must be constructed from 2 reads because when the C extension is
+		// 	// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
+		// 	match insn32::parse(parcel) {
+		// 		Some(insn) => Ok((insn, 4)),
+		// 		None => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend())),
+		// 	}
+		// } else if extract_bits_16(parcel_u16, 0, 5) == 0b011111 {
+		// 	if support_compressed {
+		// 		todo!("implement 48bit instruction")
+		// 	} else {
+		// 		// FIXME: this is probably not the right mtval
+		// 		Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
+		// 	}
+		// } else if extract_bits_16(parcel_u16, 0, 6) == 0b0111111 {
+		// 	if support_compressed {
+		// 		todo!("implement 64bit instruction")
+		// 	} else {
+		// 		// FIXME: this is probably not the right mtval
+		// 		Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
+		// 	}
+		// } else {
+		// 	// FIXME: this is probably not the right mtval
+		// 	Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend()))
+		// }
 	}
 
 	fn execute_instruction(&mut self, insn: Instruction, mem: &Memory) {

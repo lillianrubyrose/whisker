@@ -263,6 +263,7 @@ impl Memory {
 		let phys_pc = self.translate_addr(hart, pc, MemoryOpKind::Instruction)?;
 		let lo = self.read_phys_u16(hart, phys_pc, pc)?.extend::<u32>();
 		if extract_bits_32(lo, 0, 1) != 0b11 {
+			self.instruction_parcel_cache.write().insert(pc, lo);
 			return Ok((true, lo));
 		}
 

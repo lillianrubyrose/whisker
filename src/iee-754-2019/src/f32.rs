@@ -342,7 +342,7 @@ impl F32 {
 
 #[cfg(test)]
 mod add_tests {
-	use crate::{RoundingMode, F32};
+	use crate::{F32, RoundingMode};
 
 	macro_rules! define_test {
 		($(($name:ident, $lhs:expr, $rhs:expr, $rm:expr, $expected_result:expr)),+) => {
@@ -369,21 +369,90 @@ mod add_tests {
 	}
 
 	define_test!(
-    	(one_plus_two, 1.0f32, 2.0f32, RoundingMode::RoundTiesToEven, 3.0f32),
-    	(neg_one_point_five_plus_neg_two_point_five, -1.5f32, -2.5f32, RoundingMode::RoundTiesToEven, -4.0f32),
-    	(ten_plus_neg_three_point_five, 10.0f32, -3.5f32, RoundingMode::RoundTiesToEven, 6.5f32),
-
-    	(cancellation, 1.2345e10f32, -1.2345e10f32, RoundingMode::RoundTiesToEven, 0.0f32),
-    	(rounding_rne, 0.1f32, 0.2f32, RoundingMode::RoundTiesToEven, (0.1f32 + 0.2f32)),
-
-    	(inf_plus_one, f32::INFINITY, 1.0f32, RoundingMode::RoundTiesToEven, f32::INFINITY),
-    	(neg_inf_plus_neg_one, f32::NEG_INFINITY, -1.0f32, RoundingMode::RoundTiesToEven, f32::NEG_INFINITY),
-    	(inf_plus_neg_inf_is_nan, f32::INFINITY, f32::NEG_INFINITY, RoundingMode::RoundTiesToEven, f32::NAN),
-    	(nan_plus_one_is_nan, f32::NAN, 1.0f32, RoundingMode::RoundTiesToEven, f32::NAN),
-    	(zero_plus_neg_zero_rne, 0.0f32, -0.0f32, RoundingMode::RoundTiesToEven, 0.0f32),
-    	(zero_plus_neg_zero_rtn, 0.0f32, -0.0f32, RoundingMode::RoundTowardNegative, -0.0f32),
-
-    	(overflow_to_inf, f32::MAX, f32::MAX, RoundingMode::RoundTiesToEven, f32::INFINITY),
-    	(subnormal_addition, f32::from_bits(0x000116c3), f32::from_bits(0x000116c3), RoundingMode::RoundTiesToEven, f32::from_bits(0x00022d86))
+		(one_plus_two, 1.0f32, 2.0f32, RoundingMode::RoundTiesToEven, 3.0f32),
+		(
+			neg_one_point_five_plus_neg_two_point_five,
+			-1.5f32,
+			-2.5f32,
+			RoundingMode::RoundTiesToEven,
+			-4.0f32
+		),
+		(
+			ten_plus_neg_three_point_five,
+			10.0f32,
+			-3.5f32,
+			RoundingMode::RoundTiesToEven,
+			6.5f32
+		),
+		(
+			cancellation,
+			1.2345e10f32,
+			-1.2345e10f32,
+			RoundingMode::RoundTiesToEven,
+			0.0f32
+		),
+		(
+			rounding_rne,
+			0.1f32,
+			0.2f32,
+			RoundingMode::RoundTiesToEven,
+			(0.1f32 + 0.2f32)
+		),
+		(
+			inf_plus_one,
+			f32::INFINITY,
+			1.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::INFINITY
+		),
+		(
+			neg_inf_plus_neg_one,
+			f32::NEG_INFINITY,
+			-1.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::NEG_INFINITY
+		),
+		(
+			inf_plus_neg_inf_is_nan,
+			f32::INFINITY,
+			f32::NEG_INFINITY,
+			RoundingMode::RoundTiesToEven,
+			f32::NAN
+		),
+		(
+			nan_plus_one_is_nan,
+			f32::NAN,
+			1.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::NAN
+		),
+		(
+			zero_plus_neg_zero_rne,
+			0.0f32,
+			-0.0f32,
+			RoundingMode::RoundTiesToEven,
+			0.0f32
+		),
+		(
+			zero_plus_neg_zero_rtn,
+			0.0f32,
+			-0.0f32,
+			RoundingMode::RoundTowardNegative,
+			-0.0f32
+		),
+		(
+			overflow_to_inf,
+			f32::MAX,
+			f32::MAX,
+			RoundingMode::RoundTiesToEven,
+			f32::INFINITY
+		),
+		(
+			subnormal_addition,
+			f32::from_bits(0x000116c3),
+			f32::from_bits(0x000116c3),
+			RoundingMode::RoundTiesToEven,
+			f32::from_bits(0x00022d86)
+		)
 	);
 }

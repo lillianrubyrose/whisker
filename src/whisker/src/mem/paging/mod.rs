@@ -52,7 +52,6 @@ impl Memory {
 
 	pub fn clear_vm_cache(&self, _asid: u64, _vaddr: u64) {
 		warn!("clearing vm cache");
-		self.instruction_parcel_cache.write().clear();
 		self.page_table_cache.write().clear();
 	}
 }

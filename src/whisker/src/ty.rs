@@ -436,6 +436,14 @@ impl Debug for TrapIdx {
 			TrapIdx::SOFTWARE_CHECK => write!(f, "TrapIdx::SOFTWARE_CHECK"),
 			TrapIdx::HARDWARE_CHECK => write!(f, "TrapIdx::HARDWARE_CHECK"),
 			TrapIdx::MEOW_ERR => write!(f, "TrapIdx::MEOW_ERR"),
+
+			TrapIdx::SUPERVISOR_SOFTWARE_INTERRUPT => write!(f, "TrapIdx::SUPERVISOR_SOFTWARE_INTERRUPT"),
+			TrapIdx::MACHINE_SOFTWARE_INTERRUPT => write!(f, "TrapIdx::MACHINE_SOFTWARE_INTERRUPT"),
+			TrapIdx::SUPERVISOR_TIMER_INTERRUPT => write!(f, "TrapIdx::SUPERVISOR_TIMER_INTERRUPT"),
+			TrapIdx::MACHINE_TIMER_INTERRUPT => write!(f, "TrapIdx::MACHINE_TIMER_INTERRUPT"),
+			TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT => write!(f, "TrapIdx::SUPERVISOR_EXTERNAL_INTERRUPT"),
+			TrapIdx::MACHINE_EXTERNAL_INTERRUPT => write!(f, "TrapIdx::MACHINE_EXTERNAL_INTERRUPT"),
+
 			unk => write!(f, "TrapIdx({:#018X})", unk.0),
 		}
 	}

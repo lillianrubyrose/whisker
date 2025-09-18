@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::{cpu::hart::WhiskerHart, mem::mmio::MMIODevice};
 
 pub const CLINT_BASE: u64 = 0x0200_0000;
@@ -12,21 +14,37 @@ const MTIMECMP_END: u64 = MTIMECMP + 8;
 const MTIME: u64 = CLINT_BASE + 0xBFF8;
 const MTIME_END: u64 = MTIME + 8;
 
-#[derive(Default, Debug)]
+// Frequency in Hz of the tick rate of the clint
+const CLINT_TICK_RATE: u64 = 1000000;
+
+#[derive(Debug)]
 pub struct Clint {
-	msip: u32,
+	start: Instant,
+	ticks: u64,
 	mtimecmp: u64,
+	pending: bool,
 }
 
 impl Clint {
-	pub fn step(&self, hart: &mut WhiskerHart) {
-		if (self.msip & 1) != 0 {
-			hart.mip.set_m_soft_interrupt(true);
-		} else {
-			hart.mip.set_m_soft_interrupt(false);
+	pub fn new() -> Self {
+		let start = Instant::now();
+		Self {
+			start,
+			ticks: 0,
+			mtimecmp: 0,
+			pending: false,
 		}
+	}
 
-		if self.mtimecmp > 0 && hart.cycles >= self.mtimecmp {
+	pub fn step(&mut self, hart: &mut WhiskerHart) {
+		let now = Instant::now();
+		let millis = now.saturating_duration_since(self.start).as_millis_f64();
+		let ticks = millis.div_euclid(CLINT_TICK_RATE as f64) as u64;
+		self.ticks = ticks;
+
+		hart.mip.set_m_soft_interrupt(self.pending);
+
+		if self.mtimecmp > 0 && ticks >= self.mtimecmp {
 			hart.mip.set_m_timer_interrupt(true);
 		} else {
 			hart.mip.set_m_timer_interrupt(false);
@@ -35,41 +53,31 @@ impl Clint {
 }
 
 impl MMIODevice for Clint {
-	fn read(&mut self, hart: &mut crate::cpu::hart::WhiskerHart, addr: u64, buf: &mut [u8]) {
+	fn read(&mut self, _hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		let (value, off) = match addr {
-			MSIP..=MSIP_END => (self.msip as u64, addr - MSIP),
+			MSIP..=MSIP_END => (u64::from(self.pending), addr - MSIP),
 			MTIMECMP..=MTIMECMP_END => (self.mtimecmp, addr - MTIMECMP),
-			MTIME..=MTIME_END => (hart.cycles, addr - MTIME),
+			MTIME => (self.ticks, addr - MTIME),
 			_ => return, // do we load fault here lol
 		};
 
 		buf.copy_from_slice(&(value >> (off * 8)).to_le_bytes()[..buf.len()]);
 	}
 
-	fn write(&mut self, hart: &mut crate::cpu::hart::WhiskerHart, addr: u64, val: &[u8]) {
+	fn write(&mut self, _hart: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		let mut bytes = [0u8; 8];
 		bytes[..val.len()].copy_from_slice(val);
 		let value = u64::from_le_bytes(bytes);
 
 		match addr {
-			MSIP..=MSIP_END => {
-				let offset = addr - MSIP;
-				let mask = (u64::MAX >> (64 - val.len() * 8)) << (offset * 8);
-				self.msip &= !(mask as u32);
-				self.msip |= (value << (offset * 8)) as u32;
-			}
+			MSIP => self.pending = (value & 1) != 0,
 			MTIMECMP..=MTIMECMP_END => {
 				let offset = addr - MTIMECMP;
 				let mask = (u64::MAX >> (64 - val.len() * 8)) << (offset * 8);
 				self.mtimecmp &= !mask;
 				self.mtimecmp |= value << (offset * 8);
 			}
-			MTIME..=MTIME_END => {
-				let offset = addr - MTIME;
-				let mask = (u64::MAX >> (64 - val.len() * 8)) << (offset * 8);
-				hart.cycles &= !mask;
-				hart.cycles |= value << (offset * 8);
-			}
+			MTIME => self.ticks = value,
 			_ => {}
 		}
 	}

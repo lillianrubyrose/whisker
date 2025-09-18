@@ -85,7 +85,7 @@ impl WhiskerCpu {
 
 		// FIXME: interrupt controller refactor
 		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
-		let clint = Arc::new(Mutex::new(Clint::default()));
+		let clint = Arc::new(Mutex::new(Clint::new()));
 
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();

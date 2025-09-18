@@ -1,4 +1,4 @@
-#![feature(assert_matches)]
+#![feature(assert_matches, duration_millis_float)]
 #![feature(cold_path)]
 
 mod cpu;

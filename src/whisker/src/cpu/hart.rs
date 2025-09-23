@@ -14,14 +14,14 @@ use softfloat_pure::{float32_t, softfloat::init_detectTininess};
 
 use crate::{
 	cpu::{
-		self,
+		WhiskerExecState,
 		csr::{self, AddressTranslationConfig, CSRIndex, CSRInfo, InterruptBits, TrapVector},
 	},
 	insn::*,
 	insn16, insn32,
 	mem::{MEM_PAGE_SIZE, Memory, MemoryOpKind, ReadKind, WriteKind},
 	regs::{FPRegisters, GPRegisters},
-	soft::{ExceptionFlags, FloatStatusControl, float::SoftFloat},
+	soft::{FloatStatusControl, float::SoftFloat},
 	tracing::*,
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
@@ -41,6 +41,7 @@ pub struct WhiskerHart {
 	/// reset after the hart has finished processing the request.
 	/// this handles debugger interrupts and watchpoints.
 	pub requested_break: Option<HartBreakKind>,
+	pub exec_state: WhiskerExecState,
 
 	pub registers: GPRegisters,
 	pub fp_registers: FPRegisters,
@@ -137,6 +138,7 @@ impl WhiskerHart {
 			mode: HartMode::Machine,
 			debug: false,
 			requested_break: None,
+			exec_state: WhiskerExecState::Paused,
 
 			registers: GPRegisters::default(),
 			fp_registers: FPRegisters::default(),

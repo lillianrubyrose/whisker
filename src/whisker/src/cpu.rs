@@ -49,7 +49,6 @@ pub struct WhiskerCpu {
 	/// the index into `harts` which will be executed next
 	current_hart_id: HartId,
 	pub harts: Vec<WhiskerHart>,
-	pub hart_states: Vec<WhiskerExecState>,
 
 	pub breakpoints: FxHashSet<u64>,
 
@@ -108,7 +107,6 @@ impl WhiskerCpu {
 
 			current_hart_id: HartId::new(0),
 			harts,
-			hart_states: vec![WhiskerExecState::Paused; num_harts as usize],
 
 			interrupt_controller,
 			clint,
@@ -127,11 +125,11 @@ impl WhiskerCpu {
 		trace!("executing {:?}", hart_id);
 		self.current_hart_id = HartId::new(self.current_hart_id.inner().wrapping_add(1) % self.harts.len() as u16);
 
-		if self.hart_states[hart_id.as_idx()] == WhiskerExecState::Paused {
+		let hart = &mut self.harts[hart_id.as_idx()];
+		if hart.exec_state == WhiskerExecState::Paused {
 			return Err(WhiskerExecStatus::Paused);
 		}
 
-		let hart = &mut self.harts[hart_id.as_idx()];
 		self.clint.lock().step(hart);
 
 		if self.breakpoints.contains(&hart.pc()) {
@@ -155,7 +153,7 @@ impl WhiskerCpu {
 			}
 		}
 
-		if self.hart_states[hart_id.as_idx()] == WhiskerExecState::Step {
+		if hart.exec_state == WhiskerExecState::Step {
 			return Err(WhiskerExecStatus::Stepped);
 		}
 

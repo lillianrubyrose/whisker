@@ -8,7 +8,7 @@ use num_conv::{Extend, Truncate};
 use spin::Mutex;
 
 use crate::{
-	cpu::hart::WhiskerHart,
+	cpu::{WhiskerExecState, hart::WhiskerHart},
 	mem::mmio::MMIODevice,
 	tracing::*,
 	ty::{HartId, TrapIdx},
@@ -87,6 +87,11 @@ impl PlatformInterruptController {
 
 		for context_id in 0..self.context_info.len() {
 			let hart = &mut harts[context_as_hart_idx(context_id)];
+			// skip interrupts when in single step mode
+			if hart.exec_state == WhiskerExecState::Step {
+				continue;
+			}
+
 			let is_irq_avail = self.best_irq_for_context(context_id).is_some();
 			hart.set_interrupt_pending(context_external_interrupt_trap_idx(context_id), is_irq_avail);
 		}

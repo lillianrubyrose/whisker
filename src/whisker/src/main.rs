@@ -263,7 +263,7 @@ fn init_cpu(
 		main_mem,
 		AccessAttrs::new(
 			ACCESS_MAX_U64,
-			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC | AccessKind::MISALIGNED,
+			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
 		),
 	));
 
@@ -335,7 +335,9 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 				error!("Target terminated: {signal:?}");
 			}
 			gdbstub::stub::DisconnectReason::Disconnect => {
-				cpu.hart_states.fill(WhiskerExecState::Running);
+				cpu.harts
+					.iter_mut()
+					.for_each(|hart| hart.exec_state = WhiskerExecState::Running);
 				loop {
 					// FIXME: handle this better
 					#[allow(unused_must_use)]
@@ -359,7 +361,9 @@ fn run_gdb(mut cpu: WhiskerCpu) {
 }
 
 fn run_normal(mut cpu: WhiskerCpu) {
-	cpu.hart_states.fill(WhiskerExecState::Running);
+	cpu.harts
+		.iter_mut()
+		.for_each(|hart| hart.exec_state = WhiskerExecState::Running);
 
 	loop {
 		// FIXME: handle this better
@@ -459,7 +463,9 @@ mod tests {
 	};
 
 	fn run_test(cpu: &mut WhiskerCpu, test_name: &str) -> Result<(), String> {
-		cpu.hart_states.fill(WhiskerExecState::Running);
+		cpu.harts
+			.iter_mut()
+			.for_each(|hart| hart.exec_state = WhiskerExecState::Running);
 		loop {
 			#[allow(unused_must_use)]
 			cpu.execute_one();

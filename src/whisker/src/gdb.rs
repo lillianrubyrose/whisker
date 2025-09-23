@@ -248,22 +248,24 @@ impl MultiThreadBase for WhiskerCpu {
 // FIXME: i think a lot of these are subtly wrong
 impl MultiThreadResume for WhiskerCpu {
 	fn resume(&mut self) -> Result<(), Self::Error> {
-		self.hart_states.iter_mut().for_each(|s| {
-			if *s == WhiskerExecState::Paused {
-				*s = WhiskerExecState::Running;
+		self.harts.iter_mut().for_each(|hart| {
+			if hart.exec_state == WhiskerExecState::Paused {
+				hart.exec_state = WhiskerExecState::Running;
 			}
 		});
 		Ok(())
 	}
 
 	fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
-		self.hart_states.fill(WhiskerExecState::Paused);
+		self.harts
+			.iter_mut()
+			.for_each(|hart| hart.exec_state = WhiskerExecState::Paused);
 		Ok(())
 	}
 
 	fn set_resume_action_continue(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
 		let hart_idx = tid.get() - 1;
-		self.hart_states[hart_idx] = WhiskerExecState::Running;
+		self.harts[hart_idx].exec_state = WhiskerExecState::Running;
 		Ok(())
 	}
 
@@ -275,7 +277,7 @@ impl MultiThreadResume for WhiskerCpu {
 impl MultiThreadSingleStep for WhiskerCpu {
 	fn set_resume_action_step(&mut self, tid: Tid, _signal: Option<Signal>) -> Result<(), Self::Error> {
 		let hart_idx = tid.get() - 1;
-		self.hart_states[hart_idx] = WhiskerExecState::Step;
+		self.harts[hart_idx].exec_state = WhiskerExecState::Step;
 		Ok(())
 	}
 }
@@ -384,7 +386,10 @@ impl BlockingEventLoop for WhiskerEventLoop {
 	}
 
 	fn on_interrupt(target: &mut Self::Target) -> Result<Option<Self::StopReason>, <Self::Target as Target>::Error> {
-		target.hart_states.fill(WhiskerExecState::Paused);
+		target
+			.harts
+			.iter_mut()
+			.for_each(|hart| hart.exec_state = WhiskerExecState::Paused);
 		Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
 	}
 }

@@ -94,7 +94,7 @@ macro_rules! impl_mem_read_write {
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
 					let size = ::core::mem::size_of::<$ty>();
-					let is_misaligned = effective_addr % (size as u64) != 0;
+					let is_misaligned = false; // effective_addr % (size as u64) != 0;
 
 					// atomics and instruction fetches must be aligned which is handled by `check_read_access`.
 					if kind == ReadKind::Normal && is_misaligned {
@@ -163,7 +163,7 @@ macro_rules! impl_mem_read_write {
 					val: $ty,
 				) -> Result<(), TrapRequestGuaranteed> {
 					let size = ::core::mem::size_of::<$ty>();
-					let is_misaligned = effective_addr % (size as u64) != 0;
+					let is_misaligned = false; // effective_addr % (size as u64) != 0;
 
 					if kind == WriteKind::Normal && is_misaligned {
 						let bytes = val.to_le_bytes();

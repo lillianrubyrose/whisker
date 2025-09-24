@@ -532,7 +532,7 @@ impl ElfFile {
 			std::io::ErrorKind::InvalidData,
 			"Invalid ELF file type",
 		))?;
-		assert_eq!(ty, ElfType::Executable);
+		//assert_eq!(ty, ElfType::Executable);
 
 		let isa = ISA::from_value(reader.read_16(endianness)?)
 			.ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid ISA type"))?;

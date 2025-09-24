@@ -1,6 +1,7 @@
 #![feature(assert_matches, duration_millis_float)]
 #![feature(cold_path)]
 
+mod args;
 mod cpu;
 mod gdb;
 mod insn;
@@ -25,57 +26,28 @@ use std::{
 	panic,
 	path::{Path, PathBuf},
 	sync::Arc,
-	time::Instant,
 };
 
 use ::tracing::level_filters::LevelFilter;
-use clap::{Parser, Subcommand, command};
-use elfie::{Class, ElfFile, Endianness, ISA, ProgramHeaderType};
+use elfie::{ElfFile, ElfType, Endianness, ISA, ProgramHeaderType};
 use gdbstub::{conn::ConnectionExt, stub::GdbStub};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 use crate::{
+	args::{CliCommand, KernelData},
 	cpu::{WhiskerCpu, WhiskerExecState, csr},
 	gdb::WhiskerEventLoop,
 	interrupts::{PLIC_BASE, PLIC_LEN},
 	mem::{
-		AccessAttrs, AccessKind, Memory, MemoryBuilder, MemoryRegion, ReadKind, WriteKind,
+		AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion,
 		mmio::{
 			MMIO_DEVICES, MMIOKind, UART_BASE,
 			clint::{CLINT_BASE, CLINT_SIZE},
 			virtio_block::VIRTIO_BLOCK_BASE,
 		},
 	},
-	riscv_tests::RiscTestCommand,
 	ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions},
 };
-
-#[derive(Debug, Parser)]
-#[command(version)]
-struct CliArgs {
-	#[command(subcommand)]
-	command: Commands,
-}
-
-#[derive(Debug, Subcommand)]
-enum Commands {
-	Run {
-		#[arg(long)]
-		logfile: Option<PathBuf>,
-		#[arg(long)]
-		fs_img: Option<PathBuf>,
-		#[arg(short = 'g', long)]
-		use_gdb: bool,
-		#[arg(long)]
-		/// set to true to just load the passed file into memory at `DRAM_BASE`
-		raw_kernel: bool,
-		#[arg()]
-		bootrom: PathBuf,
-		#[arg()]
-		kernel: PathBuf,
-	},
-	GenerateGdbXML,
-}
 
 #[macro_export]
 macro_rules! trace {
@@ -138,35 +110,34 @@ fn main() {
 			.init();
 	}
 
-	let cli = CliArgs::parse();
-
-	match cli.command {
-		Commands::Run {
-			use_gdb: gdb,
+	let command = args::get_command();
+	match command {
+		CliCommand::Run {
 			bootrom,
-			kernel,
-			raw_kernel,
-			logfile,
+			bootloader,
+			kernel_data,
 			fs_img,
+			logfile,
+			use_gdb,
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
 			let cpu = init_cpu(
-				&bootrom,
-				&kernel,
-				raw_kernel,
+				bootrom,
+				bootloader,
+				kernel_data,
 				logfile,
 				NUM_HARTS,
 				fs_img.as_deref(),
 				false,
 			);
-			if gdb {
+			if use_gdb {
 				run_gdb(cpu);
 			} else {
 				run_normal(cpu);
 			}
 		}
-		Commands::GenerateGdbXML => {
+		CliCommand::GenerateGdbXML => {
 			let xml = generate_gdb_xml();
 			fs::write("rv64.xml", xml.as_bytes()).expect("failed to write rv64.xml");
 		}
@@ -174,14 +145,16 @@ fn main() {
 }
 
 // THESE MUST BE IN SYNC WITH LINKER SCRIPTS
-const BOOTROM_OFFSET: u64 = 0x00001000;
+const BOOTROM_OFFSET: u64 = 0x0000_1000;
+const BOOTROM_LEN: u64 = 0x0000_1000;
 const DRAM_BASE: u64 = 0x8000_0000;
 const DRAM_SIZE: u64 = 0x1_0000_0000;
 
+#[allow(clippy::too_many_arguments)]
 fn init_cpu(
-	bootrom: &PathBuf,
-	kernel: &PathBuf,
-	raw_kernel: bool,
+	mut bootrom: Vec<u8>,
+	bootloader: Option<Vec<u8>>,
+	kernel: Option<KernelData>,
 	logfile: Option<PathBuf>,
 	num_harts: u16,
 	fs_img: Option<&Path>,
@@ -189,31 +162,30 @@ fn init_cpu(
 ) -> WhiskerCpu {
 	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
 
-	let mut bootrom_data =
-		fs::read(bootrom).unwrap_or_else(|_| panic!("could not read bootrom file {}", bootrom.display()));
-	bootrom_data.resize(0x1000, 0);
+	assert!(
+		bootrom.len() <= BOOTROM_LEN as usize,
+		"bootrom must not be more than {:#X} bytes (was {:#X})",
+		BOOTROM_LEN,
+		bootrom.len()
+	);
+	bootrom.resize(BOOTROM_LEN as usize, 0);
 
-	let kernel_data = fs::read(kernel).unwrap_or_else(|_| panic!("could not read kernel file {}", kernel.display()));
-
+	// we support RV64GC which is IMAFDC_Zicsr_Zifencei
+	// on top of that, S mode and U mode are supported
 	let supported = RiscvExtensions::INTEGER
+		| RiscvExtensions::MULTIPLY
+		| RiscvExtensions::ATOMIC
 		| RiscvExtensions::FLOAT
 		| RiscvExtensions::COMPRESSED
-		| RiscvExtensions::ATOMIC
-		| RiscvExtensions::MULTIPLY;
-
-	//	let mem = MemoryBuilder::default()
-	//		.bootrom(bootrom_data, PageBase::from_addr(BOOTROM_OFFSET))
-	//		.physical_size(DRAM_SIZE)
-	//		.phys_mapping(PageBase::from_addr(DRAM_BASE), PageBase::from_addr(0), DRAM_SIZE)
-	//		.add_mmio(MMIOKind::UART)
-	//		.build();
+		| RiscvExtensions::SUPERVISOR
+		| RiscvExtensions::USER_MODE;
 
 	let mut mem_builder = MemoryBuilder::default()
 		// FIXME: maybe model the bootrom as an IO region so it can be RX instead of RWX
 		.add_region(MemoryRegion::new_main_mem(
 			BOOTROM_OFFSET,
-			0x1000,
-			bootrom_data.into_boxed_slice(),
+			BOOTROM_LEN,
+			bootrom.into_boxed_slice(),
 			AccessAttrs::new(ACCESS_MAX_U64, AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC),
 		))
 		.add_region(MemoryRegion::new_mmio(
@@ -244,12 +216,28 @@ fn init_cpu(
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
 
-	let tohost_addr = if raw_kernel {
-		main_mem[..kernel_data.len()].copy_from_slice(kernel_data.as_slice());
-		0
-	} else {
-		load_elf(kernel.as_path(), kernel_data.as_slice(), &mut main_mem)
-	};
+	let mut tohost_addr = None;
+
+	if let Some(bootloader) = bootloader {
+		#[allow(clippy::collapsible_if, reason = "makes the side effects of load_elf more apparent")]
+		if let Some(addr) = load_elf(bootloader.as_slice(), &mut main_mem, "bootloader") {
+			let old_tohost_addr = tohost_addr.replace(addr);
+			assert!(old_tohost_addr.is_none(), "tohost addr already present");
+		}
+	}
+
+	match kernel {
+		Some(KernelData::Raw(raw)) => {
+			main_mem[..raw.len()].copy_from_slice(raw.as_slice());
+		}
+		Some(KernelData::Elf(elf)) => {
+			if let Some(addr) = load_elf(elf.as_slice(), &mut main_mem, "kernel") {
+				let old_tohost_addr = tohost_addr.replace(addr);
+				assert!(old_tohost_addr.is_none(), "tohost addr already present");
+			}
+		}
+		None => {}
+	}
 
 	let dtb = include_bytes!("../../../assets/whisker.dtb");
 	// let dtb = fs::read("assets/whisker.dtb").unwrap();
@@ -287,40 +275,46 @@ fn init_cpu(
 	cpu
 }
 
-fn load_elf(kernel_path: &Path, kernel_data: &[u8], main_mem: &mut Box<[u8]>) -> u64 {
-	let elf = ElfFile::parse(Cursor::new(&kernel_data))
-		.unwrap_or_else(|err| panic!("could not parse kernel ELF file {} | {err}", kernel_path.display()));
+fn load_elf(data: &[u8], main_mem: &mut Box<[u8]>, kind: &'static str) -> Option<u64> {
+	let elf =
+		ElfFile::parse(Cursor::new(&data)).unwrap_or_else(|err| panic!("could not parse {} ELF file: {}", kind, err));
 
-	assert_eq!(
-		elf.isa,
-		ISA::RiscV,
-		"Only RISC-V architecture kernel ELF files are supported"
-	);
-	// assert_eq!(elf.class, Class::X64, "Only 64-bit kernel ELF files are supported");
+	assert_eq!(elf.isa, ISA::RiscV, "Only RISC-V architecture ELF files are supported");
+	// assert_eq!(elf.class, Class::X64, "Only 64-bit ELF files are supported");
 	assert_eq!(
 		elf.endianness,
 		Endianness::Little,
-		"Only little-endian kernel ELF files are supported"
+		"Only little-endian ELF files are supported"
 	);
+
+	// base for PIE ELF
+	let pie_base = DRAM_BASE;
 
 	for program_header in &elf.program_headers {
 		if program_header.ty == ProgramHeaderType::PT_LOAD {
 			let file_offset = program_header.offset as usize;
-			let mem_offset = (program_header.physical_address - DRAM_BASE) as usize;
+
+			// FIXME: hack to get PIE working, but this is probably wrong
+			let mut phys_addr = program_header.physical_address;
+			if elf.ty == ElfType::Dynamic {
+				phys_addr += pie_base;
+			}
+
+			let mem_offset = (phys_addr - DRAM_BASE) as usize;
 			let len = program_header.size_in_file as usize;
 
-			let file_data = &kernel_data[file_offset..(file_offset + program_header.size_in_file as usize)];
+			let file_data = &data[file_offset..(file_offset + program_header.size_in_file as usize)];
 
 			main_mem[mem_offset..][..len].copy_from_slice(file_data);
 
 			info!(
 				"Loaded ELF segment: paddr={:#x}, size={:#x}, file_size={:#x}",
-				program_header.physical_address, program_header.size_in_memory, program_header.size_in_file
+				phys_addr, program_header.size_in_memory, program_header.size_in_file
 			);
 		}
 	}
 
-	elf.section(".tohost").map_or(0, |section| section.virtual_address)
+	elf.section(".tohost").map(|section| section.virtual_address)
 }
 
 fn run_gdb(mut cpu: WhiskerCpu) {
@@ -370,18 +364,7 @@ fn run_normal(mut cpu: WhiskerCpu) {
 		#[allow(unused_must_use)]
 		cpu.execute_one();
 
-		if cpu.tohost_addr != 0 && cpu.steps.is_multiple_of(5000) {
-			let bits = cpu
-				.memory
-				.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
-				.unwrap();
-			cpu.memory
-				.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
-				.unwrap();
-
-			let mut cmd = RiscTestCommand::new();
-			cmd.set_inner(bits.to_le_bytes());
-
+		if let Some(cmd) = cpu.check_tohost() {
 			// FIXME: This currently panics in debug mode due to the bitfield checks causing shl overflow
 			if let Some(chr) = cmd.get_print_char() {
 				// TODO: We should handle this like we do UART probably
@@ -451,6 +434,7 @@ fn generate_gdb_xml() -> String {
 #[cfg(test)]
 mod tests {
 	use std::{
+		fs,
 		io::{Write, stdout},
 		path::PathBuf,
 	};
@@ -458,8 +442,6 @@ mod tests {
 	use crate::{
 		cpu::{WhiskerCpu, WhiskerExecState},
 		init_cpu,
-		mem::{ReadKind, WriteKind},
-		riscv_tests::RiscTestCommand,
 	};
 
 	fn run_test(cpu: &mut WhiskerCpu, test_name: &str) -> Result<(), String> {
@@ -469,22 +451,8 @@ mod tests {
 		loop {
 			#[allow(unused_must_use)]
 			cpu.execute_one();
-			if cpu.steps.is_multiple_of(5000) {
-				let bits = cpu
-					.memory
-					.read_u64(&mut cpu.harts[0], cpu.tohost_addr, ReadKind::Normal)
-					.unwrap();
-				if bits == 0 {
-					continue;
-				}
 
-				cpu.memory
-					.write_u64(&mut cpu.harts[0], cpu.tohost_addr, WriteKind::Normal, 0)
-					.unwrap();
-
-				let mut cmd = RiscTestCommand::new();
-				cmd.set_inner(bits.to_le_bytes());
-
+			if let Some(cmd) = cpu.check_tohost() {
 				if let Some(chr) = cmd.get_print_char() {
 					print!("{}", chr);
 					stdout().flush().unwrap();
@@ -507,9 +475,12 @@ mod tests {
 	}
 
 	fn run_isa_tests(prefix: &str, excludes: &[&str], fail_dumps: &mut Vec<String>, successes: &mut i32) {
-		let bootrom = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-			.join("target")
-			.join("boot.bin");
+		let bootrom = fs::read(
+			PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+				.join("target")
+				.join("boot.bin"),
+		)
+		.expect("unable to read bootrom at target/boot.bin");
 		let isa_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
 			.join("riscv-tests")
 			.join("isa");
@@ -530,8 +501,16 @@ mod tests {
 				continue;
 			}
 
-			let mut cpu = init_cpu(&bootrom, &ele.path(), false, None, 1, None, true);
-			assert_ne!(cpu.tohost_addr, 0, "tohost address not set for test binary: {name_str}");
+			let bootloader_path = ele.path();
+			let bootloader = fs::read(&bootloader_path)
+				.unwrap_or_else(|e| panic!("unable to read test {}: {}", bootloader_path.display(), e));
+
+			let mut cpu = init_cpu(bootrom.clone(), Some(bootloader), None, None, 1, None, true);
+			assert!(
+				cpu.tohost_addr.is_some(),
+				"tohost addr was not set for test {}",
+				name_str
+			);
 
 			if let Err(msg) = run_test(&mut cpu, &name_str) {
 				fail_dumps.push(msg);

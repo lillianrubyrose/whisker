@@ -2,17 +2,14 @@ use std::{
 	fs::{File, OpenOptions},
 	io::Write,
 	path::{Path, PathBuf},
-	sync::{Arc, OnceLock},
+	sync::Arc,
 };
 
 use gdbstub::target::ext::breakpoints::WatchKind;
 use rustc_hash::FxHashSet;
 use spin::Mutex;
 
-use crate::{
-	mem::mmio::{MMIO_DEVICES, clint::Clint},
-	tracing::*,
-};
+use crate::{mem::mmio::clint::Clint, riscv_tests::RiscTestCommand, tracing::*};
 
 pub mod csr;
 pub mod hart;
@@ -43,7 +40,7 @@ pub enum WhiskerExecStatus {
 pub struct WhiskerCpu {
 	/// the number of execution steps that have happened
 	pub steps: u64,
-	pub tohost_addr: u64,
+	pub tohost_addr: Option<u64>,
 	pub memory: Arc<Memory>,
 
 	/// the index into `harts` which will be executed next
@@ -100,7 +97,7 @@ impl WhiskerCpu {
 
 		Self {
 			steps: 0,
-			tohost_addr: 0,
+			tohost_addr: None,
 			memory,
 
 			breakpoints: FxHashSet::default(),
@@ -179,5 +176,27 @@ impl WhiskerCpu {
 impl WhiskerCpu {
 	fn should_poll(&self) -> bool {
 		self.steps % 1024 == 0
+	}
+
+	pub fn check_tohost(&mut self) -> Option<RiscTestCommand> {
+		const TOHOST_POLL_RATE: u64 = 4096;
+
+		if let Some(tohost_addr) = self.tohost_addr
+			&& self.steps.is_multiple_of(TOHOST_POLL_RATE)
+		{
+			let bits = self
+				.memory
+				.read_hw_u64(tohost_addr)
+				.unwrap_or_else(|()| panic!("unable to read tohost addr {:#018X}", tohost_addr));
+			self.memory
+				.write_hw_u64(tohost_addr, 0)
+				.unwrap_or_else(|()| panic!("unable to write tohost addr {:#018X}", tohost_addr));
+
+			let mut cmd = RiscTestCommand::new();
+			cmd.set_inner(bits.to_le_bytes());
+			Some(cmd)
+		} else {
+			None
+		}
 	}
 }

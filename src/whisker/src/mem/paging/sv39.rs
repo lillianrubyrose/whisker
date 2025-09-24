@@ -41,7 +41,6 @@ pub fn translate(
 
 	trace!("PTE access allowed");
 
-	// TODO: check superpage alignment
 	// TODO: check A and D bits
 
 	let mut phys_addr = Sv39PhysAddr::new();
@@ -100,6 +99,20 @@ fn find_page(
 	// PTE with R or X are valid leaf PTEs
 	if pte.get_read() || pte.get_execute() {
 		trace!("leaf PTE {:#018X} at level {}", pte.as_u64(), level_idx);
+
+		// check superpage alignment
+		for i in 0..level_idx {
+			if pte.get_phys_page_num(i) != 0 {
+				trace!(
+					"misaligned superpage: pte {:#018X} at level {} has non-zero ppn for level {}",
+					pte.as_u64(),
+					level_idx,
+					i
+				);
+				return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
+			}
+		}
+
 		return Ok((pte, level_idx));
 	}
 

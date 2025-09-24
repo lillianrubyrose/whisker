@@ -337,7 +337,7 @@ fn read_satp(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_satp(hart: &mut WhiskerHart, val: u64) {
 	let conf = AddressTranslationMode::from_bits((val >> 60).truncate());
-	if !matches!(conf, AddressTranslationMode::Bare | AddressTranslationMode::Sv39) {
+	if !matches!(conf, AddressTranslationMode::Bare | AddressTranslationMode::Sv39 | AddressTranslationMode::Sv57) {
 		unimplemented!("satp.MODE {:?} not supported", conf);
 	}
 

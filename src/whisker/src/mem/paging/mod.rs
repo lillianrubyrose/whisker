@@ -1,4 +1,5 @@
 mod sv39;
+mod sv57;
 
 use crate::{
 	cpu::{csr::AddressTranslationMode, hart::WhiskerHart},
@@ -36,7 +37,7 @@ impl Memory {
 			let phys_addr = match translation_mode {
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!(),
-				AddressTranslationMode::Sv57 => todo!(),
+				AddressTranslationMode::Sv57 => sv57::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Bare => unreachable!("already checked"),
 				mode => unreachable!("unimplemented addr mode {:?}", mode),
 			};

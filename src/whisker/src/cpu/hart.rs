@@ -105,10 +105,10 @@ pub struct MStatus {
 	mpp: HartMode,
 	_fs: U2,
 	_xs: U2,
-	_mprv: U1,
+	pub mprv: U1,
 	pub sum: bool,
 	pub mxr: bool,
-	_tvm: U1,
+	pub tvm: bool,
 	_tw: U1,
 	_tsr: U1,
 	_res_23_31: U9,
@@ -1840,7 +1840,7 @@ impl WhiskerHart {
 			PrivilegedInstruction::Sret => {
 				if self.mode() < HartMode::Supervisor {
 					// FIXME: what val should this be?
-					self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0));
 				}
 
 				let mut mstatus = self.mstatus;
@@ -1861,6 +1861,8 @@ impl WhiskerHart {
 
 				// set SPP to lowest supported mode
 				mstatus.set_spp(0);
+				mstatus.set_mprv(0);
+
 				self.mstatus = mstatus;
 
 				self.next_pc = self.sepc;
@@ -1872,7 +1874,11 @@ impl WhiskerHart {
 			PrivilegedInstruction::Sfence { asid, vaddr } => {
 				if self.mode() < HartMode::Supervisor {
 					// FIXME: what val should this be?
-					self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0);
+					return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0));
+				}
+
+				if self.mode() == HartMode::Supervisor && self.mstatus.get_tvm() {
+					return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0));
 				}
 
 				let vaddr = self.registers.get(vaddr);

@@ -75,6 +75,10 @@ pub struct WhiskerHart {
 	pub scause: TrapIdx,
 	pub stval: u64,
 
+	pub pmpcfg: [u64; 2],
+	pub pmpaddr: [u64; 64],
+	pub mcounteren: u64,
+	pub scounteren: u64,
 	pub float_status_control: FloatStatusControl,
 
 	pub translation_config: AddressTranslationConfig,
@@ -135,6 +139,10 @@ impl WhiskerHart {
 			hart_id,
 			extensions,
 
+			pmpcfg: [0; 2],
+			pmpaddr: [0; 64],
+			mcounteren: 0,
+			scounteren: 0,
 			mode: HartMode::Machine,
 			debug: false,
 			requested_break: None,

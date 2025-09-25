@@ -70,6 +70,44 @@ macro_rules! define_pmp_addr_regs {
 	};
 }
 
+macro_rules! define_pmp_addr_accessors {
+    ($($id:literal),*) => {
+        paste::paste! {
+            $(
+                fn [<read_pmpaddr_ $id>](hart: &mut WhiskerHart) -> u64 {
+                    hart.pmpaddr[$id]
+                }
+                fn [<write_pmpaddr_ $id>](hart: &mut WhiskerHart, val: u64) {
+                    hart.pmpaddr[$id] = val;
+                }
+            )*
+        }
+    };
+}
+
+macro_rules! register_pmp_addrs {
+    ($reg_info:expr, $($id:literal),*) => {
+        paste::paste! {
+            $(
+                ($reg_info).insert(
+                    CSRIndex(0x3B0 + $id),
+                    CSRInfo::new_read_write(
+                        stringify!([< pmpaddr $id >]),
+                        [<read_pmpaddr_ $id>],
+                        [<write_pmpaddr_ $id>]
+                    )
+                );
+            )*
+        }
+    };
+}
+
+define_pmp_addr_accessors!(
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+	31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+	60, 61, 62, 63
+);
+
 pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 	let mut csrs = BTreeMap::default();
 	#[rustfmt::skip]
@@ -113,6 +151,12 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		// supervisor protection and translation
 		csrs, satp, 0x180, rw (read_satp, write_satp);
 
+		csrs, pmpcfg0, 0x3A0, rw (read_pmpcfg0, write_pmpcfg0);
+          csrs, pmpcfg2, 0x3A2, rw (read_pmpcfg2, write_pmpcfg2);
+
+          csrs, mcounteren, 0x306, rw read_write_trivial!(mcounteren);
+          csrs, scounteren, 0x106, rw read_write_trivial!(scounteren);
+
 		// float status
 		csrs, fflags, 0x001, rw (
 									|hart| read_fcsr(hart) & 0b11111,
@@ -133,8 +177,11 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		);
 	);
 
-	define_pmp_cfg_regs!(&mut csrs, 0 2 4 6 8 10 12 14);
-	define_pmp_addr_regs!(&mut csrs, 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63);
+	register_pmp_addrs!(
+		&mut csrs, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+		27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
+		55, 56, 57, 58, 59, 60, 61, 62, 63
+	);
 
 	csrs
 }
@@ -337,7 +384,10 @@ fn read_satp(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_satp(hart: &mut WhiskerHart, val: u64) {
 	let conf = AddressTranslationMode::from_bits((val >> 60).truncate());
-	if !matches!(conf, AddressTranslationMode::Bare | AddressTranslationMode::Sv39 | AddressTranslationMode::Sv57) {
+	if !matches!(
+		conf,
+		AddressTranslationMode::Bare | AddressTranslationMode::Sv39 | AddressTranslationMode::Sv57
+	) {
 		unimplemented!("satp.MODE {:?} not supported", conf);
 	}
 
@@ -356,6 +406,18 @@ fn read_time(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_time(hart: &mut WhiskerHart, val: u64) {
 	hart.cycles = val;
+}
+fn read_pmpcfg0(hart: &mut WhiskerHart) -> u64 {
+	hart.pmpcfg[0]
+}
+fn write_pmpcfg0(hart: &mut WhiskerHart, val: u64) {
+	hart.pmpcfg[0] = val;
+}
+fn read_pmpcfg2(hart: &mut WhiskerHart) -> u64 {
+	hart.pmpcfg[1]
+}
+fn write_pmpcfg2(hart: &mut WhiskerHart, val: u64) {
+	hart.pmpcfg[1] = val;
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

@@ -1,4 +1,9 @@
-use crate::{cpu::csr::CSRIndex, insn::*, insn32::IType, tracing::*, ty::GPRegisterIndex};
+use crate::{
+	cpu::csr::CSRIndex,
+	insn::*,
+	insn32::{IType, RType},
+	tracing::*,
+};
 
 pub fn parse_system(parcel: u32) -> Option<Instruction> {
 	use consts::*;
@@ -6,7 +11,7 @@ pub fn parse_system(parcel: u32) -> Option<Instruction> {
 	let itype = IType::parse(parcel);
 	// FIXME: check csr support somehow?
 	match itype.func() {
-		funcs::FUNC_0 => parse_func_0(itype),
+		funcs::FUNC_0 => parse_func_0(itype, parcel),
 		funcs::CSRRW => Some(
 			CSRInstruction::CSRReadWrite {
 				dst: itype.dst().to_gp(),
@@ -60,8 +65,20 @@ pub fn parse_system(parcel: u32) -> Option<Instruction> {
 	}
 }
 
-fn parse_func_0(itype: IType) -> Option<Instruction> {
+fn parse_func_0(itype: IType, parcel: u32) -> Option<Instruction> {
 	use consts::*;
+
+	let rtype = RType::parse(parcel);
+	if rtype.func7() == func0::SFENCE_VMA && rtype.dst().as_usize() == 0 {
+		return Some(
+			PrivilegedInstruction::Sfence {
+				vaddr: rtype.src1().to_gp(),
+				asid: rtype.src2().to_gp(),
+			}
+			.into(),
+		);
+	}
+
 	match (itype.dst().to_gp().as_usize(), itype.src().to_gp().as_usize()) {
 		(0, 0) => match itype.imm() {
 			func0::ECALL => Some(IntInstruction::ECall.into()),
@@ -69,14 +86,6 @@ fn parse_func_0(itype: IType) -> Option<Instruction> {
 			func0::MRET => Some(PrivilegedInstruction::Mret.into()),
 			func0::SRET => Some(PrivilegedInstruction::Sret.into()),
 			func0::WFI => Some(PrivilegedInstruction::WaitForInterrupt.into()),
-			// FIXME: dont hard code these
-			func0::SFENCE => Some(
-				PrivilegedInstruction::Sfence {
-					asid: GPRegisterIndex::ZERO,
-					vaddr: GPRegisterIndex::ZERO,
-				}
-				.into(),
-			),
 			imm => {
 				warn!("UNIMPLEMENTED: SYSTEM func=0b000 rd=0b00000 rs1=0b00000 imm={imm:#014b}");
 				None
@@ -115,7 +124,7 @@ pub mod consts {
 		pub const MRET: i64 = 0b0011_0000_0010;
 		pub const SRET: i64 = 0b0001_0000_0010;
 		pub const WFI: i64 = 0b0001_0000_0101;
-		// FIXME: parse rs2 out instead of requiring it to be 0
-		pub const SFENCE: i64 = 0b0001_0010_0000;
+
+		pub const SFENCE_VMA: u8 = 0b0001001;
 	}
 }

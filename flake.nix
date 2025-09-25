@@ -89,6 +89,7 @@
               pkgs.cmake
               pkgs.socat
               pkgs.linuxKernel.packages.linux_latest_libre.perf
+              pkgs.dtc
 
               # riscv-tests
               pkgs.autoconf

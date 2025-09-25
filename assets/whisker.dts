@@ -16,13 +16,13 @@
 
 	memory@80000000 {
 		device_type = "memory";
-		reg = <0x00 0x80000000 0x00 0x08000000>;
+		reg = <0x00 0x80000000 0x00 0x8000000>;
 	};
 
 	cpus {
 		#address-cells = <0x01>;
 		#size-cells = <0x00>;
-		timebase-frequency = <1000000>; // 1MHz
+		timebase-frequency = <0xf4240>;
 
 		cpu@0 {
 			phandle = <0x01>;
@@ -30,7 +30,7 @@
 			reg = <0x00>;
 			status = "okay";
 			compatible = "riscv";
-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c","zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd", "sstc";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd", "sstc";
 			riscv,isa-base = "rv64i";
 			riscv,isa = "rv64imafdc_zicsr_zifencei_zaamo_zalrsc_zca_zcd_sstc";
 			mmu-type = "riscv,sv39";
@@ -57,6 +57,7 @@
 	};
 
 	chosen {
+	     bootargs = "root=/dev/vda ro console=ttyS0";
 		stdout-path = "/soc/serial@10000000";
 		rng-seed = <0xf024f551 0x113b2345 0x634ce484 0x88d1e6d7 0x4ef455c6 0x78c102fc 0x4ff7a80c 0x13bb7a>;
 	};
@@ -77,7 +78,7 @@
 		serial@10000000 {
 			interrupts = <0x0a>;
 			interrupt-parent = <0x03>;
-			clock-frequency = "", "8@";
+			clock-frequency = <3686400>;
 			reg = <0x00 0x10000000 0x00 0x100>;
 			compatible = "ns16550a";
 		};
@@ -97,7 +98,7 @@
 
 		plic@c000000 {
 			phandle = <0x03>;
-			riscv,ndev = <63>;
+			riscv,ndev = <0x1f>;
 			reg = <0x00 0xc000000 0x00 0x600000>;
 			interrupts-extended = <0x02 0x0b 0x02 0x09>;
 			interrupt-controller;

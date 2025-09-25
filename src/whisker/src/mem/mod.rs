@@ -258,6 +258,33 @@ impl Memory {
 		}
 	}
 
+	pub fn write_pte(&self, hart: &mut WhiskerHart, phys_addr: u64, val: u64) -> Result<(), TrapRequestGuaranteed> {
+		let size = core::mem::size_of::<u64>() as u8;
+		let effective_addr = phys_addr;
+
+		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
+		};
+		let region = &mut *region_guard;
+
+		if !region.attrs.access_kinds.contains(AccessKind::WRITE) || size > region.attrs.max_size {
+			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
+		}
+		if !phys_addr.is_multiple_of(u64::from(size)) {
+			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
+		}
+
+		match region.kind {
+			MemoryKind::MainMemory { ref mut backing } => {
+				let offset = phys_addr - region.start;
+				let bytes = val.to_le_bytes();
+				backing[offset as usize..][..size as usize].copy_from_slice(&bytes);
+				Ok(())
+			}
+			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Store, effective_addr)),
+		}
+	}
+
 	pub fn load_reserved_word(
 		&self,
 		hart: &mut WhiskerHart,

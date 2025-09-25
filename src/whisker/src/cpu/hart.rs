@@ -260,10 +260,13 @@ impl WhiskerHart {
 			return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 		}
 
-		// FIXME: all the modes?
-		warn!(
-			"{:?} requesting trap kind cause={:?} tval={:#018X} trapping pc {:#018X} mode={:?}",
-			self.hart_id, trap, tval, self.pc, self.mode
+		info!(
+			"{:?} requesting trap {:?} tval={:#018X} epc {:#018X} from_mode={:?}",
+			self.hart_id,
+			trap,
+			tval,
+			self.pc,
+			self.mode()
 		);
 
 		// handle the trap appropriately depending on whether it's delegated

@@ -80,7 +80,6 @@ impl MMIODevice for Clint {
 		let mut bytes = [0u8; 8];
 		bytes[..val.len()].copy_from_slice(val);
 		let value = u64::from_le_bytes(bytes);
-		error!("writing {:#018X} to clint {:#018X}", value, addr);
 
 		match addr {
 			MSIP => self.pending = (value & 1) != 0,

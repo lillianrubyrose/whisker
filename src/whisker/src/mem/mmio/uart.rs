@@ -32,12 +32,80 @@ pub const LINE_STATUS_REG: u64 = UART_BASE + 5;
 pub const MODEM_STATUS_REG: u64 = UART_BASE + 6;
 pub const SCRATCH_REG: u64 = UART_BASE + 7;
 
+bitflags::bitflags! {
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+	struct LineStatus: u8 {
+		const DATA_READY = 1 << 0;
+		const OVERRUN_ERROR = 1 << 1;
+		const PARITY_ERROR = 1 << 2;
+		const FRAMING_ERROR = 1 << 3;
+		const BREAK_INTERRUPT = 1 << 4;
+		const TX_HOLDING_REG_EMPTY = 1 << 5;
+		const TX_EMPTY = 1 << 6;
+		const FIFO_ERROR = 1 << 7;
+	}
+}
+
+impl Default for LineStatus {
+	fn default() -> Self {
+		// Transmitter is always ready to accept new characters.
+		Self::TX_HOLDING_REG_EMPTY | Self::TX_EMPTY
+	}
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+struct LineControl {
+	word_length: U2,
+	stop_bits: bool,
+	parity_enable: bool,
+	even_parity: bool,
+	stick_parity: bool,
+	break_control: bool,
+	dlab: bool,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy, Default)]
+struct ModemControl {
+	data_term_ready: bool,
+	request_to_send: bool,
+	out1: bool,
+	interrupt_enable: bool,
+	loopback: bool,
+	_res: U3,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+struct ModemStatus {
+	delta_clear_to_send: bool,
+	delta_data_set_ready: bool,
+	trailing_edge_ring_indicator: bool,
+	delta_data_carrier_detect: bool,
+	clear_to_send: bool,
+	data_set_ready: bool,
+	ring_indicator: bool,
+	data_carrier_detect: bool,
+}
+
+impl Default for ModemStatus {
+	fn default() -> Self {
+		let mut s = Self::new();
+		s.set_data_set_ready(true);
+		s.set_clear_to_send(true);
+		s
+	}
+}
+
 pub struct UART {
-	data_reg: u8,
 	interrupt_enable: UartInterruptKind,
 	queue_interrupt_level: u8,
 
-	line_control_reg: u8,
+	line_control: LineControl,
+	line_status: LineStatus,
+	modem_control: ModemControl,
+	modem_status: ModemStatus,
 
 	scratch_reg: u8,
 
@@ -104,12 +172,17 @@ impl UART {
 		#[cfg(test)]
 		let (mut reader, writer) = (std::io::stdin(), std::io::stdout());
 
+		let mut line_control = LineControl::new();
+		line_control.set_word_length(3); // 8 bits
+
 		let this = Arc::new(Mutex::new(Self {
-			data_reg: 0,
 			interrupt_enable: UartInterruptKind::empty(),
 			queue_interrupt_level: 1,
 
-			line_control_reg: 0b00000011, // no parity, 1 stop, 8 data
+			line_control,
+			line_status: LineStatus::default(),
+			modem_control: ModemControl::default(),
+			modem_status: ModemStatus::default(),
 
 			scratch_reg: 0,
 
@@ -135,10 +208,12 @@ impl UART {
 
 				let mut uart = uart.lock();
 				uart.data_queue.push_back(b);
+				uart.line_status.insert(LineStatus::DATA_READY);
 				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE)
 					&& uart.data_queue.len() >= usize::from(uart.queue_interrupt_level)
 				{
 					uart.interrupt_id.set_pending(true);
+					uart.interrupt_id.set_kind(InterruptReason::ReceivedDataAvailable);
 					uart.interrupt_tx
 						.send(InterruptMessage::new_high(InterruptSource::UART))
 						.expect("could not send to interrupt controller");
@@ -153,7 +228,7 @@ impl UART {
 impl MMIODevice for UART {
 	fn read(&mut self, _: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
 		let out = &mut buf[0];
-		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
+		let is_dlab = self.line_control.get_dlab();
 		match addr {
 			DATA_REG => {
 				if is_dlab {
@@ -173,21 +248,15 @@ impl MMIODevice for UART {
 			}
 			INTERRUPT_IDENT_REG => {
 				let ret = u8::from_le_bytes(self.interrupt_id.inner());
-				self.interrupt_tx
-					.send(InterruptMessage::new_low(InterruptSource::UART))
-					.expect("unable to send interrupt controller");
+				if self.interrupt_id.get_kind() == InterruptReason::TransmitterHoldingRegisterEmpty {
+					self.interrupt_id.set_pending(false);
+				}
 				*out = ret;
 			}
-			LINE_CONTROL_REG => *out = self.line_control_reg,
-			MODEM_CONTROL_REG => {
-				// FIXME: dont do this
-				warn!("ignored read from UART modem control register");
-			}
-			LINE_STATUS_REG => *out = self.read_line_status(),
-			MODEM_STATUS_REG => {
-				// FIXME: dont do this
-				warn!("ignored read from UART modem status register");
-			}
+			LINE_CONTROL_REG => *out = u8::from_le_bytes(self.line_control.inner()),
+			MODEM_CONTROL_REG => *out = u8::from_le_bytes(self.modem_control.inner()),
+			LINE_STATUS_REG => *out = self.line_status.bits(),
+			MODEM_STATUS_REG => *out = u8::from_le_bytes(self.modem_status.inner()),
 			SCRATCH_REG => *out = self.scratch_reg,
 			_ => warn!("read from unknown UART addr {:#018X}", addr),
 		}
@@ -195,7 +264,7 @@ impl MMIODevice for UART {
 
 	fn write(&mut self, _: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		let val = val[0];
-		let is_dlab = self.line_control_reg & 0b1000_0000 == 0b1000_0000;
+		let is_dlab = self.line_control.get_dlab();
 		match addr {
 			DATA_REG => {
 				if is_dlab {
@@ -216,11 +285,8 @@ impl MMIODevice for UART {
 				}
 			}
 			FIFO_CONTROL_REG => self.write_fifo_control(val),
-			LINE_CONTROL_REG => self.write_line_control(val),
-			MODEM_CONTROL_REG => {
-				// FIXME: dont do this
-				warn!("ignored write of {:02X} to UART Modem Control Register", val);
-			}
+			LINE_CONTROL_REG => self.line_control.set_inner(val.to_le_bytes()),
+			MODEM_CONTROL_REG => self.modem_control.set_inner(val.to_le_bytes()),
 			LINE_STATUS_REG => {} // ignored
 			MODEM_STATUS_REG => {
 				warn!("ignored write of {:02X} to UART Modem Status Register", val);
@@ -236,20 +302,28 @@ impl MMIODevice for UART {
 impl UART {
 	fn do_read(&mut self) -> u8 {
 		if let Some(val) = self.data_queue.pop_front() {
-			self.data_reg = val;
+			if self.data_queue.is_empty() {
+				self.line_status.remove(LineStatus::DATA_READY);
+			}
 			if self.data_queue.len() < usize::from(self.queue_interrupt_level) {
 				self.interrupt_id.set_pending(false);
 				self.interrupt_tx
 					.send(InterruptMessage::new_low(InterruptSource::UART))
 					.expect("unable to send interrupt controller");
 			}
+			val
+		} else {
+			0
 		}
-		self.data_reg
 	}
 
 	fn do_write(&mut self, val: u8) {
-		self.data_reg = val;
-		let _ = write!(&mut self.stdout, "{}", self.data_reg as char);
+		if self.modem_control.get_loopback() {
+			self.data_queue.push_back(val);
+			return;
+		}
+
+		let _ = write!(&mut self.stdout, "{}", val as char);
 		// FIXME: it would be nice to flush stdout all the time but its VERY slow, reconsider this
 		//let _ = self.stdout.flush();
 
@@ -264,29 +338,21 @@ impl UART {
 			// 8N1 @ 115200 baud is 11520 bytes per second
 			// it might be a good idea to hold off on sending interrupts to allow
 			// the cpu to process other things
+			self.interrupt_id.set_pending(true);
+			self.interrupt_id
+				.set_kind(InterruptReason::TransmitterHoldingRegisterEmpty);
 			self.interrupt_tx
 				.send(InterruptMessage::new_high(InterruptSource::UART))
 				.expect("could not send to interrupt controller");
 		}
 	}
 
-	fn write_line_control(&mut self, val: u8) {
-		// we only support setting the DLAB bit
-		let val = val & 0b1000_0000;
-		self.line_control_reg &= 0b0111_1111;
-		self.line_control_reg |= val;
-	}
-
-	fn read_line_status(&mut self) -> u8 {
-		let has_data = u8::from(self.data_queue.len() > 0);
-
-		let tx_ready = u8::from(true);
-		let tx_line_ready = u8::from(true);
-
-		tx_line_ready << 6 | tx_ready << 5 | has_data
-	}
-
 	fn write_fifo_control(&mut self, val: u8) {
+		if val & 1 != 0 {
+			self.interrupt_id.set_fifo_enabled(0b11);
+		} else {
+			self.interrupt_id.set_fifo_enabled(0);
+		}
 		if val & (1 << 1) != 0 {
 			self.data_queue.clear();
 		}
@@ -318,10 +384,26 @@ bitflags::bitflags! {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BitFieldRepr)]
+enum InterruptReason {
+	ModemStatus = 0b000,
+	TransmitterHoldingRegisterEmpty = 0b001,
+	ReceivedDataAvailable = 0b010,
+	ReceiverLineStatus = 0b011,
+	CharacterTimeout = 0b110,
+}
+
+impl InterruptReason {
+	fn bits(self) -> u8 {
+		self as u8
+	}
+}
+
 #[bitfields]
 #[derive(Debug, Clone, Copy)]
 struct InterruptIdentification {
 	pending: bool,
-	kind: U3,
-	_res_4_7: U4,
+	kind: InterruptReason,
+	_res_4_5: U2,
+	fifo_enabled: U2,
 }

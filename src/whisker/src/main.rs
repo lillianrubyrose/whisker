@@ -176,6 +176,7 @@ fn init_cpu(
 		| RiscvExtensions::MULTIPLY
 		| RiscvExtensions::ATOMIC
 		| RiscvExtensions::FLOAT
+		| RiscvExtensions::DOUBLE
 		| RiscvExtensions::COMPRESSED
 		| RiscvExtensions::SUPERVISOR
 		| RiscvExtensions::USER_MODE;

@@ -536,6 +536,9 @@ impl WhiskerHart {
 			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => {
 				self.execute_f_insn(insn, mem)
 			}
+			Instruction::Double(insn) if self.supports_extensions(RiscvExtensions::DOUBLE) => {
+				self.execute_d_insn(insn, mem)
+			}
 			// FIXME: Figure out what the official ISA defined bit pattern is for Zicsr
 			Instruction::Zicsr(insn) => self.execute_csr_insn(insn, mem),
 			// We don't have to check compressed here as we handle that in the caller.
@@ -1182,6 +1185,17 @@ impl WhiskerHart {
 				let val = self.fp_registers.get_float(src);
 				let class = val.fclass();
 				self.registers.set(dst, class.to_shift().extend::<u64>());
+			}
+		}
+		Ok(())
+	}
+
+	fn execute_d_insn(&mut self, insn: DoubleInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+		match insn {
+			DoubleInstruction::Store { dst, dst_offset, src } => {
+				let addr = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let src = self.fp_registers.get_double(src);
+				mem.write_u64(self, addr, WriteKind::Normal, src.to_u64())?;
 			}
 		}
 		Ok(())

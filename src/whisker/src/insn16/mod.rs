@@ -57,7 +57,13 @@ impl CompressedInstruction {
 			}
 			RESERVED => None,
 			FSD => {
-				todo!("FSD (D ext) {:#06X}", parcel)
+				warn!("Someone make sure C.FSD offset is right!!");
+				let cs = CStoreType::parse(parcel);
+				Some(DoubleInstruction::Store {
+					dst: cs.dst(),
+					dst_offset: cs.imm().cast_signed(),
+					src: cs.src().to_fp(),
+				}.into())
 			}
 			STORE_WORD => {
 				let cs = CStoreType::parse(parcel);
@@ -65,7 +71,7 @@ impl CompressedInstruction {
 					IntInstruction::StoreWord {
 						dst: cs.dst(),
 						dst_offset: cs.imm().cast_signed(),
-						src: cs.src(),
+						src: cs.src().to_gp(),
 					}
 					.into(),
 				)
@@ -76,7 +82,7 @@ impl CompressedInstruction {
 					IntInstruction::StoreDoubleWord {
 						dst: cs.dst(),
 						dst_offset: cs.imm().cast_signed(),
-						src: cs.src(),
+						src: cs.src().to_gp(),
 					}
 					.into(),
 				)
@@ -471,12 +477,13 @@ mod ty {
 		ty::GPRegisterIndex,
 		util::{extract_bits_16, sign_ext_imm},
 	};
+	use crate::ty::UnknownRegisterIndex;
 
-	fn extract_smol_reg(parcel: u16, start: u8) -> GPRegisterIndex {
+	fn extract_smol_reg(parcel: u16, start: u8) -> UnknownRegisterIndex {
 		// small registers are 3 bits
 		let reg = extract_bits_16(parcel, start, start + 2) as u8;
 		// UNWRAP: any 3 bit value plus 8 is in range
-		GPRegisterIndex::new(reg + 8).unwrap()
+		UnknownRegisterIndex::new(reg + 8).unwrap()
 	}
 
 	fn extract_reg(parcel: u16, start: u8, end: u8) -> GPRegisterIndex {
@@ -643,7 +650,7 @@ mod ty {
 				| (extract_bits_16(parcel, 8, 8) << 7)
 				| (extract_bits_16(parcel, 9, 9) << 8)
 				| (extract_bits_16(parcel, 10, 10) << 9)) as i64;
-			let dst = extract_smol_reg(parcel, 2);
+			let dst = extract_smol_reg(parcel, 2).to_gp();
 			Self { dst, imm }
 		}
 
@@ -688,8 +695,8 @@ mod ty {
 			};
 
 			Self {
-				dst: extract_smol_reg(parcel, 2),
-				src: extract_smol_reg(parcel, 7),
+				dst: extract_smol_reg(parcel, 2).to_gp(),
+				src: extract_smol_reg(parcel, 7).to_gp(),
 				imm,
 			}
 		}
@@ -711,7 +718,7 @@ mod ty {
 	#[derive(Debug)]
 	pub struct CStoreType {
 		dst: GPRegisterIndex,
-		src: GPRegisterIndex,
+		src: UnknownRegisterIndex,
 		imm: u64,
 	}
 
@@ -734,13 +741,17 @@ mod ty {
 					let imm_3_5 = extract_bits_16(parcel, 10, 12);
 					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
-				// TODO: C.FSD not yet implemented
+				FSD => {
+					let imm_6_5 = extract_bits_16(parcel, 6, 5);
+					let imm_10_12 = extract_bits_16(parcel, 10, 12);
+					(imm_6_5 << 6 | imm_10_12 << 10) as u64
+				}
 				_ => unreachable!("invalid CStoreType func3 {func:#05b}"),
 			};
 
 			Self {
 				src: extract_smol_reg(parcel, 2),
-				dst: extract_smol_reg(parcel, 7),
+				dst: extract_smol_reg(parcel, 7).to_gp(),
 				imm,
 			}
 		}
@@ -750,7 +761,7 @@ mod ty {
 			self.dst
 		}
 		#[inline]
-		pub fn src(&self) -> GPRegisterIndex {
+		pub fn src(&self) -> UnknownRegisterIndex {
 			self.src
 		}
 		#[inline]
@@ -768,8 +779,8 @@ mod ty {
 	impl CAType {
 		pub fn parse(parcel: u16) -> Self {
 			Self {
-				src2: extract_smol_reg(parcel, 2),
-				src1: extract_smol_reg(parcel, 7),
+				src2: extract_smol_reg(parcel, 2).to_gp(),
+				src1: extract_smol_reg(parcel, 7).to_gp(),
 			}
 		}
 
@@ -802,7 +813,7 @@ mod ty {
 			let offset = sign_ext_imm(imm_1_2 << 1 | imm_3_4 << 3 | imm_5 << 5 | imm_6_7 << 6 | imm_8 << 8, 8);
 
 			Self {
-				src: extract_smol_reg(parcel, 7),
+				src: extract_smol_reg(parcel, 7).to_gp(),
 				offset,
 			}
 		}
@@ -840,7 +851,7 @@ mod ty {
 			};
 
 			Self {
-				reg: extract_smol_reg(parcel, 7),
+				reg: extract_smol_reg(parcel, 7).to_gp(),
 				imm,
 			}
 		}

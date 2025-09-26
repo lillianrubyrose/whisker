@@ -275,7 +275,7 @@ impl WhiskerHart {
 			HartMode::User | HartMode::Supervisor if self.medeleg.is_enabled(trap) || self.mideleg.is_enabled(trap) => {
 				self.do_trap_s_mode(trap, tval)
 			}
-			HartMode::Hypervisor => todo!("H-mode traps not implemented"),
+			HartMode::Hypervisor => unimplemented!("H-mode traps not implemented"),
 			// traps that were not delegated to lower modes, or the hart is in M mode
 			_ => self.do_trap_m_mode(trap, tval),
 		}
@@ -366,7 +366,7 @@ impl WhiskerHart {
 	pub fn check_interrupt_trap(&mut self) -> bool {
 		let to_trap = match self.mode() {
 			HartMode::User | HartMode::Supervisor => self.check_interrupt_s_mode(),
-			HartMode::Hypervisor => todo!("H-mode traps not implemented"),
+			HartMode::Hypervisor => unimplemented!("H-mode traps not implemented"),
 			HartMode::Machine => self.check_interrupt_m_mode(),
 		};
 
@@ -512,14 +512,14 @@ impl WhiskerHart {
 			}
 		} else if extract_bits_16(parcel_u16, 0, 5) == 0b011111 {
 			if support_compressed {
-				todo!("implement 48bit instruction")
+				unimplemented!("48bit instructions")
 			} else {
 				// FIXME: this is probably not the right mtval
 				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))
 			}
 		} else if extract_bits_16(parcel_u16, 0, 6) == 0b0111111 {
 			if support_compressed {
-				todo!("implement 64bit instruction")
+				unimplemented!("64bit instructions")
 			} else {
 				// FIXME: this is probably not the right mtval
 				Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel_u16.extend()))

@@ -55,7 +55,7 @@ impl MMIOKind {
 
 		match MMIO_DEVICES.lock().get_mut(&self) {
 			Some(device) => device.lock().read(hart, addr, buf),
-			None => error!("missing MMIO device {:?}", self),
+			None => error!("read from missing MMIO device {:?}", self),
 		}
 	}
 
@@ -72,7 +72,7 @@ impl MMIOKind {
 
 		match MMIO_DEVICES.lock().get_mut(&self) {
 			Some(device) => device.lock().write(hart, addr, val),
-			None => todo!("missing MMIO device?"),
+			None => error!("wrote to missing MMIO device {:?}", self),
 		}
 	}
 }

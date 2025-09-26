@@ -108,15 +108,13 @@ fn find_page(
 		}
 
 		return Ok((pte, level_idx));
-	} else {
-		if pte.get_res_54_63() != 0 {
-			trace!(
-				"pointer PTE has reserved bits set: {:#018X} at {:#018X}",
-				pte.as_u64(),
-				pte_addr
-			);
-			return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-		}
+	} else if pte.get_res_54_63() != 0 {
+		trace!(
+			"pointer PTE has reserved bits set: {:#018X} at {:#018X}",
+			pte.as_u64(),
+			pte_addr
+		);
+		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
 	}
 
 	trace!("parent PTE {:#018X} at level {}", pte.as_u64(), level_idx);
@@ -175,6 +173,7 @@ impl Sv57Addr {
 }
 
 #[bitfields]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Sv57PageTableEntry {
 	valid: bool,
 	read: bool,
@@ -206,7 +205,7 @@ impl Sv57PageTableEntry {
 		Ok(this)
 	}
 
-	fn get_phys_page_num(&self, idx: u8) -> u64 {
+	fn get_phys_page_num(self, idx: u8) -> u64 {
 		match idx {
 			0 => u64::from(self.get_phys_page_num_0()),
 			1 => u64::from(self.get_phys_page_num_1()),
@@ -217,7 +216,7 @@ impl Sv57PageTableEntry {
 		}
 	}
 
-	fn get_full_phys_page_num(&self) -> u64 {
+	fn get_full_phys_page_num(self) -> u64 {
 		u64::from(self.get_phys_page_num_0())
 			| u64::from(self.get_phys_page_num_1()) << 9
 			| u64::from(self.get_phys_page_num_2()) << 18
@@ -225,7 +224,7 @@ impl Sv57PageTableEntry {
 			| u64::from(self.get_phys_page_num_4()) << 36
 	}
 
-	fn as_u64(&self) -> u64 {
+	fn as_u64(self) -> u64 {
 		u64::from_le_bytes(self.inner())
 	}
 }

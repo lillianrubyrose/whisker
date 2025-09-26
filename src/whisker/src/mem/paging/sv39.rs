@@ -183,7 +183,7 @@ impl Sv39Addr {
 }
 
 #[bitfields]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Sv39PageTableEntry {
 	valid: bool,
 	read: bool,
@@ -215,7 +215,7 @@ impl Sv39PageTableEntry {
 		Ok(this)
 	}
 
-	fn get_phys_page_num(&self, idx: u8) -> u64 {
+	fn get_phys_page_num(self, idx: u8) -> u64 {
 		match idx {
 			0 => u64::from(self.get_phys_page_num_0()),
 			1 => u64::from(self.get_phys_page_num_1()),
@@ -224,13 +224,13 @@ impl Sv39PageTableEntry {
 		}
 	}
 
-	fn get_full_phys_page_num(&self) -> u64 {
+	fn get_full_phys_page_num(self) -> u64 {
 		u64::from(self.get_phys_page_num_0())
 			| u64::from(self.get_phys_page_num_1()) << 9
 			| u64::from(self.get_phys_page_num_2()) << 18
 	}
 
-	fn as_u64(&self) -> u64 {
+	fn as_u64(self) -> u64 {
 		u64::from_le_bytes(self.inner())
 	}
 }

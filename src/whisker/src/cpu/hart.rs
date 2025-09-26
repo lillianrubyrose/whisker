@@ -131,6 +131,7 @@ const _: () = {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HartBreakKind {
 	Watchpoint(WatchKind, u64),
+	DebugPause,
 }
 
 impl WhiskerHart {
@@ -1225,7 +1226,7 @@ impl WhiskerHart {
 					let val = self.read_csr(&token);
 					let mask = self.registers.get(mask);
 					self.registers.set(dst, val);
-					self.write_csr(&token, val & mask);
+					self.write_csr(&token, val & !mask);
 				}
 			}
 			CSRInstruction::CSRReadWriteImm { dst, imm, csr } => {
@@ -1297,7 +1298,7 @@ impl WhiskerHart {
 				}
 
 				let val = mem.load_reserved_word(self, addr)?;
-				self.registers.set(dst, val.extend());
+				self.registers.set(dst, val.sign_extend::<u64>());
 			}
 			AtomicInstruction::StoreConditionalWord {
 				src1,

@@ -133,13 +133,9 @@ impl MMIODevice for PlatformInterruptController {
 			ENABLE_REG_MIN..ENABLE_REG_MAX => {
 				let offset = (offset - ENABLE_REG_MIN) as usize;
 				let context = offset / 0x80;
-				let idx = offset % 80;
+				let idx = offset % 0x80;
 				let ctx = self.context_info.get(context).unwrap();
-				if let Some(val) = ctx.enabled.get(idx) {
-					*out = *val;
-				} else {
-					error!("FIXME: access oob plic");
-				}
+				*out = ctx.enabled[idx];
 			}
 			CONTEXT_REG_MIN..CONTEXT_REG_MAX => {
 				let offset = (offset - CONTEXT_REG_MIN) as usize;

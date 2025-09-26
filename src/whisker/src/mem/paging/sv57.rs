@@ -27,7 +27,7 @@ pub fn translate(
 
 	let base = hart.translation_config.get_root_page_num() * PAGE_SIZE;
 	trace!("PTE root at {:#018X}", base);
-	let (pte, level_idx) = find_page(memory, hart, access_kind, SV_57_LEVELS - 1, base, va)?;
+	let (pte, pte_addr, level_idx) = find_page(memory, hart, access_kind, SV_57_LEVELS - 1, base, va)?;
 	trace!("found final PTE {:#018X} at level {}", pte.as_u64(), level_idx);
 
 	let r = pte.get_read();
@@ -41,23 +41,35 @@ pub fn translate(
 
 	trace!("PTE access allowed");
 
-	// TODO: check A and D bits
+	let accessed = pte.get_accessed();
+	let dirty = pte.get_dirty();
+	let mut new_pte = pte;
+	// any memory access sets the accessed bit
+	if !accessed {
+		new_pte.set_accessed(true);
+	}
+	if !dirty && access_kind == MemoryOpKind::Store {
+		new_pte.set_dirty(true);
+	}
+	if new_pte != pte {
+		memory
+			.write_pte(hart, pte_addr, new_pte.as_u64())
+			.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
+	}
 
 	let mut phys_addr = Sv57PhysAddr::new();
 	trace!("va page offset {:#018X}", va.get_page_offset());
 	phys_addr.set_page_offset(va.get_page_offset());
 
-	// copy superpage bits from virt addr
-	if level_idx > 0 {
-		for idx in 0..level_idx {
-			let page_num = va.get_page_num(idx);
-			phys_addr.set_ppn_idx(page_num, idx);
-		}
+	// superpage bits
+	for i in 0..level_idx {
+		let page_num = va.get_page_num(i);
+		phys_addr.set_ppn_idx(page_num, i);
 	}
 
-	for idx in level_idx..SV_57_LEVELS {
-		let page_num = pte.get_phys_page_num(idx);
-		phys_addr.set_ppn_idx(page_num, idx);
+	for i in level_idx..SV_57_LEVELS {
+		let page_num = pte.get_phys_page_num(i);
+		phys_addr.set_ppn_idx(page_num, i);
 	}
 
 	Ok(phys_addr.as_u64())
@@ -70,7 +82,7 @@ fn find_page(
 	level_idx: u8,
 	base: u64,
 	va: Sv57Addr,
-) -> Result<(Sv57PageTableEntry, u8), TrapRequestGuaranteed> {
+) -> Result<(Sv57PageTableEntry, u64, u8), TrapRequestGuaranteed> {
 	trace!(
 		"page lookup base {:#018X} level {} va {:#018X}",
 		base,
@@ -107,7 +119,7 @@ fn find_page(
 			}
 		}
 
-		return Ok((pte, level_idx));
+		return Ok((pte, pte_addr, level_idx));
 	} else if pte.get_res_54_63() != 0 {
 		trace!(
 			"pointer PTE has reserved bits set: {:#018X} at {:#018X}",

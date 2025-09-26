@@ -61,6 +61,7 @@ pub fn translate(
 	trace!("va page offset {:#018X}", va.get_page_offset());
 	phys_addr.set_page_offset(va.get_page_offset());
 
+	// superpage bits
 	for i in 0..level_idx {
 		let page_num = va.get_page_num(i);
 		phys_addr.set_ppn_idx(page_num, i);

@@ -93,7 +93,7 @@ impl Registers for Rv64Regs {
 		let ptrsize = core::mem::size_of::<u64>();
 
 		// ensure bytes.chunks_exact(ptrsize) won't panic
-		if bytes.len() % ptrsize != 0 {
+		if !bytes.len().is_multiple_of(ptrsize) {
 			return Err(());
 		}
 

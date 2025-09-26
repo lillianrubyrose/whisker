@@ -114,7 +114,7 @@ impl WhiskerCpu {
 	pub fn execute_one(&mut self) -> Result<(), WhiskerExecStatus> {
 		self.steps += 1;
 
-		if self.steps % 16 == 0 {
+		if self.steps.is_multiple_of(16) {
 			self.interrupt_controller.lock().poll(&mut self.harts);
 		}
 
@@ -178,7 +178,7 @@ impl WhiskerCpu {
 
 impl WhiskerCpu {
 	fn should_poll(&self) -> bool {
-		self.steps % 1024 == 0
+		self.steps.is_multiple_of(1024)
 	}
 
 	pub fn check_tohost(&mut self) -> Option<RiscTestCommand> {

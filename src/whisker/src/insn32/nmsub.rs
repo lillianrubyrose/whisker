@@ -10,7 +10,7 @@ pub fn parse_nmsub(parcel: u32) -> Option<Instruction> {
 	let fmt = r4type.func2();
 	match fmt {
 		SINGLE_PRECISION => Some(
-			FloatInstruction::NegMulSubSingle {
+			FloatInstruction::NegMulSub {
 				dst: r4type.dst().to_fp(),
 				mul_lhs: r4type.src1().to_fp(),
 				mul_rhs: r4type.src2().to_fp(),

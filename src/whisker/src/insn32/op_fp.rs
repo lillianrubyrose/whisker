@@ -15,7 +15,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 	let func7 = rtype.func7();
 	match func7 {
 		ADD_SINGLE => Some(
-			FloatInstruction::AddSingle {
+			FloatInstruction::Add {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -24,7 +24,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		SUB_SINGLE => Some(
-			FloatInstruction::SubSingle {
+			FloatInstruction::Sub {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -33,7 +33,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		MUL_SINGLE => Some(
-			FloatInstruction::MulSingle {
+			FloatInstruction::Mul {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -42,7 +42,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			.into(),
 		),
 		DIV_SINGLE => Some(
-			FloatInstruction::DivSingle {
+			FloatInstruction::Div {
 				dst: rtype.dst().into(),
 				lhs: rtype.src1().into(),
 				rhs: rtype.src2().into(),
@@ -52,7 +52,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		),
 		SIGN_INJECTION_SINGLE => match rtype.func3() {
 			sign_injection::SIGN_INJECTION => Some(
-				FloatInstruction::SignInjectionSingle {
+				FloatInstruction::SignInjection {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -60,7 +60,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			sign_injection::SIGN_NOT_INJECTION => Some(
-				FloatInstruction::SignNotInjectionSingle {
+				FloatInstruction::SignNotInjection {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -68,7 +68,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			sign_injection::SIGN_XOR_INJECTION => Some(
-				FloatInstruction::SignXorInjectionSingle {
+				FloatInstruction::SignXorInjection {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -79,7 +79,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		},
 		MIN_MAX_SINGLE => match rtype.func3() {
 			min_max_single::MIN => Some(
-				FloatInstruction::MinSingle {
+				FloatInstruction::Min {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -87,7 +87,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			min_max_single::MAX => Some(
-				FloatInstruction::MaxSingle {
+				FloatInstruction::Max {
 					dst: rtype.dst().into(),
 					lhs: rtype.src1().into(),
 					rhs: rtype.src2().into(),
@@ -99,7 +99,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		SQRT_SINGLE => {
 			if rtype.src2() == RegisterIndex::ZERO {
 				Some(
-					FloatInstruction::SqrtSingle {
+					FloatInstruction::Sqrt {
 						dst: rtype.dst().to_fp(),
 						val: rtype.src1().to_fp(),
 						rm,
@@ -112,7 +112,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		}
 		CMP_SINGLE => match rtype.func3() {
 			cmp_single::EQ => Some(
-				FloatInstruction::EqualSingle {
+				FloatInstruction::Equal {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
@@ -120,7 +120,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			cmp_single::LESS_EQ => Some(
-				FloatInstruction::LessOrEqualSingle {
+				FloatInstruction::LessOrEqual {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
@@ -128,7 +128,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			cmp_single::LESS_THAN => Some(
-				FloatInstruction::LessThanSingle {
+				FloatInstruction::LessThan {
 					dst: rtype.dst().to_gp(),
 					lhs: rtype.src1().to_fp(),
 					rhs: rtype.src2().to_fp(),
@@ -139,7 +139,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		},
 		CONVERT_SINGLE_TO_INT => match rtype.src2().as_u8() {
 			convert_float::WORD => Some(
-				FloatInstruction::ConvertSingleToWord {
+				FloatInstruction::ConvertToWord {
 					dst: rtype.dst().to_gp(),
 					src: rtype.src1().to_fp(),
 					rm,
@@ -147,7 +147,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::UNSIGNED_WORD => Some(
-				FloatInstruction::ConvertSingleToWordUnsigned {
+				FloatInstruction::ConvertToWordUnsigned {
 					dst: rtype.dst().to_gp(),
 					src: rtype.src1().to_fp(),
 					rm,
@@ -155,7 +155,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::DOUBLE_WORD => Some(
-				FloatInstruction::ConvertSingleToDoubleWord {
+				FloatInstruction::ConvertToDoubleWord {
 					dst: rtype.dst().to_gp(),
 					src: rtype.src1().to_fp(),
 					rm,
@@ -163,7 +163,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::UNSIGNED_DOUBLE_WORD => Some(
-				FloatInstruction::ConvertSingleToDoubleWordUnsigned {
+				FloatInstruction::ConvertToDoubleWordUnsigned {
 					dst: rtype.dst().to_gp(),
 					src: rtype.src1().to_fp(),
 					rm,
@@ -174,7 +174,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		},
 		CONVERT_INT_TO_SINGLE => match rtype.src2().as_u8() {
 			convert_float::WORD => Some(
-				FloatInstruction::ConvertWordToSingle {
+				FloatInstruction::ConvertFromWord {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
 					rm,
@@ -182,7 +182,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::UNSIGNED_WORD => Some(
-				FloatInstruction::ConvertWordUnsignedToSingle {
+				FloatInstruction::ConvertFromWordUnsigned {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
 					rm,
@@ -190,7 +190,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::DOUBLE_WORD => Some(
-				FloatInstruction::ConvertDoubleWordToSingle {
+				FloatInstruction::ConvertFromDoubleWord {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
 					rm,
@@ -198,7 +198,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				.into(),
 			),
 			convert_float::UNSIGNED_DOUBLE_WORD => Some(
-				FloatInstruction::ConvertDoubleWordUnsignedToSingle {
+				FloatInstruction::ConvertFromDoubleWordUnsigned {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
 					rm,
@@ -209,7 +209,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		},
 		MOVE_TO_INT_CLASS_SINGLE => match rm.as_u8() {
 			move_class_single::MOVE if rtype.src2().as_u8() == 0 => Some(
-				FloatInstruction::MoveSingleToInteger {
+				FloatInstruction::MoveToInteger {
 					dst: rtype.dst().to_gp(),
 					src: rtype.src1().to_fp(),
 				}
@@ -226,7 +226,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 		},
 		MOVE_TO_FLOAT_SINGLE => match rm.as_u8() {
 			move_class_single::MOVE if rtype.src2().as_u8() == 0 => Some(
-				FloatInstruction::MoveIntegerToSingle {
+				FloatInstruction::MoveFromInteger {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
 				}

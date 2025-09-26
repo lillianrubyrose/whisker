@@ -944,19 +944,19 @@ impl WhiskerHart {
 				let val = self.fp_registers.get_float(src);
 				write_mem_float!(self, mem, offset, WriteKind::Normal, val)?;
 			}
-			FloatInstruction::AddSingle { dst, lhs, rhs, rm } => {
+			FloatInstruction::Add { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.add(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::SubSingle { dst, lhs, rhs, rm } => {
+			FloatInstruction::Sub { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.sub(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::MulAddSingle {
+			FloatInstruction::MulAdd {
 				dst,
 				mul_lhs,
 				mul_rhs,
@@ -969,7 +969,7 @@ impl WhiskerHart {
 				let result = mul_lhs.mul_add(mul_rhs, add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::MulSubSingle {
+			FloatInstruction::MulSub {
 				dst,
 				mul_lhs,
 				mul_rhs,
@@ -982,7 +982,7 @@ impl WhiskerHart {
 				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::NegMulAddSingle {
+			FloatInstruction::NegMulAdd {
 				dst,
 				mul_lhs,
 				mul_rhs,
@@ -995,7 +995,7 @@ impl WhiskerHart {
 				let result = mul_lhs.mul_add(mul_rhs, add, rm, self).neg(self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::NegMulSubSingle {
+			FloatInstruction::NegMulSub {
 				dst,
 				mul_lhs,
 				mul_rhs,
@@ -1008,50 +1008,50 @@ impl WhiskerHart {
 				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self).neg(self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::MulSingle { dst, lhs, rhs, rm } => {
+			FloatInstruction::Mul { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.mul(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::DivSingle { dst, lhs, rhs, rm } => {
+			FloatInstruction::Div { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let result = lhs.div(rhs, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::SqrtSingle { dst, val, rm } => {
+			FloatInstruction::Sqrt { dst, val, rm } => {
 				let result = self.fp_registers.get_float(val).sqrt(rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
-			FloatInstruction::SignInjectionSingle { dst, lhs, rhs } => {
+			FloatInstruction::SignInjection { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(rhs.sign()));
 			}
-			FloatInstruction::SignNotInjectionSingle { dst, lhs, rhs } => {
+			FloatInstruction::SignNotInjection { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(!rhs.sign()));
 			}
-			FloatInstruction::SignXorInjectionSingle { dst, lhs, rhs } => {
+			FloatInstruction::SignXorInjection { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				self.fp_registers.set_float(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
 			}
-			FloatInstruction::MinSingle { dst, lhs, rhs } => {
+			FloatInstruction::Min { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let res = lhs.min(rhs, self);
 				self.fp_registers.set_float(dst, res);
 			}
-			FloatInstruction::MaxSingle { dst, lhs, rhs } => {
+			FloatInstruction::Max { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 				let res = lhs.max(rhs, self);
 				self.fp_registers.set_float(dst, res);
 			}
-			FloatInstruction::EqualSingle { dst, lhs, rhs } => {
+			FloatInstruction::Equal { dst, lhs, rhs } => {
 				//FEQ.S performs a quiet comparison:
 				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
 				//instructions, the result is 0 if either operand is NaN.
@@ -1071,7 +1071,7 @@ impl WhiskerHart {
 					}
 				}
 			}
-			FloatInstruction::LessThanSingle { dst, lhs, rhs } => {
+			FloatInstruction::LessThan { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 
@@ -1083,7 +1083,7 @@ impl WhiskerHart {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
-			FloatInstruction::LessOrEqualSingle { dst, lhs, rhs } => {
+			FloatInstruction::LessOrEqual { dst, lhs, rhs } => {
 				let lhs = self.fp_registers.get_float(lhs);
 				let rhs = self.fp_registers.get_float(rhs);
 
@@ -1096,7 +1096,7 @@ impl WhiskerHart {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
-			FloatInstruction::ConvertSingleToWord { dst, src, rm } => {
+			FloatInstruction::ConvertToWord { dst, src, rm } => {
 				let src = self.fp_registers.get_raw(src).truncate::<u32>();
 				let (res, eflags) = softfloat_pure::softfloat::f32_to_i32(
 					float32_t::from_bits(src),
@@ -1107,7 +1107,7 @@ impl WhiskerHart {
 				self.registers.set(dst, res.sign_extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertSingleToWordUnsigned { dst, src, rm } => {
+			FloatInstruction::ConvertToWordUnsigned { dst, src, rm } => {
 				let src = self.fp_registers.get_raw(src).truncate::<u32>();
 				let (res, eflags) = softfloat_pure::softfloat::f32_to_ui32(
 					float32_t::from_bits(src),
@@ -1118,7 +1118,7 @@ impl WhiskerHart {
 				self.registers.set(dst, res.sign_extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertSingleToDoubleWord { dst, src, rm } => {
+			FloatInstruction::ConvertToDoubleWord { dst, src, rm } => {
 				let src = self.fp_registers.get_raw(src).truncate::<u32>();
 				let (res, eflags) = softfloat_pure::softfloat::f32_to_i64(
 					float32_t::from_bits(src),
@@ -1129,7 +1129,7 @@ impl WhiskerHart {
 				self.registers.set(dst, res.sign_extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertSingleToDoubleWordUnsigned { dst, src, rm } => {
+			FloatInstruction::ConvertToDoubleWordUnsigned { dst, src, rm } => {
 				let src = self.fp_registers.get_raw(src).truncate::<u32>();
 				let (res, eflags) = softfloat_pure::softfloat::f32_to_ui64(
 					float32_t::from_bits(src),
@@ -1140,7 +1140,7 @@ impl WhiskerHart {
 				self.registers.set(dst, res.extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertWordToSingle { dst, src, rm } => {
+			FloatInstruction::ConvertFromWord { dst, src, rm } => {
 				let src = self.registers.get(src).truncate::<u32>().cast_signed();
 				let (res, eflags) =
 					softfloat_pure::softfloat::i32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
@@ -1148,7 +1148,7 @@ impl WhiskerHart {
 				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertWordUnsignedToSingle { dst, src, rm } => {
+			FloatInstruction::ConvertFromWordUnsigned { dst, src, rm } => {
 				let src = self.registers.get(src).truncate::<u32>();
 				let (res, eflags) =
 					softfloat_pure::softfloat::ui32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
@@ -1156,7 +1156,7 @@ impl WhiskerHart {
 				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertDoubleWordToSingle { dst, src, rm } => {
+			FloatInstruction::ConvertFromDoubleWord { dst, src, rm } => {
 				let src = self.registers.get(src).cast_signed();
 				let (res, eflags) =
 					softfloat_pure::softfloat::i64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
@@ -1164,7 +1164,7 @@ impl WhiskerHart {
 				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::ConvertDoubleWordUnsignedToSingle { dst, src, rm } => {
+			FloatInstruction::ConvertFromDoubleWordUnsigned { dst, src, rm } => {
 				let src = self.registers.get(src);
 				let (res, eflags) =
 					softfloat_pure::softfloat::ui64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
@@ -1172,12 +1172,12 @@ impl WhiskerHart {
 				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			FloatInstruction::MoveSingleToInteger { dst, src } => {
+			FloatInstruction::MoveToInteger { dst, src } => {
 				// the high 32 bits of the destination register are filled with copies of the float's sign bit
 				let val = self.fp_registers.get_raw(src).truncate::<u32>().sign_extend::<u64>();
 				self.registers.set(dst, val);
 			}
-			FloatInstruction::MoveIntegerToSingle { dst, src } => {
+			FloatInstruction::MoveFromInteger { dst, src } => {
 				let val = self.registers.get(src).truncate::<u32>();
 				self.fp_registers.set_float(dst, SoftFloat::from_u32(val));
 			}

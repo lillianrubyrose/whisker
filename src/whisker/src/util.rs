@@ -108,7 +108,12 @@ pub fn find_terminal() -> Result<String, ()> {
 	Err(())
 }
 
+#[allow(
+	clippy::inline_always,
+	reason = "this is trivial bit manipulation, it needs to be inlined"
+)]
 impl<T> ExtendExt for T {
+	#[inline(always)]
 	fn sign_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned
 	where
 		<Dst as CastSigned>::Signed: CastUnsigned,
@@ -118,6 +123,7 @@ impl<T> ExtendExt for T {
 		sealed::SignExtendTarget::sign_extend(self)
 	}
 
+	#[inline(always)]
 	fn zero_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastUnsigned>::Unsigned as CastSigned>::Signed
 	where
 		<Dst as CastSigned>::Signed: CastUnsigned,
@@ -153,6 +159,11 @@ mod sealed {
 		<Src as CastSigned>::Signed: num_conv::Extend,
 		<Src as CastSigned>::Signed: num_conv::ExtendTarget<<Dst as CastSigned>::Signed>,
 	{
+		#[allow(
+			clippy::inline_always,
+			reason = "this is trivial bit manipulation, it needs to be inlined"
+		)]
+		#[inline(always)]
 		fn sign_extend(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned {
 			self.cast_signed()
 				.extend::<<Dst as CastSigned>::Signed>()
@@ -167,6 +178,11 @@ mod sealed {
 		<Src as CastUnsigned>::Unsigned: num_conv::Extend,
 		<Src as CastUnsigned>::Unsigned: num_conv::ExtendTarget<<Dst as CastUnsigned>::Unsigned>,
 	{
+		#[allow(
+			clippy::inline_always,
+			reason = "this is trivial bit manipulation, it needs to be inlined"
+		)]
+		#[inline(always)]
 		fn zero_extend(self) -> <<Dst as CastUnsigned>::Unsigned as CastSigned>::Signed {
 			self.cast_unsigned()
 				.extend::<<Dst as CastUnsigned>::Unsigned>()

@@ -147,6 +147,9 @@ impl WhiskerCpu {
 				hart::HartBreakKind::Watchpoint(watch_kind, addr) => {
 					return Err(WhiskerExecStatus::HitWatchpoint(hart_id, watch_kind, addr));
 				}
+				hart::HartBreakKind::DebugPause => {
+					return Err(WhiskerExecStatus::Paused);
+				}
 			}
 		}
 

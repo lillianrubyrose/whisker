@@ -5,6 +5,7 @@ use std::sync::{
 
 use bytemuck::from_bytes_mut;
 use num_conv::{Extend, Truncate};
+use rustc_hash::FxHashMap;
 use spin::Mutex;
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
 };
 
 /// INVARIANT: a valid interrupt source in range 1..=1023
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InterruptSource(u16);
 
 impl InterruptSource {
@@ -49,6 +50,9 @@ pub struct PlatformInterruptController {
 
 	/// map of context id to info
 	context_info: Vec<ContextInfo>,
+
+	/// current state of each interrupt, set when a message comes in, and cleared upon completion
+	interrupt_source_states: FxHashMap<InterruptSource, bool>,
 }
 
 /// turns an IRQ number into an index and bit index
@@ -62,12 +66,17 @@ impl PlatformInterruptController {
 
 		let context_info = vec![ContextInfo::default(); num_harts.extend::<usize>() * 2];
 
+		let interrupt_source_states = (0..MAX_IRQ_SOURCES as u16)
+			.map(|src_num| (InterruptSource(src_num), false))
+			.collect::<FxHashMap<_, _>>();
+
 		let this = Arc::new(Mutex::new(Self {
 			interrupt_rx: rx,
 			priorities: [0_u32; MAX_IRQ_SOURCES],
 			pending: [0_u32; MAX_IRQ_SOURCES / 32],
 			claimed: [0_u32; MAX_IRQ_SOURCES / 32],
 			context_info,
+			interrupt_source_states,
 		}));
 
 		(tx, this)
@@ -77,8 +86,13 @@ impl PlatformInterruptController {
 		loop {
 			match self.interrupt_rx.try_recv() {
 				Ok(source) => {
-					trace!("recv {:?}", source);
-					self.set_pending(source.kind.inner(), source.level);
+					debug!("recv {:?}", source);
+
+					let current_level = *self.interrupt_source_states.get(&source.kind).unwrap();
+					if !current_level && source.level {
+						self.set_pending(source.kind.inner(), true);
+						self.interrupt_source_states.insert(source.kind, true);
+					}
 				}
 				Err(TryRecvError::Empty) => break,
 				Err(TryRecvError::Disconnected) => panic!("interrupt controller sources disconnected"),
@@ -237,14 +251,14 @@ impl PlatformInterruptController {
 			}
 		}
 
-		trace!("best irq for context {:?}: {:?}", context, best_irq);
+		debug!("best irq for context {:?}: {:?}", context, best_irq);
 		best_irq
 	}
 
 	fn do_claim(&mut self, context: usize) -> u32 {
 		match self.best_irq_for_context(context) {
 			Some(irq) => {
-				trace!("context {:?} claimed irq {:?}", context, irq);
+				debug!("context {:?} claimed irq {:?}", context, irq);
 
 				let irq = irq.inner();
 				let (idx, bit_idx) = irq_to_idx(irq);
@@ -259,10 +273,11 @@ impl PlatformInterruptController {
 	}
 
 	fn do_complete(&mut self, context: usize, irq: u16) {
-		trace!("context {:?} completed irq {}", context, irq);
+		debug!("context {:?} completed irq {}", context, irq);
 		let (idx, bit_idx) = irq_to_idx(irq);
 		let mask = 1 << bit_idx;
 		self.claimed[idx] &= !mask;
+		self.interrupt_source_states.insert(InterruptSource(irq), false);
 	}
 
 	fn set_pending(&mut self, irq: u16, level: bool) {

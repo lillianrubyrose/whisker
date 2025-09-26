@@ -99,7 +99,9 @@ impl Default for ModemStatus {
 }
 
 pub struct UART {
-	interrupt_enable: UartInterruptKind,
+	data_reg: u8,
+	interrupt_enable: UartInterrupts,
+	interrupt_pending: UartInterrupts,
 	queue_interrupt_level: u8,
 
 	line_control: LineControl,
@@ -110,8 +112,6 @@ pub struct UART {
 	scratch_reg: u8,
 
 	divisor: u16,
-
-	interrupt_id: InterruptIdentification,
 
 	data_queue: VecDeque<u8>,
 
@@ -176,7 +176,9 @@ impl UART {
 		line_control.set_word_length(3); // 8 bits
 
 		let this = Arc::new(Mutex::new(Self {
-			interrupt_enable: UartInterruptKind::empty(),
+			data_reg: 0,
+			interrupt_enable: UartInterrupts::empty(),
+			interrupt_pending: UartInterrupts::empty(),
 			queue_interrupt_level: 1,
 
 			line_control,
@@ -187,8 +189,6 @@ impl UART {
 			scratch_reg: 0,
 
 			divisor: 1,
-
-			interrupt_id: InterruptIdentification::new(),
 
 			data_queue: VecDeque::new(),
 			stdout: Box::new(writer),
@@ -208,15 +208,9 @@ impl UART {
 
 				let mut uart = uart.lock();
 				uart.data_queue.push_back(b);
-				uart.line_status.insert(LineStatus::DATA_READY);
-				if uart.interrupt_enable.contains(UartInterruptKind::RX_DATA_AVAILABLE)
-					&& uart.data_queue.len() >= usize::from(uart.queue_interrupt_level)
-				{
-					uart.interrupt_id.set_pending(true);
-					uart.interrupt_id.set_kind(InterruptReason::ReceivedDataAvailable);
-					uart.interrupt_tx
-						.send(InterruptMessage::new_high(InterruptSource::UART))
-						.expect("could not send to interrupt controller");
+				uart.set_line_status(LineStatus::DATA_READY, true);
+				if uart.data_queue.len() >= usize::from(uart.queue_interrupt_level) {
+					uart.set_interrupt_pending(UartInterrupts::RX_DATA_AVAILABLE, true);
 				}
 			}
 		});
@@ -246,17 +240,14 @@ impl MMIODevice for UART {
 					*out = self.interrupt_enable.bits();
 				}
 			}
-			INTERRUPT_IDENT_REG => {
-				let ret = u8::from_le_bytes(self.interrupt_id.inner());
-				if self.interrupt_id.get_kind() == InterruptReason::TransmitterHoldingRegisterEmpty {
-					self.interrupt_id.set_pending(false);
-				}
-				*out = ret;
-			}
+			INTERRUPT_IDENT_REG => *out = self.read_interrupt_ident(),
 			LINE_CONTROL_REG => *out = u8::from_le_bytes(self.line_control.inner()),
 			MODEM_CONTROL_REG => *out = u8::from_le_bytes(self.modem_control.inner()),
-			LINE_STATUS_REG => *out = self.line_status.bits(),
-			MODEM_STATUS_REG => *out = u8::from_le_bytes(self.modem_status.inner()),
+			LINE_STATUS_REG => *out = self.read_line_status(),
+			MODEM_STATUS_REG => {
+				*out = u8::from_le_bytes(self.modem_status.inner());
+				self.set_interrupt_pending(UartInterrupts::MODEM_STATUS_CHANGE, false);
+			}
 			SCRATCH_REG => *out = self.scratch_reg,
 			_ => warn!("read from unknown UART addr {:#018X}", addr),
 		}
@@ -281,15 +272,18 @@ impl MMIODevice for UART {
 					self.divisor &= 0x00FF;
 					self.divisor |= u16::from(val) << 8;
 				} else {
-					self.interrupt_enable = UartInterruptKind::from_bits_retain(val);
+					self.interrupt_enable = UartInterrupts::from_bits_retain(val);
 				}
 			}
 			FIFO_CONTROL_REG => self.write_fifo_control(val),
-			LINE_CONTROL_REG => self.line_control.set_inner(val.to_le_bytes()),
+			LINE_CONTROL_REG => self.write_line_control(val),
 			MODEM_CONTROL_REG => self.modem_control.set_inner(val.to_le_bytes()),
-			LINE_STATUS_REG => {} // ignored
+			LINE_STATUS_REG => {} // RO - ignored
 			MODEM_STATUS_REG => {
-				warn!("ignored write of {:02X} to UART Modem Status Register", val);
+				error!(
+					"ignored write of {:02X} to UART Modem Status Register (should be RO)",
+					val
+				);
 			}
 			SCRATCH_REG => self.scratch_reg = val,
 			_ => {
@@ -300,21 +294,36 @@ impl MMIODevice for UART {
 }
 
 impl UART {
+	fn check_interrupts(&mut self) {
+		if self.interrupt_pending.is_empty() {
+			self.interrupt_tx
+				.send(InterruptMessage::new_low(InterruptSource::UART))
+				.expect("could not send to interrupt controller");
+		} else {
+			self.interrupt_tx
+				.send(InterruptMessage::new_high(InterruptSource::UART))
+				.expect("could not send to interrupt controller");
+		}
+	}
+
+	fn set_interrupt_pending(&mut self, interrupt: UartInterrupts, pending: bool) {
+		if pending && self.interrupt_enable.contains(interrupt) {
+			self.interrupt_pending.insert(interrupt);
+		} else if !pending {
+			self.interrupt_pending.remove(interrupt);
+		}
+		self.check_interrupts();
+	}
+
 	fn do_read(&mut self) -> u8 {
 		if let Some(val) = self.data_queue.pop_front() {
+			self.data_reg = val;
 			if self.data_queue.is_empty() {
-				self.line_status.remove(LineStatus::DATA_READY);
+				self.set_line_status(LineStatus::DATA_READY, false);
 			}
-			if self.data_queue.len() < usize::from(self.queue_interrupt_level) {
-				self.interrupt_id.set_pending(false);
-				self.interrupt_tx
-					.send(InterruptMessage::new_low(InterruptSource::UART))
-					.expect("unable to send interrupt controller");
-			}
-			val
-		} else {
-			0
 		}
+		self.set_interrupt_pending(UartInterrupts::RX_DATA_AVAILABLE, false);
+		self.data_reg
 	}
 
 	fn do_write(&mut self, val: u8) {
@@ -328,31 +337,47 @@ impl UART {
 		//let _ = self.stdout.flush();
 
 		// writing to THR resets interrupt
-		self.interrupt_tx
-			.send(InterruptMessage::new_low(InterruptSource::UART))
-			.unwrap();
+		self.set_interrupt_pending(UartInterrupts::TX_REG_EMPTY, false);
+
+		// consider the register to be "full" and then immediately empty again
+		// this helps correctly fire interrupts
+		self.set_line_status(LineStatus::TX_HOLDING_REG_EMPTY | LineStatus::TX_EMPTY, false);
+		self.set_line_status(LineStatus::TX_HOLDING_REG_EMPTY | LineStatus::TX_EMPTY, true);
 
 		// the transmitter register is considered to immedately be empty
-		if self.interrupt_enable.contains(UartInterruptKind::TX_REG_EMPTY) {
-			// FIXME: consider limiting this?
-			// 8N1 @ 115200 baud is 11520 bytes per second
-			// it might be a good idea to hold off on sending interrupts to allow
-			// the cpu to process other things
-			self.interrupt_id.set_pending(true);
-			self.interrupt_id
-				.set_kind(InterruptReason::TransmitterHoldingRegisterEmpty);
-			self.interrupt_tx
-				.send(InterruptMessage::new_high(InterruptSource::UART))
-				.expect("could not send to interrupt controller");
+		// FIXME: consider limiting this?
+		// 8N1 @ 115200 baud is 11520 bytes per second
+		// it might be a good idea to hold off on sending interrupts to allow
+		// the cpu to process other things
+		self.set_interrupt_pending(UartInterrupts::TX_REG_EMPTY, true);
+	}
+
+	fn write_line_control(&mut self, val: u8) {
+		// we only support setting the DLAB bit
+		let dlab = val & 0b1000_0000 == 0b1000_0000;
+		self.line_control.set_dlab(dlab);
+	}
+
+	fn set_line_status(&mut self, status: LineStatus, set: bool) {
+		let old_flags = self.line_status;
+		self.line_status.set(status, set);
+		if old_flags != self.line_status {
+			self.set_interrupt_pending(UartInterrupts::RX_STATUS_CHANGE, true);
 		}
 	}
 
+	fn read_line_status(&mut self) -> u8 {
+		// reading from LSR clears line status change
+		self.set_interrupt_pending(UartInterrupts::RX_STATUS_CHANGE, false);
+		self.line_status.bits()
+	}
+
 	fn write_fifo_control(&mut self, val: u8) {
-		if val & 1 != 0 {
+		/*if val & 1 != 0 {
 			self.interrupt_id.set_fifo_enabled(0b11);
 		} else {
 			self.interrupt_id.set_fifo_enabled(0);
-		}
+		}*/
 		if val & (1 << 1) != 0 {
 			self.data_queue.clear();
 		}
@@ -372,11 +397,41 @@ impl UART {
 		};
 		self.queue_interrupt_level = queue_size;
 	}
+
+	#[allow(
+		clippy::bool_to_int_with_if,
+		reason = "explicit if is more clear when creating bits rather than values"
+	)]
+	fn read_interrupt_ident(&mut self) -> u8 {
+		// yes this looks backwards, but it's right
+		let interrupt_pending_bits = if self.interrupt_pending.is_empty() { 0b1 } else { 0b0 };
+
+		// order matters here, there's a priority
+		let id_bits = if self.interrupt_pending.contains(UartInterrupts::RX_STATUS_CHANGE) {
+			0b011
+		} else if self.interrupt_pending.contains(UartInterrupts::RX_DATA_AVAILABLE) {
+			0b010
+		} else if self.interrupt_pending.contains(UartInterrupts::TX_REG_EMPTY) {
+			0b001
+		} else if self.interrupt_pending.contains(UartInterrupts::MODEM_STATUS_CHANGE) {
+			0b000
+		} else {
+			// no interrupt, bits ignored
+			0b000
+		};
+
+		let fifo_bits = if self.queue_interrupt_level > 1 { 0b11 } else { 0b00 };
+
+		// IIR read clears the THR interrupt pending signal
+		self.set_interrupt_pending(UartInterrupts::TX_REG_EMPTY, false);
+
+		interrupt_pending_bits | id_bits << 1 | fifo_bits << 6
+	}
 }
 
 bitflags::bitflags! {
 	#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-	struct UartInterruptKind: u8 {
+	struct UartInterrupts: u8 {
 		const RX_DATA_AVAILABLE = 1 << 0;
 		const TX_REG_EMPTY = 1 << 1;
 		const RX_STATUS_CHANGE = 1 << 2;

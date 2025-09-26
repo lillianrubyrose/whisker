@@ -4,21 +4,18 @@ use bitflags::bitflags;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use rustc_hash::FxHashMap;
 
-use crate::{insn::Instruction, insn16, insn32, tracing::*, ty::RiscvExtensions, util::extract_bits_16};
+use crate::tracing::*;
 
 pub mod mmio;
 
 mod paging;
 
 use crate::{
-	DRAM_BASE, DRAM_SIZE,
 	cpu::hart::WhiskerHart,
 	mem::mmio::MMIOKind,
 	soft::{double::SoftDouble, float::SoftFloat},
 	ty::{HartId, TrapIdx, TrapRequestGuaranteed},
-	util::extract_bits_32,
 };
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
@@ -236,7 +233,7 @@ impl Memory {
 
 		check_read_access(
 			hart,
-			&*region,
+			&region,
 			effective_addr,
 			phys_addr,
 			ReadKind::Instruction,
@@ -293,10 +290,9 @@ impl Memory {
 
 		if !hart.debug
 			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
+			&& matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite)
 		{
-			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, effective_addr);
-			}
+			hart.request_watchpoint(watch_kind, effective_addr);
 		}
 
 		self.reservations.write().reserve(hart.hart_id(), phys_addr);
@@ -338,10 +334,9 @@ impl Memory {
 
 		if !hart.debug
 			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
+			&& matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite)
 		{
-			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, effective_addr);
-			}
+			hart.request_watchpoint(watch_kind, effective_addr);
 		}
 
 		self.reservations.write().reserve(hart.hart_id(), phys_addr);
@@ -397,10 +392,9 @@ impl Memory {
 
 		if !hart.debug
 			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
+			&& matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite)
 		{
-			if matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, effective_addr);
-			}
+			hart.request_watchpoint(watch_kind, effective_addr);
 		}
 
 		ret
@@ -424,7 +418,7 @@ impl Memory {
 		let size = core::mem::size_of::<u64>();
 		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
-		let ret = if is_reserved {
+		if is_reserved {
 			match region.kind {
 				MemoryKind::MainMemory { ref mut backing } => {
 					let offset = phys_addr - region.start;
@@ -448,10 +442,9 @@ impl Memory {
 
 			if !hart.debug
 				&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
+				&& matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite)
 			{
-				if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-					hart.request_watchpoint(watch_kind, effective_addr);
-				}
+				hart.request_watchpoint(watch_kind, effective_addr);
 			}
 
 			Ok(true)
@@ -460,9 +453,7 @@ impl Memory {
 			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
-		};
-
-		ret
+		}
 	}
 
 	pub fn atomic_op_word<F: FnOnce(&mut WhiskerHart, u32) -> Option<u32>>(
@@ -515,7 +506,7 @@ impl Memory {
 			return Err(pte_fault(hart, kind, phys_addr));
 		}
 		// FIXME: can this be removed?
-		if !access_kinds.contains(AccessKind::MISALIGNED) && phys_addr % u64::from(size) != 0 {
+		if !access_kinds.contains(AccessKind::MISALIGNED) && !phys_addr.is_multiple_of(u64::from(size)) {
 			trace!(
 				"PTE access not in misaligned region: {:?} at {:#018X}",
 				region, phys_addr
@@ -610,7 +601,7 @@ macro_rules! impl_hw_read_write {
 					phys_addr: u64,
 				) -> Result<$ty, ()> {
 					let size = ::core::mem::size_of::<$ty>();
-					let is_misaligned = phys_addr % (size as u64) != 0;
+					let is_misaligned = !phys_addr.is_multiple_of(size as u64);
 
 					if is_misaligned {
 						let mut bytes = <$ty>::default().to_le_bytes();
@@ -671,7 +662,7 @@ macro_rules! impl_hw_read_write {
 					val: $ty,
 				) -> Result<(), ()> {
 					let size = ::core::mem::size_of::<$ty>();
-					let is_misaligned = phys_addr % (size as u64) != 0;
+					let is_misaligned = !phys_addr.is_multiple_of(size as u64);
 
 					if is_misaligned {
 						let bytes = val.to_le_bytes();
@@ -793,7 +784,7 @@ fn check_read_access(
 			if !access_kinds.contains(AccessKind::READ) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+			if !access_kinds.contains(AccessKind::MISALIGNED) && !effective_addr.is_multiple_of(u64::from(size)) {
 				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, effective_addr));
 			}
 		}
@@ -803,7 +794,7 @@ fn check_read_access(
 			}
 			// NOTE: instruction misaligned traps are generated on control flow, not when fetching
 			debug_assert!(
-				access_kinds.contains(AccessKind::MISALIGNED) || effective_addr % u64::from(size) == 0,
+				access_kinds.contains(AccessKind::MISALIGNED) || effective_addr.is_multiple_of(u64::from(size)),
 				"tried to fetch misaligned instruction (THIS SHOULD NEVER HAPPEN)"
 			);
 		}
@@ -811,7 +802,7 @@ fn check_read_access(
 			if !access_kinds.contains(AccessKind::READ | AccessKind::ATOMIC) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+			if !access_kinds.contains(AccessKind::MISALIGNED) && !effective_addr.is_multiple_of(u64::from(size)) {
 				return Err(hart.request_trap(TrapIdx::LOAD_ADDR_MISALIGNED, effective_addr));
 			}
 		}
@@ -819,7 +810,7 @@ fn check_read_access(
 			if !access_kinds.contains(AccessKind::READ | AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+			if !access_kinds.contains(AccessKind::MISALIGNED) && !effective_addr.is_multiple_of(u64::from(size)) {
 				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
@@ -848,7 +839,7 @@ fn check_write_access(
 			if !access_kinds.contains(AccessKind::WRITE) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+			if !access_kinds.contains(AccessKind::MISALIGNED) && !effective_addr.is_multiple_of(u64::from(size)) {
 				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
@@ -856,7 +847,7 @@ fn check_write_access(
 			if !access_kinds.contains(AccessKind::WRITE | AccessKind::ATOMIC) || size > max_size {
 				return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 			}
-			if !access_kinds.contains(AccessKind::MISALIGNED) && effective_addr % u64::from(size) != 0 {
+			if !access_kinds.contains(AccessKind::MISALIGNED) && !effective_addr.is_multiple_of(u64::from(size)) {
 				return Err(hart.request_trap(TrapIdx::STORE_ADDR_MISALIGNED, effective_addr));
 			}
 		}
@@ -922,8 +913,8 @@ impl MemoryRegion {
 	}
 
 	pub fn new(start: u64, len: u64, kind: MemoryKind, attrs: AccessAttrs) -> Self {
-		assert_eq!(start % MEM_PAGE_SIZE, 0);
-		assert_eq!(len % MEM_PAGE_SIZE, 0);
+		assert!(start.is_multiple_of(MEM_PAGE_SIZE));
+		assert!(len.is_multiple_of(MEM_PAGE_SIZE));
 
 		if attrs.access_kinds.contains(AccessKind::EXEC) {
 			assert!(

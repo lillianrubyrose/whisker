@@ -30,22 +30,6 @@ pub fn translate(
 	let (pte, pte_addr, level_idx) = find_page(memory, hart, access_kind, SV_39_LEVELS - 1, base, va)?;
 	trace!("found final PTE {:#018X} at level {}", pte.as_u64(), level_idx);
 
-	let accessed = pte.get_accessed();
-	let dirty = pte.get_dirty();
-	if !accessed || (access_kind == MemoryOpKind::Store && !dirty) {
-		let mut new_pte = pte;
-		new_pte.set_accessed(true);
-		if access_kind == MemoryOpKind::Store {
-			new_pte.set_dirty(true);
-		}
-
-		memory
-			.write_pte(hart, pte_addr, new_pte.as_u64())
-			.map_err(|_| trap_page_fault(hart, addr, access_kind))?;
-
-		return Err(trap_page_fault(hart, addr, access_kind));
-	}
-
 	let r = pte.get_read();
 	let w = pte.get_write();
 	let x = pte.get_execute();
@@ -56,6 +40,22 @@ pub fn translate(
 	}
 
 	trace!("PTE access allowed");
+
+	let accessed = pte.get_accessed();
+	let dirty = pte.get_dirty();
+	let mut new_pte = pte;
+	// any memory access sets the accessed bit
+	if !accessed {
+		new_pte.set_accessed(true);
+	}
+	if !dirty && access_kind == MemoryOpKind::Store {
+		new_pte.set_dirty(true);
+	}
+	if new_pte != pte {
+		memory
+			.write_pte(hart, pte_addr, new_pte.as_u64())
+			.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
+	}
 
 	let mut phys_addr = Sv39PhysAddr::new();
 	trace!("va page offset {:#018X}", va.get_page_offset());
@@ -183,6 +183,7 @@ impl Sv39Addr {
 }
 
 #[bitfields]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Sv39PageTableEntry {
 	valid: bool,
 	read: bool,

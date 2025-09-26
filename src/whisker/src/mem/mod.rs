@@ -258,33 +258,6 @@ impl Memory {
 		}
 	}
 
-	pub fn write_pte(&self, hart: &mut WhiskerHart, phys_addr: u64, val: u64) -> Result<(), TrapRequestGuaranteed> {
-		let size = core::mem::size_of::<u64>() as u8;
-		let effective_addr = phys_addr;
-
-		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
-			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
-		};
-		let region = &mut *region_guard;
-
-		if !region.attrs.access_kinds.contains(AccessKind::WRITE) || size > region.attrs.max_size {
-			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
-		}
-		if !phys_addr.is_multiple_of(u64::from(size)) {
-			return Err(pte_fault(hart, MemoryOpKind::Store, effective_addr));
-		}
-
-		match region.kind {
-			MemoryKind::MainMemory { ref mut backing } => {
-				let offset = phys_addr - region.start;
-				let bytes = val.to_le_bytes();
-				backing[offset as usize..][..size as usize].copy_from_slice(&bytes);
-				Ok(())
-			}
-			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Store, effective_addr)),
-		}
-	}
-
 	pub fn load_reserved_word(
 		&self,
 		hart: &mut WhiskerHart,
@@ -558,19 +531,59 @@ impl Memory {
 				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
 				Ok(u64::from_le_bytes(ret))
 			}
-			MemoryKind::MMIO(kind) => {
-				let mut ret = <u64>::default().to_le_bytes();
-				kind.read(hart, phys_addr, ret.as_mut_slice());
-				Ok(<u64>::from_le_bytes(ret))
-			}
+			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Load, phys_addr)),
 		};
 
 		if !hart.debug
 			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size)
+			&& matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite)
 		{
-			if matches!(watch_kind, WatchKind::Read | WatchKind::ReadWrite) {
-				hart.request_watchpoint(watch_kind, phys_addr);
+			hart.request_watchpoint(watch_kind, phys_addr);
+		}
+
+		ret
+	}
+
+	pub fn write_pte(&self, hart: &mut WhiskerHart, phys_addr: u64, val: u64) -> Result<(), TrapRequestGuaranteed> {
+		let Some(mut region) = self.region_for_addr_mut(phys_addr) else {
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
+		};
+		let region = &mut *region;
+
+		let access_kinds = region.attrs.access_kinds;
+		let max_size = region.attrs.max_size;
+		let size = core::mem::size_of::<u64>() as u8;
+		if !access_kinds.contains(AccessKind::WRITE) || size > max_size {
+			trace!("PTE write not in write region: {:?} at {:#018X}", region, phys_addr);
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
+		}
+		// FIXME: can this be removed?
+		if !access_kinds.contains(AccessKind::MISALIGNED) && !phys_addr.is_multiple_of(u64::from(size)) {
+			trace!(
+				"PTE access not in misaligned region: {:?} at {:#018X}",
+				region, phys_addr
+			);
+			// FIXME: use effective addr
+			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
+		}
+
+		let ret = match region.kind {
+			MemoryKind::MainMemory { ref mut backing } => {
+				let offset = phys_addr - region.start;
+				let bytes = val.to_le_bytes();
+				backing[offset as usize..][..size as usize].copy_from_slice(&bytes);
+				Ok(())
 			}
+			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Store, phys_addr)),
+		};
+
+		if !hart.debug
+			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size)
+			&& matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite)
+		{
+			hart.request_watchpoint(watch_kind, phys_addr);
 		}
 
 		ret

@@ -17,12 +17,12 @@ impl Memory {
 		addr: u64,
 		kind: MemoryOpKind,
 	) -> Result<u64, TrapRequestGuaranteed> {
-		// translation is only used when in S or U mode
-		if !matches!(hart.mode(), HartMode::Supervisor | HartMode::User) {
-			trace!("not translating addr {:#018X}, hart not in S or U mode", addr);
+		if !hart.should_translate(kind) {
+			trace!("hart not translating addresses");
 			return Ok(addr);
 		}
 
+		// fast path to not acquire lock
 		let translation_mode = hart.translation_config.get_mode();
 		if matches!(translation_mode, AddressTranslationMode::Bare) {
 			return Ok(addr);
@@ -51,8 +51,8 @@ impl Memory {
 		Ok(phys_addr)
 	}
 
-	pub fn clear_vm_cache(&self, _asid: u64, _vaddr: u64) {
-		warn!("clearing vm cache");
+	pub fn clear_vm_cache(&self, asid: u64, vaddr: u64) {
+		debug!("clearing vm cache asid {:#018X} vaddr {:#018X}", asid, vaddr);
 		self.page_table_cache.write().clear();
 	}
 }

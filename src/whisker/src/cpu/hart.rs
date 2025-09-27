@@ -105,7 +105,7 @@ pub struct MStatus {
 	mpp: HartMode,
 	_fs: U2,
 	_xs: U2,
-	pub mprv: U1,
+	pub mprv: bool,
 	pub sum: bool,
 	pub mxr: bool,
 	pub tvm: bool,
@@ -459,6 +459,17 @@ impl WhiskerHart {
 		let mip = (mip & !mask) | value_bit;
 		assert!(mip <= (1 << 19), "mip {:#018X} {:?}", mip, interrupt);
 		self.mip.set_inner(mip.to_le_bytes());
+	}
+
+	pub fn should_translate(&self, kind: MemoryOpKind) -> bool {
+		let mut effective_mode = self.mode();
+		// if MPRV is set and this is a non-instruction access, translation is done as if the mode was MPP
+		if self.mstatus.get_mprv() && kind != MemoryOpKind::Instruction {
+			effective_mode = self.mstatus.get_mpp();
+		}
+
+		// translation is used when the effective mode is S or U mode
+		matches!(effective_mode, HartMode::Supervisor | HartMode::User)
 	}
 }
 
@@ -2091,8 +2102,13 @@ impl WhiskerHart {
 				self.set_mode(new_priv);
 
 				// set MPP to lowest supported mode
-				// FIXME (U mode): use U-mode here
-				mstatus.set_mpp(HartMode::Supervisor);
+				mstatus.set_mpp(HartMode::User);
+
+				// when MRET or SRET sets mode to less than M, MPRV is set to 0
+				if new_priv < HartMode::Machine {
+					mstatus.set_mprv(false);
+				}
+
 				self.mstatus = mstatus;
 
 				self.next_pc = self.mepc;
@@ -2121,7 +2137,11 @@ impl WhiskerHart {
 
 				// set SPP to lowest supported mode
 				mstatus.set_spp(0);
-				mstatus.set_mprv(0);
+
+				// when MRET or SRET sets mode to less than M, MPRV is set to 0
+				if new_priv < HartMode::Machine {
+					mstatus.set_mprv(false);
+				}
 
 				self.mstatus = mstatus;
 

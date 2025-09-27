@@ -1,7 +1,5 @@
 use num_conv::{CastSigned, CastUnsigned};
 
-use crate::tracing::*;
-
 pub trait ExtendExt {
 	fn sign_extend<Dst: CastSigned + CastUnsigned>(self) -> <<Dst as CastSigned>::Signed as CastUnsigned>::Unsigned
 	where

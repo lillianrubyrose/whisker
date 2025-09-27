@@ -1,14 +1,12 @@
 use std::{
 	collections::VecDeque,
 	io::{Read, Write},
-	process::{Command, Stdio},
 	sync::{Arc, mpsc::Sender},
 	thread,
 };
 
 use bitfield::prelude::*;
 use num_conv::Truncate;
-use socketpair::socketpair_stream;
 use spin::Mutex;
 
 use crate::{
@@ -16,7 +14,6 @@ use crate::{
 	interrupts::{InterruptMessage, InterruptSource},
 	mem::mmio::MMIODevice,
 	tracing::*,
-	util,
 };
 
 pub const UART_BASE: u64 = 0x1000_0000;
@@ -121,14 +118,18 @@ pub struct UART {
 
 #[cfg(target_family = "unix")]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
-	use std::os::fd::{AsFd, RawFd};
+	use std::{
+		os::fd::{AsFd, RawFd},
+		process::{Command, Stdio},
+	};
 
 	use command_fds::{CommandFdExt as _, FdMapping};
+	use socketpair::socketpair_stream;
 
 	const REMOTE_FD_NUM: RawFd = 4;
 	let (local, other) = socketpair_stream().map_err(|_| "unable to create socket pair")?;
 
-	let term = util::find_terminal().map_err(|_| "unable to find a terminal")?;
+	let term = crate::util::find_terminal().map_err(|_| "unable to find a terminal")?;
 	let mut cmd = Command::new(&term);
 	cmd.args([
 		"-e",
@@ -159,7 +160,7 @@ fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), Strin
 	Ok((reader, writer))
 }
 
-#[cfg(target_family = "windows")]
+#[cfg(all(target_family = "windows", not(test)))]
 fn spawn_io_term() -> Result<(impl Read + Send, impl Write + Send + Sync), String> {
 	use std::io::{stdin, stdout};
 	Ok((stdin(), stdout()))
@@ -446,12 +447,6 @@ enum InterruptReason {
 	ReceivedDataAvailable = 0b010,
 	ReceiverLineStatus = 0b011,
 	CharacterTimeout = 0b110,
-}
-
-impl InterruptReason {
-	fn bits(self) -> u8 {
-		self as u8
-	}
 }
 
 #[bitfields]

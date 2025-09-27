@@ -59,11 +59,14 @@ impl CompressedInstruction {
 			FSD => {
 				warn!("Someone make sure C.FSD offset is right!!");
 				let cs = CStoreType::parse(parcel);
-				Some(DoubleInstruction::Store {
-					dst: cs.dst(),
-					dst_offset: cs.imm().cast_signed(),
-					src: cs.src().to_fp(),
-				}.into())
+				Some(
+					DoubleInstruction::Store {
+						dst: cs.dst(),
+						dst_offset: cs.imm().cast_signed(),
+						src: cs.src().to_fp(),
+					}
+					.into(),
+				)
 			}
 			STORE_WORD => {
 				let cs = CStoreType::parse(parcel);
@@ -474,10 +477,9 @@ pub fn parse(parcel: u16) -> Option<Instruction> {
 
 mod ty {
 	use crate::{
-		ty::GPRegisterIndex,
+		ty::{GPRegisterIndex, UnknownRegisterIndex},
 		util::{extract_bits_16, sign_ext_imm},
 	};
-	use crate::ty::UnknownRegisterIndex;
 
 	fn extract_smol_reg(parcel: u16, start: u8) -> UnknownRegisterIndex {
 		// small registers are 3 bits

@@ -47,29 +47,6 @@ macro_rules! impl_csrs {
 	}};
 }
 
-macro_rules! define_pmp_cfg_regs {
-	($reg_info:expr, $($id:literal)*) => {
-		paste::paste!{$(
-			const _: () = assert!($id % 2 == 0, "RV64 only uses pmpcfg 0,2,...");
-		)*}
-		paste::paste!{
-			($reg_info).extend([$(
-				(CSRIndex({0x3A0 + $id}), CSRInfo::new_read_write(stringify!([< pmpcfg $id:snake:lower >]), |_| 0, |_, _| {})),
-			)*]);
-		}
-	};
-}
-
-macro_rules! define_pmp_addr_regs {
-	($reg_info:expr, $($id:literal)*) => {
-		paste::paste!{
-			($reg_info).extend([$(
-				(CSRIndex({0x3B0 + $id}), CSRInfo::new_read_write(stringify!([< pmpaddr $id:snake:lower >]), |_| 0, |_, _| {})),
-			)*]);
-		}
-	};
-}
-
 macro_rules! define_pmp_addr_accessors {
     ($($id:literal),*) => {
         paste::paste! {

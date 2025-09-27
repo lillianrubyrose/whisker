@@ -1,6 +1,6 @@
 use bitfield::prelude::*;
 
-use crate::cpu::{csr::CSRReadToken, hart::WhiskerHart};
+use crate::cpu::hart::WhiskerHart;
 
 pub mod double;
 pub mod float;

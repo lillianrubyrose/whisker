@@ -8,40 +8,36 @@ use crate::cpu::hart::WhiskerHart;
 pub struct SoftDouble(u64);
 
 impl SoftDouble {
+	const BITS: u64 = 64;
+	const MANTISSA_BITS: u64 = 52;
+	const EXPONENT_BITS: u64 = Self::BITS - Self::MANTISSA_BITS - 1;
+
+	const MANTISSA_MASK: u64 = (1 << Self::MANTISSA_BITS) - 1;
+	const EXPONENT_MASK: u64 = (1 << Self::EXPONENT_BITS) - 1;
+
+	const QUIET_NAN_MASK: u64 = 1 << (Self::MANTISSA_BITS - 1);
+
 	pub const fn from_f64(value: f64) -> Self {
 		Self(value.to_bits())
 	}
 
-	pub fn from_u64(value: u64) -> Self {
+	pub const fn from_u64(value: u64) -> Self {
 		Self(value)
 	}
 
-	pub fn to_u64(self) -> u64 {
+	pub const fn to_u64(self) -> u64 {
 		self.0
 	}
 
-	pub fn to_le_bytes(self) -> [u8; 8] {
-		self.0.to_le_bytes()
-	}
-
-	pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
+	pub const fn from_le_bytes(bytes: [u8; 8]) -> Self {
 		Self(u64::from_le_bytes(bytes))
 	}
 
-	pub fn is_nan(self) -> bool {
-		Self::get_exponent(self.0) == Self::EXPONENT_BITS && Self::get_mantissa(self.0) != 0u64
+	pub const fn to_le_bytes(self) -> [u8; 8] {
+		self.0.to_le_bytes()
 	}
 
-	pub fn is_snan(self) -> bool {
-		softfloat_pure::softfloat::softfloat_isSigNaNF64UI(self.0)
-	}
-
-	#[allow(unused)]
-	pub fn is_qnan(self) -> bool {
-		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
-	}
-
-	pub fn fclass(self) -> FClass {
+	pub const fn fclass(self) -> FClass {
 		let sign = Self::get_sign(self.0);
 		let exponent = Self::get_exponent(self.0);
 		let mantissa = Self::get_mantissa(self.0);
@@ -77,19 +73,24 @@ impl SoftDouble {
 		}
 	}
 
-	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		self.mul_add(mul, sub.neg(hart), rm, hart)
+	pub const fn is_nan(self) -> bool {
+		Self::get_exponent(self.0) == Self::EXPONENT_BITS && Self::get_mantissa(self.0) != 0u64
 	}
 
-	pub fn neg_mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		self.neg_mul_add(mul, sub.neg(hart), rm, hart)
+	pub const fn is_snan(self) -> bool {
+		softfloat_pure::softfloat::softfloat_isSigNaNF64UI(self.0)
 	}
 
-	pub fn sign(self) -> u64 {
+	#[allow(unused)]
+	pub const fn is_qnan(self) -> bool {
+		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
+	}
+
+	pub const fn sign(self) -> u64 {
 		Self::get_sign(self.to_u64())
 	}
 
-	pub fn set_sign(self, sign: u64) -> Self {
+	pub const fn set_sign(self, sign: u64) -> Self {
 		Self::from_u64(
 			(self.to_u64() & !(1 << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
 				| ((sign & 1) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)),
@@ -119,9 +120,7 @@ impl SoftDouble {
 		hart.float_status_control.set_from_fpu(fpu.flags);
 		return Self::from_u64(res.v);
 	}
-}
 
-impl SoftDouble {
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		let mut fpu = FPU::default();
 		let lhs = float64_t::from_bits(self.0);
@@ -158,6 +157,14 @@ impl SoftDouble {
 		Self::from_u64(result.v)
 	}
 
+	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		let mut fpu = FPU::default();
+		let lhs = float64_t::from_bits(self.0);
+		let result = fpu.sqrt(lhs, rm.to_sf(hart));
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		Self::from_u64(result.v)
+	}
+
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		let mut fpu = FPU::default();
 		let this = float64_t::from_bits(self.0);
@@ -166,6 +173,10 @@ impl SoftDouble {
 		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
 		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
+	}
+
+	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
 	pub fn neg_mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
@@ -178,24 +189,9 @@ impl SoftDouble {
 		Self::from_u64(result.v).neg(hart)
 	}
 
-	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float64_t::from_bits(self.0);
-		let result = fpu.sqrt(lhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u64(result.v)
+	pub fn neg_mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.neg_mul_add(mul, sub.neg(hart), rm, hart)
 	}
-}
-
-impl SoftDouble {
-	const BITS: u64 = 64;
-	const MANTISSA_BITS: u64 = 52;
-	const EXPONENT_BITS: u64 = Self::BITS - Self::MANTISSA_BITS - 1;
-
-	const MANTISSA_MASK: u64 = (1 << Self::MANTISSA_BITS) - 1;
-	const EXPONENT_MASK: u64 = (1 << Self::EXPONENT_BITS) - 1;
-
-	const QUIET_NAN_MASK: u64 = 1 << (Self::MANTISSA_BITS - 1);
 
 	const fn get_sign(value: u64) -> u64 {
 		value >> (Self::EXPONENT_BITS + Self::MANTISSA_BITS)

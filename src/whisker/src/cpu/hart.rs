@@ -4,7 +4,7 @@
 	use `truncate`, `extend`, `cast_signed`, `cast_unsigned`, `sign_extend`, and `zero_extend` instead."
 )]
 
-use std::{assert_matches::assert_matches, cmp::Ordering, collections::BTreeMap, fmt::Write as _, sync::Arc};
+use std::{assert_matches::assert_matches, collections::BTreeMap, fmt::Write as _};
 
 use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
@@ -21,7 +21,7 @@ use crate::{
 	insn16, insn32,
 	mem::{MEM_PAGE_SIZE, Memory, MemoryOpKind, ReadKind, WriteKind},
 	regs::{FPRegisters, GPRegisters},
-	soft::{FloatStatusControl, double::SoftDouble, float::SoftFloat},
+	soft::{FloatStatusControl, float::SoftFloat},
 	tracing::*,
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
@@ -131,6 +131,7 @@ const _: () = {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HartBreakKind {
 	Watchpoint(WatchKind, u64),
+	#[allow(unused)]
 	DebugPause,
 }
 

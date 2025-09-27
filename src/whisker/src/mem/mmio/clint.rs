@@ -3,7 +3,6 @@ use std::time::Instant;
 use crate::{
 	cpu::{WhiskerExecState, hart::WhiskerHart},
 	mem::mmio::MMIODevice,
-	tracing::*,
 };
 
 pub const CLINT_BASE: u64 = 0x0200_0000;
@@ -16,6 +15,7 @@ const MTIMECMP: u64 = CLINT_BASE + 0x4000;
 const MTIMECMP_END: u64 = MTIMECMP + 8;
 
 const MTIME: u64 = CLINT_BASE + 0xBFF8;
+#[allow(unused)]
 const MTIME_END: u64 = MTIME + 8;
 
 // Frequency in Hz of the tick rate of the clint

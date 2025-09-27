@@ -1,9 +1,7 @@
-use std::cmp::Ordering;
-
 use softfloat_pure::{FPU, float32_t};
 
 use super::{FClass, RoundingMode};
-use crate::cpu::hart::{self, WhiskerHart};
+use crate::cpu::hart::WhiskerHart;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
@@ -47,15 +45,6 @@ impl SoftFloat {
 		Self::from_u32(result.v)
 	}
 
-	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		let result = fpu.rem(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
-	}
-
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		let mut fpu = FPU::default();
 		let this = float32_t::from_bits(self.0);
@@ -64,6 +53,16 @@ impl SoftFloat {
 		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
 		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u32(result.v)
+	}
+
+	pub fn neg_mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		let mut fpu = FPU::default();
+		let this = float32_t::from_bits(self.0);
+		let mul = float32_t::from_bits(mul.0);
+		let add = float32_t::from_bits(add.0);
+		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		Self::from_u32(result.v).neg(hart)
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
@@ -75,20 +74,17 @@ impl SoftFloat {
 	}
 }
 
-#[allow(dead_code, reason = "FIXME: Finish FP instruction implementations")]
 impl SoftFloat {
-	pub const ZERO: Self = Self::from_f32(0_f32);
-
 	pub const fn from_f32(value: f32) -> Self {
 		Self(value.to_bits())
 	}
 
-	pub const fn to_f32(self) -> f32 {
-		f32::from_bits(self.0)
-	}
-
 	pub fn from_u32(value: u32) -> Self {
 		Self(value)
+	}
+
+	pub const fn qnan() -> Self {
+		Self(0x7fc00000)
 	}
 
 	pub fn to_u32(self) -> u32 {
@@ -146,17 +142,18 @@ impl SoftFloat {
 	pub fn is_snan(self) -> bool {
 		softfloat_pure::softfloat::softfloat_isSigNaNF32UI(self.0)
 	}
+
+	#[allow(unused)]
 	pub fn is_qnan(self) -> bool {
 		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
 	}
 
-	// FIXME: This is probably fine?
 	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		self.mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
-	pub fn is_positive(self) -> bool {
-		Self::get_sign(self.to_u32()) == 0
+	pub fn neg_mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.neg_mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
 	pub fn sign(self) -> u32 {
@@ -180,60 +177,21 @@ impl SoftFloat {
 		Self(self.0 ^ (1 << (u32::BITS - 1)))
 	}
 
-	fn min_max_handle_nan(lhs: SoftFloat, rhs: SoftFloat, hart: &mut WhiskerHart) -> SoftFloat {
-		if lhs.is_snan() || rhs.is_snan() {
-			hart.float_status_control.set_invalid_operation(true);
-		}
-
-		if lhs.is_nan() {
-			if rhs.is_nan() {
-				SoftFloat((SoftFloat::EXPONENT_MASK << SoftFloat::MANTISSA_BITS) | SoftFloat::QUIET_NAN_MASK)
-			} else {
-				rhs
-			}
-		} else {
-			lhs
-		}
-	}
-
 	pub fn max(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		if self.is_nan() || other.is_nan() {
-			return Self::min_max_handle_nan(self, other, hart);
-		}
-
-		let lhs_positive = self.is_positive();
-		let rhs_positive = other.is_positive();
-
-		if lhs_positive != rhs_positive {
-			if !lhs_positive {
-				return other;
-			}
-			return self;
-		}
-
-		if self.gt(&other) { self } else { other }
+		let mut fpu = FPU::default();
+		let res = fpu.max(float32_t { v: self.0 }, float32_t { v: other.0 });
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		return Self::from_u32(res.v);
 	}
 
 	pub fn min(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		if self.is_nan() || other.is_nan() {
-			return Self::min_max_handle_nan(self, other, hart);
-		}
-
-		let lhs_positive = self.is_positive();
-		let rhs_positive = other.is_positive();
-
-		if lhs_positive != rhs_positive {
-			if !lhs_positive {
-				return self;
-			}
-			return other;
-		}
-
-		if self.lt(&other) { self } else { other }
+		let mut fpu = FPU::default();
+		let res = fpu.min(float32_t { v: self.0 }, float32_t { v: other.0 });
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		return Self::from_u32(res.v);
 	}
 }
 
-#[allow(unused)]
 impl SoftFloat {
 	const BITS: u32 = 32;
 	const MANTISSA_BITS: u32 = 23;
@@ -260,33 +218,5 @@ impl SoftFloat {
 impl Default for SoftFloat {
 	fn default() -> Self {
 		Self::from_f32(0_f32)
-	}
-}
-
-impl PartialEq for SoftFloat {
-	fn eq(&self, other: &Self) -> bool {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		fpu.eq(lhs, rhs)
-	}
-}
-
-impl PartialOrd for SoftFloat {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		if self.is_nan() || other.is_nan() {
-			None
-		} else if self.eq(other) {
-			Some(Ordering::Equal)
-		} else if {
-			let mut fpu = FPU::default();
-			let lhs = float32_t::from_bits(self.0);
-			let rhs = float32_t::from_bits(other.0);
-			fpu.lt(lhs, rhs)
-		} {
-			Some(Ordering::Less)
-		} else {
-			Some(Ordering::Greater)
-		}
 	}
 }

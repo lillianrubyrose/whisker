@@ -1,3 +1,5 @@
+use num_conv::Truncate;
+
 use crate::{
 	soft::{double::SoftDouble, float::SoftFloat},
 	ty::{FPRegisterIndex, GPRegisterIndex},
@@ -63,8 +65,13 @@ impl FPRegisters {
 	}
 
 	pub fn get_float(&self, index: FPRegisterIndex) -> SoftFloat {
-		// floats are NaN boxed, they live in the low 32 bits of the reg
-		SoftFloat::from_u32(self.get_raw(index) as u32)
+		let raw = self.get_raw(index);
+		if (raw >> 32) == 0xFFFFFFFF {
+			SoftFloat::from_u32(raw.truncate::<u32>())
+		} else {
+			// If the value is not NaN boxed then we should treat it as a canonical qNaN
+			SoftFloat::qnan()
+		}
 	}
 
 	pub fn set_float(&mut self, index: FPRegisterIndex, val: SoftFloat) {

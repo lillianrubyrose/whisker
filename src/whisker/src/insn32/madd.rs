@@ -19,6 +19,16 @@ pub fn parse_madd(parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
+		DOUBLE_PRECISION => Some(
+			DoubleInstruction::MulAdd {
+				dst: r4type.dst().to_fp(),
+				mul_lhs: r4type.src1().to_fp(),
+				mul_rhs: r4type.src2().to_fp(),
+				add: r4type.src3().to_fp(),
+				rm,
+			}
+			.into(),
+		),
 		_ => None,
 	}
 }

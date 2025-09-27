@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use softfloat_pure::{FPU, float64_t};
 
 use super::{FClass, RoundingMode};
@@ -12,10 +10,6 @@ pub struct SoftDouble(u64);
 impl SoftDouble {
 	pub const fn from_f64(value: f64) -> Self {
 		Self(value.to_bits())
-	}
-
-	pub const fn to_f64(self) -> f64 {
-		f64::from_bits(self.0)
 	}
 
 	pub fn from_u64(value: u64) -> Self {
@@ -41,6 +35,8 @@ impl SoftDouble {
 	pub fn is_snan(self) -> bool {
 		softfloat_pure::softfloat::softfloat_isSigNaNF64UI(self.0)
 	}
+
+	#[allow(unused)]
 	pub fn is_qnan(self) -> bool {
 		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
 	}
@@ -85,8 +81,8 @@ impl SoftDouble {
 		self.mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
-	pub fn is_positive(self) -> bool {
-		Self::get_sign(self.to_u64()) == 0
+	pub fn neg_mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.neg_mul_add(mul, sub.neg(hart), rm, hart)
 	}
 
 	pub fn sign(self) -> u64 {
@@ -107,59 +103,21 @@ impl SoftDouble {
 			}
 			return self;
 		}
-		Self(self.0 ^ (1 << (u32::BITS - 1)))
-	}
-
-	fn min_max_handle_nan(lhs: SoftDouble, rhs: SoftDouble, hart: &mut WhiskerHart) -> SoftDouble {
-		if lhs.is_snan() || rhs.is_snan() {
-			hart.float_status_control.set_invalid_operation(true);
-		}
-
-		if lhs.is_nan() {
-			if rhs.is_nan() {
-				SoftDouble((SoftDouble::EXPONENT_MASK << SoftDouble::MANTISSA_BITS) | SoftDouble::QUIET_NAN_MASK)
-			} else {
-				rhs
-			}
-		} else {
-			lhs
-		}
+		Self(self.0 ^ (1 << (u64::BITS - 1)))
 	}
 
 	pub fn max(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		if self.is_nan() || other.is_nan() {
-			return Self::min_max_handle_nan(self, other, hart);
-		}
-
-		let lhs_positive = self.is_positive();
-		let rhs_positive = other.is_positive();
-
-		if lhs_positive != rhs_positive {
-			if !lhs_positive {
-				return other;
-			}
-			return self;
-		}
-
-		if self.gt(&other) { self } else { other }
+		let mut fpu = FPU::default();
+		let res = fpu.max(float64_t { v: self.0 }, float64_t { v: other.0 });
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		return Self::from_u64(res.v);
 	}
 
 	pub fn min(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		if self.is_nan() || other.is_nan() {
-			return Self::min_max_handle_nan(self, other, hart);
-		}
-
-		let lhs_positive = self.is_positive();
-		let rhs_positive = other.is_positive();
-
-		if lhs_positive != rhs_positive {
-			if !lhs_positive {
-				return self;
-			}
-			return other;
-		}
-
-		if self.lt(&other) { self } else { other }
+		let mut fpu = FPU::default();
+		let res = fpu.min(float64_t { v: self.0 }, float64_t { v: other.0 });
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		return Self::from_u64(res.v);
 	}
 }
 
@@ -200,15 +158,6 @@ impl SoftDouble {
 		Self::from_u64(result.v)
 	}
 
-	pub fn rem(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float64_t::from_bits(self.0);
-		let rhs = float64_t::from_bits(other.0);
-		let result = fpu.rem(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u64(result.v)
-	}
-
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
 		let mut fpu = FPU::default();
 		let this = float64_t::from_bits(self.0);
@@ -217,6 +166,16 @@ impl SoftDouble {
 		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
 		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
+	}
+
+	pub fn neg_mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		let mut fpu = FPU::default();
+		let this = float64_t::from_bits(self.0);
+		let mul = float64_t::from_bits(mul.0);
+		let add = float64_t::from_bits(add.0);
+		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
+		hart.float_status_control.set_from_fpu(fpu.flags);
+		Self::from_u64(result.v).neg(hart)
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
@@ -228,7 +187,6 @@ impl SoftDouble {
 	}
 }
 
-#[allow(unused)]
 impl SoftDouble {
 	const BITS: u64 = 64;
 	const MANTISSA_BITS: u64 = 52;
@@ -255,33 +213,5 @@ impl SoftDouble {
 impl Default for SoftDouble {
 	fn default() -> Self {
 		Self::from_f64(0_f64)
-	}
-}
-
-impl PartialEq for SoftDouble {
-	fn eq(&self, other: &Self) -> bool {
-		let mut fpu = FPU::default();
-		let lhs = float64_t::from_bits(self.0);
-		let rhs = float64_t::from_bits(other.0);
-		fpu.eq(lhs, rhs)
-	}
-}
-
-impl PartialOrd for SoftDouble {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		if self.is_nan() || other.is_nan() {
-			None
-		} else if self.eq(other) {
-			Some(Ordering::Equal)
-		} else if {
-			let mut fpu = FPU::default();
-			let lhs = float64_t::from_bits(self.0);
-			let rhs = float64_t::from_bits(other.0);
-			fpu.lt(lhs, rhs)
-		} {
-			Some(Ordering::Less)
-		} else {
-			Some(Ordering::Greater)
-		}
 	}
 }

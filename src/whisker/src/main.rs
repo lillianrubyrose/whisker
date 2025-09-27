@@ -588,7 +588,7 @@ mod tests {
 		println!(
 			"{}/{} succeeded.",
 			successes,
-			successes - failures.len().cast_signed() as i32
+			successes + failures.len().cast_signed() as i32
 		);
 		assert!(failures.is_empty());
 	}

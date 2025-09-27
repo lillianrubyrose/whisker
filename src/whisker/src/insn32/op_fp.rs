@@ -59,6 +59,24 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			}
 			.into(),
 		),
+		DIV_SINGLE => Some(
+			FloatInstruction::Div {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
+		DIV_DOUBLE => Some(
+			DoubleInstruction::Div {
+				dst: rtype.dst().into(),
+				lhs: rtype.src1().into(),
+				rhs: rtype.src2().into(),
+				rm,
+			}
+			.into(),
+		),
 		MUL_DOUBLE => Some(
 			DoubleInstruction::Mul {
 				dst: rtype.dst().into(),
@@ -352,7 +370,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				DoubleInstruction::ConvertFromWord {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
-					rm,
+					_rm: rm,
 				}
 				.into(),
 			),
@@ -360,7 +378,7 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 				DoubleInstruction::ConvertFromWordUnsigned {
 					dst: rtype.dst().to_fp(),
 					src: rtype.src1().to_gp(),
-					rm,
+					_rm: rm,
 				}
 				.into(),
 			),
@@ -382,6 +400,22 @@ pub fn parse_op_fp(parcel: u32) -> Option<Instruction> {
 			),
 			_ => None,
 		},
+		CONVERT_SINGLE_TO_DOUBLE => Some(
+			DoubleInstruction::ConvertFromSingle {
+				dst: rtype.dst().to_fp(),
+				src: rtype.src1().to_fp(),
+				_rm: rm,
+			}
+			.into(),
+		),
+		CONVERT_DOUBLE_TO_SINGLE => Some(
+			FloatInstruction::ConvertFromDouble {
+				dst: rtype.dst().to_fp(),
+				src: rtype.src1().to_fp(),
+				rm,
+			}
+			.into(),
+		),
 		MOVE_TO_INT_CLASS_SINGLE => match rm.as_u8() {
 			move_class::MOVE if rtype.src2().as_u8() == 0 => Some(
 				FloatInstruction::MoveToInteger {
@@ -471,6 +505,9 @@ pub mod consts {
 
 	pub const CONVERT_INT_TO_SINGLE: u8 = 0b1101000;
 	pub const CONVERT_INT_TO_DOUBLE: u8 = 0b1101001;
+
+	pub const CONVERT_DOUBLE_TO_SINGLE: u8 = 0b0100000;
+	pub const CONVERT_SINGLE_TO_DOUBLE: u8 = 0b0100001;
 
 	pub const MOVE_TO_INT_CLASS_SINGLE: u8 = 0b1110000;
 	pub const MOVE_TO_INT_CLASS_DOUBLE: u8 = 0b1110001;

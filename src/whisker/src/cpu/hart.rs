@@ -10,7 +10,7 @@ use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
 use rustc_hash::FxHashMap;
-use softfloat_pure::{float32_t, float64_t, softfloat::init_detectTininess};
+use softfloat_pure::{FPU, float32_t, float64_t, softfloat::init_detectTininess};
 
 use crate::{
 	cpu::{
@@ -581,7 +581,6 @@ macro_rules! read_mem_float {
 	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_soft_float($self, $offset, $kind) }};
 }
 
-#[expect(unused, reason = "doubles NYI")]
 macro_rules! read_mem_double {
 	($self:ident, $mem:ident, $offset:ident, $kind:path) => {{ $mem.read_soft_double($self, $offset, $kind) }};
 }
@@ -606,7 +605,6 @@ macro_rules! write_mem_float {
 	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_soft_float($self, $offset, $kind, $val) }};
 }
 
-#[expect(unused, reason = "doubles NYI")]
 macro_rules! write_mem_double {
 	($self:ident, $mem:ident, $offset:ident, $kind:path, $val:expr) => {{ $mem.write_soft_double($self, $offset, $kind, $val) }};
 }
@@ -941,7 +939,7 @@ impl WhiskerHart {
 			}
 			FloatInstruction::Store { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let val = self.fp_registers.get_float(src);
+				let val = SoftFloat::from_u32(self.fp_registers.get_raw(src).truncate::<u32>());
 				write_mem_float!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			FloatInstruction::Add { dst, lhs, rhs, rm } => {
@@ -992,7 +990,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let add = self.fp_registers.get_float(add);
-				let result = mul_lhs.mul_add(mul_rhs, add, rm, self).neg(self);
+				let result = mul_lhs.neg_mul_add(mul_rhs, add, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::NegMulSub {
@@ -1005,7 +1003,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_float(mul_lhs);
 				let mul_rhs = self.fp_registers.get_float(mul_rhs);
 				let sub = self.fp_registers.get_float(sub);
-				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self).neg(self);
+				let result = mul_lhs.neg_mul_sub(mul_rhs, sub, rm, self);
 				self.fp_registers.set_float(dst, result);
 			}
 			FloatInstruction::Mul { dst, lhs, rhs, rm } => {
@@ -1052,47 +1050,38 @@ impl WhiskerHart {
 				self.fp_registers.set_float(dst, res);
 			}
 			FloatInstruction::Equal { dst, lhs, rhs } => {
-				//FEQ.S performs a quiet comparison:
-				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
-				//instructions, the result is 0 if either operand is NaN.
+				let mut fpu = FPU::default();
+				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
+				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
 
-				let lhs = self.fp_registers.get_float(lhs);
-				let rhs = self.fp_registers.get_float(rhs);
+				let result = fpu.eq(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
 
-				// the partial_cmp here returns None if either lhs or rhs is NaN
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Equal));
-				} else {
-					// if any input was NaN, the output is 0
-					self.registers.set(dst, 0);
-					// if either input was sNaN, write invalid operation
-					if lhs.is_snan() || rhs.is_snan() {
-						self.float_status_control.set_invalid_operation(true);
-					}
+				if fpu.flags.is_invalid() {
+					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			FloatInstruction::LessThan { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get_float(lhs);
-				let rhs = self.fp_registers.get_float(rhs);
+				let mut fpu = FPU::default();
+				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
+				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
 
-				// the partial_cmp here returns None if either lhs or rhs is nan
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Less));
-				} else {
-					self.registers.set(dst, 0);
+				let result = fpu.lt(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
+
+				if fpu.flags.is_invalid() {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			FloatInstruction::LessOrEqual { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get_float(lhs);
-				let rhs = self.fp_registers.get_float(rhs);
+				let mut fpu = FPU::default();
+				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
+				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
 
-				// the partial_cmp here returns None if either lhs or rhs is nan
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers
-						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
-				} else {
-					self.registers.set(dst, 0);
+				let result = fpu.le(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
+
+				if fpu.flags.is_invalid() {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
@@ -1145,7 +1134,7 @@ impl WhiskerHart {
 				let (res, eflags) =
 					softfloat_pure::softfloat::i32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
 				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
-				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(res.v));
 				self.float_status_control.set_from_fpu(eflags);
 			}
 			FloatInstruction::ConvertFromWordUnsigned { dst, src, rm } => {
@@ -1153,7 +1142,7 @@ impl WhiskerHart {
 				let (res, eflags) =
 					softfloat_pure::softfloat::ui32_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
 				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
-				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(res.v));
 				self.float_status_control.set_from_fpu(eflags);
 			}
 			FloatInstruction::ConvertFromDoubleWord { dst, src, rm } => {
@@ -1161,7 +1150,7 @@ impl WhiskerHart {
 				let (res, eflags) =
 					softfloat_pure::softfloat::i64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
 				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
-				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(res.v));
 				self.float_status_control.set_from_fpu(eflags);
 			}
 			FloatInstruction::ConvertFromDoubleWordUnsigned { dst, src, rm } => {
@@ -1169,7 +1158,18 @@ impl WhiskerHart {
 				let (res, eflags) =
 					softfloat_pure::softfloat::ui64_to_f32(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
 				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
-				self.fp_registers.set_raw(dst, res.v.extend::<u64>());
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(res.v));
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			FloatInstruction::ConvertFromDouble { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src);
+				let (res, eflags) = softfloat_pure::softfloat::f64_to_f32(
+					float64_t { v: src },
+					rm.to_sf(self).to_softfloat(),
+					init_detectTininess,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_float(dst, SoftFloat::from_u32(res.v));
 				self.float_status_control.set_from_fpu(eflags);
 			}
 			FloatInstruction::MoveToInteger { dst, src } => {
@@ -1194,13 +1194,13 @@ impl WhiskerHart {
 		match insn {
 			DoubleInstruction::Load { dst, src, src_offset } => {
 				let addr = self.registers.get(src).wrapping_add_signed(src_offset);
-				let val = mem.read_u64(self, addr, ReadKind::Normal)?;
-				self.fp_registers.set_double(dst, SoftDouble::from_u64(val));
+				let val = read_mem_double!(self, mem, addr, ReadKind::Normal)?;
+				self.fp_registers.set_double(dst, val);
 			}
 			DoubleInstruction::Store { dst, dst_offset, src } => {
-				let addr = self.registers.get(dst).wrapping_add_signed(dst_offset);
-				let src = self.fp_registers.get_double(src);
-				mem.write_u64(self, addr, WriteKind::Normal, src.to_u64())?;
+				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
+				let val = self.fp_registers.get_double(src);
+				write_mem_double!(self, mem, offset, WriteKind::Normal, val)?;
 			}
 			DoubleInstruction::Add { dst, lhs, rhs, rm } => {
 				let lhs = self.fp_registers.get_double(lhs);
@@ -1258,47 +1258,38 @@ impl WhiskerHart {
 				self.fp_registers.set_double(dst, res);
 			}
 			DoubleInstruction::Equal { dst, lhs, rhs } => {
-				//FEQ.D performs a quiet comparison:
-				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
-				//instructions, the result is 0 if either operand is NaN.
+				let mut fpu = FPU::default();
+				let lhs = float64_t::from_bits(self.fp_registers.get_double(lhs).to_u64());
+				let rhs = float64_t::from_bits(self.fp_registers.get_double(rhs).to_u64());
 
-				let lhs = self.fp_registers.get_double(lhs);
-				let rhs = self.fp_registers.get_double(rhs);
+				let result = fpu.eq(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
 
-				// the partial_cmp here returns None if either lhs or rhs is NaN
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Equal));
-				} else {
-					// if any input was NaN, the output is 0
-					self.registers.set(dst, 0);
-					// if either input was sNaN, write invalid operation
-					if lhs.is_snan() || rhs.is_snan() {
-						self.float_status_control.set_invalid_operation(true);
-					}
+				if fpu.flags.is_invalid() {
+					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			DoubleInstruction::LessThan { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get_double(lhs);
-				let rhs = self.fp_registers.get_double(rhs);
+				let mut fpu = FPU::default();
+				let lhs = float64_t::from_bits(self.fp_registers.get_double(lhs).to_u64());
+				let rhs = float64_t::from_bits(self.fp_registers.get_double(rhs).to_u64());
 
-				// the partial_cmp here returns None if either lhs or rhs is nan
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers.set(dst, u64::from(cmp == Ordering::Less));
-				} else {
-					self.registers.set(dst, 0);
+				let result = fpu.lt(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
+
+				if fpu.flags.is_invalid() {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
 			DoubleInstruction::LessOrEqual { dst, lhs, rhs } => {
-				let lhs = self.fp_registers.get_double(lhs);
-				let rhs = self.fp_registers.get_double(rhs);
+				let mut fpu = FPU::default();
+				let lhs = float64_t::from_bits(self.fp_registers.get_double(lhs).to_u64());
+				let rhs = float64_t::from_bits(self.fp_registers.get_double(rhs).to_u64());
 
-				// the partial_cmp here returns None if either lhs or rhs is nan
-				if let Some(cmp) = lhs.partial_cmp(&rhs) {
-					self.registers
-						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
-				} else {
-					self.registers.set(dst, 0);
+				let result = fpu.le(lhs, rhs);
+				self.registers.set(dst, u64::from(result));
+
+				if fpu.flags.is_invalid() {
 					self.float_status_control.set_invalid_operation(true);
 				}
 			}
@@ -1338,7 +1329,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_double(mul_lhs);
 				let mul_rhs = self.fp_registers.get_double(mul_rhs);
 				let add = self.fp_registers.get_double(add);
-				let result = mul_lhs.mul_add(mul_rhs, add, rm, self).neg(self);
+				let result = mul_lhs.neg_mul_add(mul_rhs, add, rm, self);
 				self.fp_registers.set_double(dst, result);
 			}
 			DoubleInstruction::NegMulSub {
@@ -1351,7 +1342,7 @@ impl WhiskerHart {
 				let mul_lhs = self.fp_registers.get_double(mul_lhs);
 				let mul_rhs = self.fp_registers.get_double(mul_rhs);
 				let sub = self.fp_registers.get_double(sub);
-				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self).neg(self);
+				let result = mul_lhs.neg_mul_sub(mul_rhs, sub, rm, self);
 				self.fp_registers.set_double(dst, result);
 			}
 			DoubleInstruction::ConvertToWord { dst, src, rm } => {
@@ -1398,12 +1389,12 @@ impl WhiskerHart {
 				self.registers.set(dst, res);
 				self.float_status_control.set_from_fpu(eflags);
 			}
-			DoubleInstruction::ConvertFromWord { dst, src, rm: _ } => {
+			DoubleInstruction::ConvertFromWord { dst, src, _rm } => {
 				let src = self.registers.get(src).truncate::<u32>().cast_signed();
 				let res = softfloat_pure::softfloat::i32_to_f64(src);
 				self.fp_registers.set_raw(dst, res.v);
 			}
-			DoubleInstruction::ConvertFromWordUnsigned { dst, src, rm: _ } => {
+			DoubleInstruction::ConvertFromWordUnsigned { dst, src, _rm } => {
 				let src = self.registers.get(src).truncate::<u32>();
 				let res = softfloat_pure::softfloat::ui32_to_f64(src);
 				self.fp_registers.set_raw(dst, res.v);
@@ -1424,12 +1415,19 @@ impl WhiskerHart {
 				self.fp_registers.set_raw(dst, res.v);
 				self.float_status_control.set_from_fpu(eflags);
 			}
+			DoubleInstruction::ConvertFromSingle { dst, src, _rm } => {
+				let src = self.fp_registers.get_raw(src).truncate::<u32>();
+				let (res, eflags) = softfloat_pure::softfloat::f32_to_f64(float32_t { v: src });
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v);
+				self.float_status_control.set_from_fpu(eflags);
+			}
 			DoubleInstruction::MoveToInteger { dst, src } => {
 				self.registers.set(dst, self.fp_registers.get_raw(src));
 			}
 			DoubleInstruction::MoveFromInteger { dst, src } => {
 				let val = self.registers.get(src);
-				self.fp_registers.set_double(dst, SoftDouble::from_u64(val));
+				self.fp_registers.set_raw(dst, val);
 			}
 			DoubleInstruction::Class { dst, src } => {
 				let result = self.fp_registers.get_double(src).fclass();

@@ -159,6 +159,11 @@ pub enum FloatInstruction {
 		src: GPRegisterIndex,
 		rm: RoundingMode,
 	},
+	ConvertFromDouble {
+		dst: FPRegisterIndex,
+		src: FPRegisterIndex,
+		rm: RoundingMode,
+	},
 
 	MoveToInteger {
 		dst: GPRegisterIndex,

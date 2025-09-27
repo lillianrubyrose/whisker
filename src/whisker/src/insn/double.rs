@@ -142,12 +142,12 @@ pub enum DoubleInstruction {
 	ConvertFromWord {
 		dst: FPRegisterIndex,
 		src: GPRegisterIndex,
-		rm: RoundingMode,
+		_rm: RoundingMode,
 	},
 	ConvertFromWordUnsigned {
 		dst: FPRegisterIndex,
 		src: GPRegisterIndex,
-		rm: RoundingMode,
+		_rm: RoundingMode,
 	},
 	ConvertFromDoubleWord {
 		dst: FPRegisterIndex,
@@ -158,6 +158,11 @@ pub enum DoubleInstruction {
 		dst: FPRegisterIndex,
 		src: GPRegisterIndex,
 		rm: RoundingMode,
+	},
+	ConvertFromSingle {
+		dst: FPRegisterIndex,
+		src: FPRegisterIndex,
+		_rm: RoundingMode,
 	},
 
 	MoveToInteger {

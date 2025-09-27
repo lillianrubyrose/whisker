@@ -934,12 +934,12 @@ impl WhiskerHart {
 	#[allow(unused_variables, reason = "FIXME: Implement unfinished instructions")]
 	fn execute_f_insn(&mut self, insn: FloatInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
-			FloatInstruction::LoadWord { dst, src, src_offset } => {
+			FloatInstruction::Load { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
 				let val = read_mem_float!(self, mem, offset, ReadKind::Normal)?;
 				self.fp_registers.set_float(dst, val);
 			}
-			FloatInstruction::StoreWord { dst, dst_offset, src } => {
+			FloatInstruction::Store { dst, dst_offset, src } => {
 				let offset = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let val = self.fp_registers.get_float(src);
 				write_mem_float!(self, mem, offset, WriteKind::Normal, val)?;

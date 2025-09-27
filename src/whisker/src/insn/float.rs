@@ -6,12 +6,12 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum FloatInstruction {
-	LoadWord {
+	Load {
 		dst: FPRegisterIndex,
 		src: GPRegisterIndex,
 		src_offset: i64,
 	},
-	StoreWord {
+	Store {
 		dst: GPRegisterIndex,
 		dst_offset: i64,
 		src: FPRegisterIndex,

@@ -6,7 +6,7 @@ pub fn parse_load_fp(parcel: u32) -> Option<Instruction> {
 	let itype = IType::parse(parcel);
 	match itype.func() {
 		FLOAT_LOAD_WORD => Some(
-			FloatInstruction::LoadWord {
+			FloatInstruction::Load {
 				dst: itype.dst().to_fp(),
 				src: itype.src().to_gp(),
 				src_offset: itype.imm(),

@@ -129,10 +129,10 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		csrs, satp, 0x180, rw (read_satp, write_satp);
 
 		csrs, pmpcfg0, 0x3A0, rw (read_pmpcfg0, write_pmpcfg0);
-          csrs, pmpcfg2, 0x3A2, rw (read_pmpcfg2, write_pmpcfg2);
+		csrs, pmpcfg2, 0x3A2, rw (read_pmpcfg2, write_pmpcfg2);
 
-          csrs, mcounteren, 0x306, rw read_write_trivial!(mcounteren);
-          csrs, scounteren, 0x106, rw read_write_trivial!(scounteren);
+		csrs, mcounteren, 0x306, rw read_write_trivial!(mcounteren);
+		csrs, scounteren, 0x106, rw read_write_trivial!(scounteren);
 
 		// float status
 		csrs, fflags, 0x001, rw (
@@ -143,8 +143,8 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 									}
 								);
 		csrs, frm,    0x002, rw (|hart| read_fcsr(hart) >> 5, |hart, val| {
-		     let pre = read_fcsr(hart);
-               write_fcsr(hart, (pre & !0b11100000) | ((val & 0b111) << 5));
+			let pre = read_fcsr(hart);
+			write_fcsr(hart, (pre & !0b11100000) | ((val & 0b111) << 5));
 		});
 		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
 
@@ -278,7 +278,7 @@ fn read_mtvec(hart: &mut WhiskerHart) -> u64 {
 	u64::from_le_bytes(hart.mtvec.inner())
 }
 fn write_mtvec(hart: &mut WhiskerHart, val: u64) {
-	debug_assert!(
+	assert!(
 		val & 0b11 == 0,
 		"alternative mtvec modes not yet implemented or maybe you forgot __attribute__((aligned(4))) on a trap handler"
 	);

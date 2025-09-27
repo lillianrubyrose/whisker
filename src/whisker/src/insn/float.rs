@@ -46,19 +46,16 @@ pub enum FloatInstruction {
 		val: FPRegisterIndex,
 		rm: RoundingMode,
 	},
-	// fsgnj.s
 	SignInjection {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	// fsgnjn.s
 	SignNotInjection {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,
 		rhs: FPRegisterIndex,
 	},
-	// fsgnjx.s
 	SignXorInjection {
 		dst: FPRegisterIndex,
 		lhs: FPRegisterIndex,

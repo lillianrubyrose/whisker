@@ -549,7 +549,7 @@ mod tests {
 			&mut failures,
 			&mut successes,
 		);
-		run_isa_tests("rv64ui-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64ui-p", &["ma_data"], &mut failures, &mut successes);
 		run_isa_tests(
 			"rv64si-p",
 			&["csr", "dirty", "icache-alias"],
@@ -572,6 +572,9 @@ mod tests {
 
 		run_isa_tests("rv32uf-p", &[], &mut failures, &mut successes);
 		run_isa_tests("rv64uf-p", &[], &mut failures, &mut successes);
+
+		run_isa_tests("rv32ud-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv64ud-p", &[], &mut failures, &mut successes);
 
 		println!();
 

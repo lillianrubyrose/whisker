@@ -38,6 +38,13 @@ impl SoftDouble {
 		Self::get_exponent(self.0) == Self::EXPONENT_BITS && Self::get_mantissa(self.0) != 0u64
 	}
 
+	pub fn is_snan(self) -> bool {
+		softfloat_pure::softfloat::softfloat_isSigNaNF64UI(self.0)
+	}
+	pub fn is_qnan(self) -> bool {
+		self.is_nan() && (Self::get_mantissa(self.0) & Self::QUIET_NAN_MASK == 0)
+	}
+
 	pub fn fclass(self) -> FClass {
 		let sign = Self::get_sign(self.0);
 		let exponent = Self::get_exponent(self.0);
@@ -73,6 +80,87 @@ impl SoftDouble {
 			FClass::NegativeNormal
 		}
 	}
+
+	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
+		self.mul_add(mul, sub.neg(hart), rm, hart)
+	}
+
+	pub fn is_positive(self) -> bool {
+		Self::get_sign(self.to_u64()) == 0
+	}
+
+	pub fn sign(self) -> u64 {
+		Self::get_sign(self.to_u64())
+	}
+
+	pub fn set_sign(self, sign: u64) -> Self {
+		Self::from_u64(
+			(self.to_u64() & !(1 << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)))
+				| ((sign & 1) << (Self::EXPONENT_BITS + Self::MANTISSA_BITS)),
+		)
+	}
+
+	pub fn neg(self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() {
+			if self.is_snan() {
+				hart.float_status_control.set_invalid_operation(true);
+			}
+			return self;
+		}
+		Self(self.0 ^ (1 << (u32::BITS - 1)))
+	}
+
+	fn min_max_handle_nan(lhs: SoftDouble, rhs: SoftDouble, hart: &mut WhiskerHart) -> SoftDouble {
+		if lhs.is_snan() || rhs.is_snan() {
+			hart.float_status_control.set_invalid_operation(true);
+		}
+
+		if lhs.is_nan() {
+			if rhs.is_nan() {
+				SoftDouble((SoftDouble::EXPONENT_MASK << SoftDouble::MANTISSA_BITS) | SoftDouble::QUIET_NAN_MASK)
+			} else {
+				rhs
+			}
+		} else {
+			lhs
+		}
+	}
+
+	pub fn max(self, other: Self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() || other.is_nan() {
+			return Self::min_max_handle_nan(self, other, hart);
+		}
+
+		let lhs_positive = self.is_positive();
+		let rhs_positive = other.is_positive();
+
+		if lhs_positive != rhs_positive {
+			if !lhs_positive {
+				return other;
+			}
+			return self;
+		}
+
+		if self.gt(&other) { self } else { other }
+	}
+
+	pub fn min(self, other: Self, hart: &mut WhiskerHart) -> Self {
+		if self.is_nan() || other.is_nan() {
+			return Self::min_max_handle_nan(self, other, hart);
+		}
+
+		let lhs_positive = self.is_positive();
+		let rhs_positive = other.is_positive();
+
+		if lhs_positive != rhs_positive {
+			if !lhs_positive {
+				return self;
+			}
+			return other;
+		}
+
+		if self.lt(&other) { self } else { other }
+	}
 }
 
 impl SoftDouble {
@@ -81,7 +169,7 @@ impl SoftDouble {
 		let lhs = float64_t::from_bits(self.0);
 		let rhs = float64_t::from_bits(other.0);
 		let result = fpu.add(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -90,7 +178,7 @@ impl SoftDouble {
 		let lhs = float64_t::from_bits(self.0);
 		let rhs = float64_t::from_bits(other.0);
 		let result = fpu.sub(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -99,7 +187,7 @@ impl SoftDouble {
 		let lhs = float64_t::from_bits(self.0);
 		let rhs = float64_t::from_bits(other.0);
 		let result = fpu.mul(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -108,7 +196,7 @@ impl SoftDouble {
 		let lhs = float64_t::from_bits(self.0);
 		let rhs = float64_t::from_bits(other.0);
 		let result = fpu.div(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -117,7 +205,7 @@ impl SoftDouble {
 		let lhs = float64_t::from_bits(self.0);
 		let rhs = float64_t::from_bits(other.0);
 		let result = fpu.rem(lhs, rhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -127,7 +215,7 @@ impl SoftDouble {
 		let mul = float64_t::from_bits(mul.0);
 		let add = float64_t::from_bits(add.0);
 		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 
@@ -135,7 +223,7 @@ impl SoftDouble {
 		let mut fpu = FPU::default();
 		let lhs = float64_t::from_bits(self.0);
 		let result = fpu.sqrt(lhs, rm.to_sf(hart));
-		// TODO: exception flags
+		hart.float_status_control.set_from_fpu(fpu.flags);
 		Self::from_u64(result.v)
 	}
 }

@@ -10,7 +10,7 @@ use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::prelude::*;
 use rustc_hash::FxHashMap;
-use softfloat_pure::{float32_t, softfloat::init_detectTininess};
+use softfloat_pure::{float32_t, float64_t, softfloat::init_detectTininess};
 
 use crate::{
 	cpu::{
@@ -21,7 +21,7 @@ use crate::{
 	insn16, insn32,
 	mem::{MEM_PAGE_SIZE, Memory, MemoryOpKind, ReadKind, WriteKind},
 	regs::{FPRegisters, GPRegisters},
-	soft::{FloatStatusControl, float::SoftFloat},
+	soft::{FloatStatusControl, double::SoftDouble, float::SoftFloat},
 	tracing::*,
 	ty::{ExceptionBits, GPRegisterIndex, HartId, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::*,
@@ -1192,10 +1192,248 @@ impl WhiskerHart {
 
 	fn execute_d_insn(&mut self, insn: DoubleInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
 		match insn {
+			DoubleInstruction::Load { dst, src, src_offset } => {
+				let addr = self.registers.get(src).wrapping_add_signed(src_offset);
+				let val = mem.read_u64(self, addr, ReadKind::Normal)?;
+				self.fp_registers.set_double(dst, SoftDouble::from_u64(val));
+			}
 			DoubleInstruction::Store { dst, dst_offset, src } => {
 				let addr = self.registers.get(dst).wrapping_add_signed(dst_offset);
 				let src = self.fp_registers.get_double(src);
 				mem.write_u64(self, addr, WriteKind::Normal, src.to_u64())?;
+			}
+			DoubleInstruction::Add { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let result = lhs.add(rhs, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::Sub { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let result = lhs.sub(rhs, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::Mul { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let result = lhs.mul(rhs, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::Div { dst, lhs, rhs, rm } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let result = lhs.div(rhs, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::Sqrt { dst, val, rm } => {
+				let result = self.fp_registers.get_double(val).sqrt(rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::SignInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				self.fp_registers.set_double(dst, lhs.set_sign(rhs.sign()));
+			}
+			DoubleInstruction::SignNotInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				self.fp_registers.set_double(dst, lhs.set_sign(!rhs.sign()));
+			}
+			DoubleInstruction::SignXorInjection { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				self.fp_registers.set_double(dst, lhs.set_sign(lhs.sign() ^ rhs.sign()));
+			}
+			DoubleInstruction::Min { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let res = lhs.min(rhs, self);
+				self.fp_registers.set_double(dst, res);
+			}
+			DoubleInstruction::Max { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+				let res = lhs.max(rhs, self);
+				self.fp_registers.set_double(dst, res);
+			}
+			DoubleInstruction::Equal { dst, lhs, rhs } => {
+				//FEQ.D performs a quiet comparison:
+				//it only sets the invalid operation exception flag if either input is a signaling NaN. For all three
+				//instructions, the result is 0 if either operand is NaN.
+
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is NaN
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers.set(dst, u64::from(cmp == Ordering::Equal));
+				} else {
+					// if any input was NaN, the output is 0
+					self.registers.set(dst, 0);
+					// if either input was sNaN, write invalid operation
+					if lhs.is_snan() || rhs.is_snan() {
+						self.float_status_control.set_invalid_operation(true);
+					}
+				}
+			}
+			DoubleInstruction::LessThan { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is nan
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers.set(dst, u64::from(cmp == Ordering::Less));
+				} else {
+					self.registers.set(dst, 0);
+					self.float_status_control.set_invalid_operation(true);
+				}
+			}
+			DoubleInstruction::LessOrEqual { dst, lhs, rhs } => {
+				let lhs = self.fp_registers.get_double(lhs);
+				let rhs = self.fp_registers.get_double(rhs);
+
+				// the partial_cmp here returns None if either lhs or rhs is nan
+				if let Some(cmp) = lhs.partial_cmp(&rhs) {
+					self.registers
+						.set(dst, u64::from(matches!(cmp, Ordering::Less | Ordering::Equal)));
+				} else {
+					self.registers.set(dst, 0);
+					self.float_status_control.set_invalid_operation(true);
+				}
+			}
+			DoubleInstruction::MulAdd {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				add,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_double(mul_lhs);
+				let mul_rhs = self.fp_registers.get_double(mul_rhs);
+				let add = self.fp_registers.get_double(add);
+				let result = mul_lhs.mul_add(mul_rhs, add, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::MulSub {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				sub,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_double(mul_lhs);
+				let mul_rhs = self.fp_registers.get_double(mul_rhs);
+				let sub = self.fp_registers.get_double(sub);
+				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::NegMulAdd {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				add,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_double(mul_lhs);
+				let mul_rhs = self.fp_registers.get_double(mul_rhs);
+				let add = self.fp_registers.get_double(add);
+				let result = mul_lhs.mul_add(mul_rhs, add, rm, self).neg(self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::NegMulSub {
+				dst,
+				mul_lhs,
+				mul_rhs,
+				sub,
+				rm,
+			} => {
+				let mul_lhs = self.fp_registers.get_double(mul_lhs);
+				let mul_rhs = self.fp_registers.get_double(mul_rhs);
+				let sub = self.fp_registers.get_double(sub);
+				let result = mul_lhs.mul_sub(mul_rhs, sub, rm, self).neg(self);
+				self.fp_registers.set_double(dst, result);
+			}
+			DoubleInstruction::ConvertToWord { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src);
+				let (res, eflags) = softfloat_pure::softfloat::f64_to_i32(
+					float64_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::ConvertToWordUnsigned { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src);
+				let (res, eflags) = softfloat_pure::softfloat::f64_to_ui32(
+					float64_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::ConvertToDoubleWord { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src);
+				let (res, eflags) = softfloat_pure::softfloat::f64_to_i64(
+					float64_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res.sign_extend::<u64>());
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::ConvertToDoubleWordUnsigned { dst, src, rm } => {
+				let src = self.fp_registers.get_raw(src);
+				let (res, eflags) = softfloat_pure::softfloat::f64_to_ui64(
+					float64_t::from_bits(src),
+					rm.to_sf(self).to_softfloat(),
+					true,
+				);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.registers.set(dst, res);
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::ConvertFromWord { dst, src, rm: _ } => {
+				let src = self.registers.get(src).truncate::<u32>().cast_signed();
+				let res = softfloat_pure::softfloat::i32_to_f64(src);
+				self.fp_registers.set_raw(dst, res.v);
+			}
+			DoubleInstruction::ConvertFromWordUnsigned { dst, src, rm: _ } => {
+				let src = self.registers.get(src).truncate::<u32>();
+				let res = softfloat_pure::softfloat::ui32_to_f64(src);
+				self.fp_registers.set_raw(dst, res.v);
+			}
+			DoubleInstruction::ConvertFromDoubleWord { dst, src, rm } => {
+				let src = self.registers.get(src).cast_signed();
+				let (res, eflags) =
+					softfloat_pure::softfloat::i64_to_f64(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v);
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::ConvertFromDoubleWordUnsigned { dst, src, rm } => {
+				let src = self.registers.get(src);
+				let (res, eflags) =
+					softfloat_pure::softfloat::ui64_to_f64(src, rm.to_sf(self).to_softfloat(), init_detectTininess);
+				let eflags = softfloat_pure::ExceptionFlags::from_bits(eflags);
+				self.fp_registers.set_raw(dst, res.v);
+				self.float_status_control.set_from_fpu(eflags);
+			}
+			DoubleInstruction::MoveToInteger { dst, src } => {
+				self.registers.set(dst, self.fp_registers.get_raw(src));
+			}
+			DoubleInstruction::MoveFromInteger { dst, src } => {
+				let val = self.registers.get(src);
+				self.fp_registers.set_double(dst, SoftDouble::from_u64(val));
+			}
+			DoubleInstruction::Class { dst, src } => {
+				let result = self.fp_registers.get_double(src).fclass();
+				self.registers.set(dst, result.to_shift().extend());
 			}
 		}
 		Ok(())

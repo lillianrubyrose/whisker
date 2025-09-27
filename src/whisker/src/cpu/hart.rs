@@ -263,23 +263,30 @@ impl WhiskerHart {
 			return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 		}
 
+		// handle the trap appropriately depending on whether it's delegated
+		let do_deleg = match self.mode() {
+			HartMode::User | HartMode::Supervisor if self.medeleg.is_enabled(trap) || self.mideleg.is_enabled(trap) => {
+				true
+			}
+			HartMode::Hypervisor => unimplemented!("H-mode traps not implemented"),
+			// traps that were not delegated to lower modes, or the hart is in M mode
+			_ => false,
+		};
+
 		info!(
-			"{:?} requesting trap {:?} tval={:#018X} epc {:#018X} from_mode={:?}",
+			"{:?} requesting trap {:?} tval={:#018X} epc {:#018X} from_mode={:?} deleg={}",
 			self.hart_id,
 			trap,
 			tval,
 			self.pc,
-			self.mode()
+			self.mode(),
+			do_deleg
 		);
 
-		// handle the trap appropriately depending on whether it's delegated
-		match self.mode() {
-			HartMode::User | HartMode::Supervisor if self.medeleg.is_enabled(trap) || self.mideleg.is_enabled(trap) => {
-				self.do_trap_s_mode(trap, tval)
-			}
-			HartMode::Hypervisor => unimplemented!("H-mode traps not implemented"),
-			// traps that were not delegated to lower modes, or the hart is in M mode
-			_ => self.do_trap_m_mode(trap, tval),
+		if do_deleg {
+			self.do_trap_s_mode(trap, tval)
+		} else {
+			self.do_trap_m_mode(trap, tval)
 		}
 	}
 

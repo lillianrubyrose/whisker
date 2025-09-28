@@ -14,7 +14,12 @@ __zero_bss:
 __call_main:
     la sp, _stack_top
     call main
-    # insurance for if main returns
-__main_ret_trap: j __main_ret_trap
+__shutdown:
+    li t0, 0x100000
+    li t1, 0x5555
+    sw t1, 0(t0)
+__main_ret_trap:
+    wfi
+    j __main_ret_trap
 
 .popsection

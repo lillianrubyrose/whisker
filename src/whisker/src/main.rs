@@ -25,7 +25,7 @@ use std::{
 	io::{Cursor, Write, stdout},
 	panic,
 	path::{Path, PathBuf},
-	sync::Arc,
+	sync::Arc, time::Instant,
 };
 
 use ::tracing::level_filters::LevelFilter;
@@ -35,7 +35,7 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 
 use crate::{
 	args::{CliCommand, KernelData},
-	cpu::{WhiskerCpu, WhiskerExecState, csr},
+	cpu::{WhiskerCpu, WhiskerExecState, WhiskerExecStatus, csr},
 	gdb::WhiskerEventLoop,
 	interrupts::{PLIC_BASE, PLIC_LEN},
 	mem::{
@@ -213,6 +213,12 @@ fn init_cpu(
 			CLINT_SIZE,
 			MMIOKind::Clint,
 			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
+		))
+		.add_region(MemoryRegion::new_mmio(
+			0x100000,
+			0x1000,
+			MMIOKind::Shutdown,
+			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
 		));
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();
@@ -360,10 +366,15 @@ fn run_normal(mut cpu: WhiskerCpu) {
 		.iter_mut()
 		.for_each(|hart| hart.exec_state = WhiskerExecState::Running);
 
+	let t = Instant::now();
+
 	loop {
 		// FIXME: handle this better
 		#[allow(unused_must_use)]
-		cpu.execute_one();
+		if let Err(WhiskerExecStatus::MMIOShutdown) = cpu.execute_one() {
+			println!("shutdown after {:?}", t.elapsed());
+			break;
+		}
 
 		if let Some(cmd) = cpu.check_tohost() {
 			// FIXME: This currently panics in debug mode due to the bitfield checks causing shl overflow

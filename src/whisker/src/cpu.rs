@@ -34,6 +34,7 @@ pub enum WhiskerExecStatus {
 	HitBreakpoint(HartId),
 	HitWatchpoint(HartId, WatchKind, u64),
 	Paused,
+	MMIOShutdown,
 }
 
 #[derive(Debug)]
@@ -86,6 +87,11 @@ impl WhiskerCpu {
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();
 		mem::mmio::register_mmio(MMIOKind::Clint, clint.clone() as _).unwrap();
+		mem::mmio::register_mmio(
+			MMIOKind::Shutdown,
+			Arc::new(Mutex::new(mem::mmio::shutdown::ShutdownDevice)) as _,
+		)
+		.unwrap();
 
 		if let Some(fs_img) = fs_img {
 			mem::mmio::register_mmio(
@@ -149,6 +155,9 @@ impl WhiskerCpu {
 				}
 				hart::HartBreakKind::DebugPause => {
 					return Err(WhiskerExecStatus::Paused);
+				}
+				hart::HartBreakKind::MMIOShutdown => {
+					return Err(WhiskerExecStatus::MMIOShutdown);
 				}
 			}
 		}

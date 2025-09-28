@@ -379,6 +379,7 @@ impl BlockingEventLoop for WhiskerEventLoop {
 						kind,
 						addr,
 					},
+					WhiskerExecStatus::MMIOShutdown => MultiThreadStopReason::Signal(Signal::SIGKILL),
 				};
 				Ok(Event::TargetStopped(reason))
 			}

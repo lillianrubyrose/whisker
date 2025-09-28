@@ -6,6 +6,7 @@ use spin::Mutex;
 pub mod clint;
 pub mod uart;
 pub mod virtio_block;
+pub mod shutdown;
 
 pub use uart::*;
 
@@ -22,6 +23,7 @@ pub enum MMIOKind {
 	PLIC,
 	VirtioBlock,
 	Clint,
+	Shutdown,
 }
 
 #[allow(clippy::type_complexity)]

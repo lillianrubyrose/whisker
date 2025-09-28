@@ -133,6 +133,7 @@ pub enum HartBreakKind {
 	Watchpoint(WatchKind, u64),
 	#[allow(unused)]
 	DebugPause,
+	MMIOShutdown,
 }
 
 impl WhiskerHart {

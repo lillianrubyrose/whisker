@@ -806,6 +806,14 @@ impl WhiskerHart {
 				self.registers.set(dst, val.cast_unsigned());
 			}
 			IntInstruction::SetLessThanImmediate { dst, lhs, rhs } => {
+				// SLTI with rd=x0 is a HINT designated for custom use
+				// we use it as a "break to debugger now" without going through the debug exception mechanisms
+				// there are 2^17 values that meet this condition, the canonical should be considered to be
+				// slti x0, x0, 0 which encodes to 0x00002013
+				if dst == GPRegisterIndex::ZERO {
+					self.requested_break = Some(HartBreakKind::DebugPause);
+				}
+
 				let lhs = self.registers.get(lhs).cast_signed();
 				let val = u64::from(lhs < rhs);
 				self.registers.set(dst, val);

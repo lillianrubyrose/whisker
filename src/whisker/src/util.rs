@@ -74,6 +74,8 @@ pub fn find_terminal() -> Result<String, ()> {
 		process::{Command, Stdio},
 	};
 
+	use crate::tracing::*;
+
 	let test_term = |term: &str| -> bool {
 		let Ok(mut child) = Command::new(term)
 			.arg("--version") // search for command

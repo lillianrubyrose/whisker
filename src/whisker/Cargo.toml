@@ -30,6 +30,7 @@ bitfield = { path = "../bitfield" }
 spin = "0.10.0"
 
 softfloat_pure = { git = "https://github.com/whisker-emu/softfloat-pure.git" }
+clap-num = "1.2.0"
 
 [target.'cfg(unix)'.dependencies]
 command-fds = "0.3.2"

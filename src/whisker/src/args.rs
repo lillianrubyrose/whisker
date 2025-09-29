@@ -5,7 +5,7 @@ use clap::{ArgGroup, Command, arg, command, value_parser};
 #[derive(Debug)]
 pub enum KernelData {
 	Elf(Vec<u8>),
-	Raw(Vec<u8>),
+	Raw(Vec<u8>, Option<u64>),
 }
 
 #[derive(Debug)]
@@ -30,7 +30,8 @@ pub fn get_command() -> CliCommand {
 			.arg(arg!(--bootrom <PATH>).value_parser(value_parser!(PathBuf)).required(true))
 			.arg(arg!(--bootloader <PATH> "first stage bootloader").value_parser(value_parser!(PathBuf)).long_help(
 				r#"an ELF file containing the first stage of non-builtin code.
-this is typically a bootloader or SBI or similar software, however it may be used to boot "bare metal" programs."#,
+this is typically a bootloader or SBI or similar software, however it may be used to boot "bare metal" programs.
+always loaded at the start of RAM: 0x8000_0000."#,
 			))
 			.arg(
 				arg!(--kernel <PATH> "second stage kernel or raw kernel image")
@@ -48,12 +49,18 @@ this is typically a bootloader or SBI or similar software, however it may be use
 			.arg(
 				arg!(--"raw-kernel" "assume the kernel is a raw binary")
 					.requires("kernel")
-					.conflicts_with("bootloader")
 					.long_help(
 						r"use the passed `kernel` arg as a raw binary, rather than parsing as an ELF file.
-you want to use this when booting a linux kernel.
-conflicts with --bootloader.",
+you want to use this when booting a linux kernel.",
 					),
+			)
+			.arg(
+				arg!(--"kernel-offset" <ADDR> "address to load raw kernel files")
+				    .value_parser(clap_num::maybe_hex::<u64>)
+				    .requires("raw-kernel")
+				    .long_help(r"the base address at which the the kernel file should be loaded at.
+must be within the range of main memory.
+for use with OpenSBI in FW_JUMP mode, this should be 0x8020_0000.")
 			)
 			.arg(arg!(--"use-gdb" "opens a gdb stub listening on port 2424"))
 			.arg(arg!(--"loggfile" <PATH>).value_parser(value_parser!(PathBuf)))
@@ -82,7 +89,8 @@ conflicts with --bootloader.",
 				})
 				.map(|data| {
 					if args.get_flag("raw-kernel") {
-						KernelData::Raw(data)
+						let offset = args.get_one::<u64>("kernel-offset").copied();
+						KernelData::Raw(data, offset)
 					} else {
 						KernelData::Elf(data)
 					}

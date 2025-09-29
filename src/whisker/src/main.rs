@@ -25,7 +25,8 @@ use std::{
 	io::{Cursor, Write, stdout},
 	panic,
 	path::{Path, PathBuf},
-	sync::Arc, time::Instant,
+	sync::Arc,
+	time::Instant,
 };
 
 use ::tracing::level_filters::LevelFilter;
@@ -234,8 +235,12 @@ fn init_cpu(
 	}
 
 	match kernel {
-		Some(KernelData::Raw(raw)) => {
-			main_mem[..raw.len()].copy_from_slice(raw.as_slice());
+		Some(KernelData::Raw(raw, offset)) => {
+			let offset = offset.map_or(0, |off| {
+				assert!(off >= DRAM_BASE, "raw kernel offset must be within main memory");
+				off - DRAM_BASE
+			}) as usize;
+			main_mem[offset..][..raw.len()].copy_from_slice(raw.as_slice());
 		}
 		Some(KernelData::Elf(elf)) => {
 			if let Some(addr) = load_elf(elf.as_slice(), &mut main_mem, "kernel") {

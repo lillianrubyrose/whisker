@@ -14,7 +14,7 @@ const MSIP_END: u64 = MSIP + 4;
 const MTIMECMP: u64 = CLINT_BASE + 0x4000;
 const MTIMECMP_END: u64 = MTIMECMP + 8;
 
-const MTIME: u64 = CLINT_BASE + 0xBFF8;
+pub const MTIME: u64 = CLINT_BASE + 0xBFF8;
 #[allow(unused)]
 const MTIME_END: u64 = MTIME + 8;
 

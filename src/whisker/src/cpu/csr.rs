@@ -1,10 +1,12 @@
 use std::{collections::BTreeMap, fmt::Debug, ops::Deref};
 
 use bitfield::{BitField, prelude::*};
+use bytemuck::bytes_of_mut;
 use num_conv::prelude::*;
 
 use crate::{
 	cpu::hart::{MStatus, WhiskerHart},
+	mem::mmio::MMIOKind,
 	tracing::*,
 	ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::extract_bits_16,
@@ -148,10 +150,7 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		});
 		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
 
-		csrs, time, 0xc01, rw (
-			|hart| read_time(hart),
-			|hart, val| write_time(hart, val)
-		);
+		csrs, time, 0xc01, ro read_time;
 	);
 
 	register_pmp_addrs!(
@@ -296,11 +295,7 @@ fn read_mip(hart: &mut WhiskerHart) -> u64 {
 	u64::from_le_bytes(hart.mip.inner())
 }
 fn write_mip(hart: &mut WhiskerHart, val: u64) {
-	warn!(
-		"writes to mip are ignored (hart {:?} wrote {:#018X})",
-		hart.hart_id(),
-		val
-	);
+	hart.mip.set_inner(val.to_le_bytes());
 }
 
 fn read_sstatus(hart: &mut WhiskerHart) -> u64 {
@@ -349,11 +344,9 @@ pub fn read_sip(hart: &mut WhiskerHart) -> u64 {
 	read_mip(hart) & InterruptBits::MASK_S_MODE
 }
 fn write_sip(hart: &mut WhiskerHart, val: u64) {
-	warn!(
-		"writes to sip are ignored (hart {:?} wrote {:#018X})",
-		hart.hart_id(),
-		val
-	);
+	let mie = read_mip(hart) & !InterruptBits::MASK_S_MODE;
+	let val = val & InterruptBits::MASK_S_MODE;
+	write_mip(hart, mie | val);
 }
 
 fn read_satp(hart: &mut WhiskerHart) -> u64 {
@@ -379,11 +372,12 @@ fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
 	hart.float_status_control.set_inner([val]);
 }
 fn read_time(hart: &mut WhiskerHart) -> u64 {
-	hart.cycles
+	let mut val = 0_u64;
+	let buf = bytes_of_mut(&mut val);
+	MMIOKind::Clint.read(hart, crate::mem::mmio::clint::MTIME, buf);
+	val
 }
-fn write_time(hart: &mut WhiskerHart, val: u64) {
-	hart.cycles = val;
-}
+
 fn read_pmpcfg0(hart: &mut WhiskerHart) -> u64 {
 	hart.pmpcfg[0]
 }

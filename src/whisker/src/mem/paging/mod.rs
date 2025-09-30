@@ -43,7 +43,8 @@ impl Memory {
 			};
 
 			let mut page_table_cache = parking_lot::RwLockUpgradableReadGuard::upgrade(page_table_cache);
-			page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
+			// FIXME: figure out why this breaks things
+			//page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
 			phys_addr
 		};
 

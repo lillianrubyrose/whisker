@@ -63,7 +63,7 @@ must be within the range of main memory.
 for use with OpenSBI in FW_JUMP mode, this should be 0x8020_0000.")
 			)
 			.arg(arg!(--"use-gdb" "opens a gdb stub listening on port 2424"))
-			.arg(arg!(--"loggfile" <PATH>).value_parser(value_parser!(PathBuf)))
+			.arg(arg!(--"logfile" <PATH>).value_parser(value_parser!(PathBuf)))
 			.arg(arg!(--"fs-img" <PATH>).value_parser(value_parser!(PathBuf)))
 	).subcommand(Command::new("generate-gdb-xml"));
 

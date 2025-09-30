@@ -30,9 +30,9 @@
 			reg = <0x00>;
 			status = "okay";
 			compatible = "riscv";
-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd", "sstc";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd";
 			riscv,isa-base = "rv64i";
-			riscv,isa = "rv64imafdc_zicsr_zifencei_zaamo_zalrsc_zca_zcd_sstc";
+			riscv,isa = "rv64imafdc_zicsr_zifencei_zaamo_zalrsc_zca_zcd";
 			mmu-type = "riscv,sv39";
 
 			interrupt-controller {
@@ -57,7 +57,7 @@
 	};
 
 	chosen {
-	     bootargs = "root=/dev/vda ro console=ttyS0";
+		bootargs = "console=ttyS0";
 		stdout-path = "/soc/serial@10000000";
 		rng-seed = <0xf024f551 0x113b2345 0x634ce484 0x88d1e6d7 0x4ef455c6 0x78c102fc 0x4ff7a80c 0x13bb7a>;
 	};
@@ -67,13 +67,6 @@
 		#size-cells = <0x02>;
 		compatible = "simple-bus";
 		ranges;
-
-		rtc@101000 {
-			interrupts = <0x0b>;
-			interrupt-parent = <0x03>;
-			reg = <0x00 0x101000 0x00 0x1000>;
-			compatible = "google,goldfish-rtc";
-		};
 
 		serial@10000000 {
 			interrupts = <0x0a>;

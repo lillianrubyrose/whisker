@@ -99,5 +99,12 @@
 			#address-cells = <0x00>;
 			#interrupt-cells = <0x01>;
 		};
+
+		rtc@101000 {
+		    compatible = "google,goldfish-rtc";
+			reg = <0x0 0x101000 0x0 0x1000>;
+			interrupt-parent = <0x03>;
+			interrupts = <2 4>;
+		};
 	};
 };

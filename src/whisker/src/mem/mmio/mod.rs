@@ -4,9 +4,10 @@ use rustc_hash::FxHashMap;
 use spin::Mutex;
 
 pub mod clint;
+pub mod goldfish_rtc;
+pub mod shutdown;
 pub mod uart;
 pub mod virtio_block;
-pub mod shutdown;
 
 pub use uart::*;
 
@@ -24,6 +25,7 @@ pub enum MMIOKind {
 	VirtioBlock,
 	Clint,
 	Shutdown,
+	GoldfishRTC,
 }
 
 #[allow(clippy::type_complexity)]

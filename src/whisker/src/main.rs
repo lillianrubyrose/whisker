@@ -44,6 +44,7 @@ use crate::{
 		mmio::{
 			MMIO_DEVICES, MMIOKind, UART_BASE,
 			clint::{CLINT_BASE, CLINT_SIZE},
+			goldfish_rtc::{GOLDFISH_RTC_BASE, GOLDFISH_RTC_SIZE},
 			virtio_block::VIRTIO_BLOCK_BASE,
 		},
 	},
@@ -220,6 +221,12 @@ fn init_cpu(
 			0x1000,
 			MMIOKind::Shutdown,
 			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
+		))
+		.add_region(MemoryRegion::new_mmio(
+			GOLDFISH_RTC_BASE,
+			GOLDFISH_RTC_SIZE,
+			MMIOKind::GoldfishRTC,
+			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		));
 
 	let mut main_mem = vec![0_u8; DRAM_SIZE as usize].into_boxed_slice();

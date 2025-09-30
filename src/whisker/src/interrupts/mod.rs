@@ -21,6 +21,7 @@ pub struct InterruptSource(u16);
 
 impl InterruptSource {
 	pub const VIRTIO: Self = Self(1);
+	pub const RTC: Self = Self(2);
 	pub const UART: Self = Self(10);
 
 	pub fn inner(self) -> u16 {

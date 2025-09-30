@@ -9,7 +9,11 @@ use gdbstub::target::ext::breakpoints::WatchKind;
 use rustc_hash::FxHashSet;
 use spin::Mutex;
 
-use crate::{mem::mmio::clint::Clint, riscv_tests::RiscTestCommand, tracing::*};
+use crate::{
+	mem::mmio::{clint::Clint, goldfish_rtc::GoldfishRTC},
+	riscv_tests::RiscTestCommand,
+	tracing::*,
+};
 
 pub mod csr;
 pub mod hart;
@@ -52,6 +56,7 @@ pub struct WhiskerCpu {
 
 	pub interrupt_controller: Arc<Mutex<PlatformInterruptController>>,
 	pub clint: Arc<Mutex<Clint>>,
+	pub goldfish_rtc: Arc<Mutex<GoldfishRTC>>,
 
 	logfile: Option<File>,
 }
@@ -83,6 +88,7 @@ impl WhiskerCpu {
 		// FIXME: interrupt controller refactor
 		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
 		let clint = Arc::new(Mutex::new(Clint::new()));
+		let goldfish_rtc = Arc::new(Mutex::new(GoldfishRTC::new(int_tx.clone())));
 
 		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
 		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();
@@ -92,6 +98,7 @@ impl WhiskerCpu {
 			Arc::new(Mutex::new(mem::mmio::shutdown::ShutdownDevice)) as _,
 		)
 		.unwrap();
+		mem::mmio::register_mmio(MMIOKind::GoldfishRTC, goldfish_rtc.clone() as _).unwrap();
 
 		if let Some(fs_img) = fs_img {
 			mem::mmio::register_mmio(
@@ -113,6 +120,7 @@ impl WhiskerCpu {
 
 			interrupt_controller,
 			clint,
+			goldfish_rtc,
 			logfile,
 		}
 	}
@@ -134,6 +142,7 @@ impl WhiskerCpu {
 		}
 
 		self.clint.lock().step(hart);
+		self.goldfish_rtc.lock().step();
 
 		if self.breakpoints.contains(&hart.pc()) {
 			debug!("reached breakpoint at {:#018X} on {:?}", hart.pc(), hart.hart_id());

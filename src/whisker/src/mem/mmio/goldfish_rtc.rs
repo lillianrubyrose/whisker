@@ -23,7 +23,7 @@ const RTC_CLEAR_INTERRUPT: u64 = 0x1c;
 
 #[derive(Debug)]
 pub struct GoldfishRTC {
-	start_time_ns: u64,
+	time_ns: u64,
 	alarm_time_ns: u64,
 	irq_enabled: bool,
 	alarm_pending: bool,
@@ -31,12 +31,9 @@ pub struct GoldfishRTC {
 }
 
 impl GoldfishRTC {
-	pub const WHISKER_EPOCH_NS: u64 = 1739440200000;
-
 	pub fn new(interrupt_tx: Sender<InterruptMessage>) -> Self {
 		Self {
-			start_time_ns: Self::WHISKER_EPOCH_NS
-				.saturating_sub(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64),
+			time_ns: 0,
 			alarm_time_ns: 0,
 			irq_enabled: false,
 			alarm_pending: false,
@@ -45,8 +42,7 @@ impl GoldfishRTC {
 	}
 
 	fn get_current_time_ns(&self) -> u64 {
-		self.start_time_ns
-			.wrapping_add(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64)
+		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
 	}
 
 	pub fn step(&mut self) {
@@ -66,10 +62,13 @@ impl GoldfishRTC {
 
 impl MMIODevice for GoldfishRTC {
 	fn read(&mut self, _hart: &mut WhiskerHart, addr: u64, buf: &mut [u8]) {
-		let current_time = self.get_current_time_ns();
-		let val = match addr {
-			RTC_TIME_LOW => current_time as u32,
-			RTC_TIME_HIGH => (current_time >> 32) as u32,
+		let offset = addr - GOLDFISH_RTC_BASE;
+		let val = match offset {
+			RTC_TIME_LOW => {
+				self.time_ns = self.get_current_time_ns();
+				self.time_ns as u32
+			}
+			RTC_TIME_HIGH => (self.time_ns >> 32) as u32,
 			RTC_ALARM_LOW => self.alarm_time_ns as u32,
 			RTC_ALARM_HIGH => (self.alarm_time_ns >> 32) as u32,
 			RTC_IRQ_ENABLED => self.irq_enabled as u32,
@@ -83,9 +82,10 @@ impl MMIODevice for GoldfishRTC {
 	fn write(&mut self, _hart: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		let mut bytes = [0u8; 4];
 		bytes.copy_from_slice(val);
-
 		let val = u32::from_le_bytes(bytes);
-		match addr {
+
+		let offset = addr - GOLDFISH_RTC_BASE;
+		match offset {
 			RTC_ALARM_LOW => {
 				self.alarm_time_ns = (self.alarm_time_ns & 0xFFFFFFFF_00000000) | (val as u64);
 			}

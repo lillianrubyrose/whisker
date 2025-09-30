@@ -40,7 +40,7 @@ impl Memory {
 			virt_base + (addr & (PAGE_SIZE - 1))
 		} else {
 			core::hint::cold_path();
-			let (phys_addr, is_global) = match translation_mode {
+			let (phys_addr, _is_global) = match translation_mode {
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!("sv48 translation not implemented"),
 				AddressTranslationMode::Sv57 => sv57::translate(self, hart, addr, kind)?,

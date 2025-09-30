@@ -3,6 +3,7 @@ use std::time::Instant;
 use crate::{
 	cpu::{WhiskerExecState, hart::WhiskerHart},
 	mem::mmio::MMIODevice,
+	tracing::*,
 };
 
 pub const CLINT_BASE: u64 = 0x0200_0000;
@@ -56,7 +57,16 @@ impl Clint {
 
 		hart.mip.set_m_soft_interrupt(self.pending);
 
+		if hart.trap_logging {
+			info!("ticks {:#018X} cmp {:#018X}", self.ticks, self.mtimecmp);
+		}
 		if self.mtimecmp > 0 && self.ticks >= self.mtimecmp {
+			if hart.trap_logging {
+				info!(
+					"doing interrupt: ticks {:#018X} >= cmp {:#018X}",
+					self.ticks, self.mtimecmp
+				);
+			}
 			hart.mip.set_m_timer_interrupt(true);
 		} else {
 			hart.mip.set_m_timer_interrupt(false);
@@ -83,7 +93,13 @@ impl MMIODevice for Clint {
 
 		match addr {
 			MSIP => self.pending = (value & 1) != 0,
-			MTIMECMP => self.mtimecmp = value,
+			MTIMECMP => {
+				self.mtimecmp = value;
+				trace!(
+					"set mtimecmp to {:#018X} current ticks {:#018X}",
+					self.mtimecmp, self.ticks
+				);
+			}
 			MTIME => self.ticks = value,
 			_ => {}
 		}

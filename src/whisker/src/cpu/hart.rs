@@ -4,7 +4,7 @@
 	use `truncate`, `extend`, `cast_signed`, `cast_unsigned`, `sign_extend`, and `zero_extend` instead."
 )]
 
-use std::{assert_matches::assert_matches, collections::BTreeMap, fmt::Write as _};
+use std::{assert_matches::assert_matches, collections::BTreeMap, fmt::Write as _, num::NonZeroU64};
 
 use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
@@ -37,10 +37,6 @@ pub struct WhiskerHart {
 	/// whether this hart is in debug mode, which prevents certain things from trapping or erroring
 	/// like memory accesses.
 	pub debug: bool,
-	/// set to true if the hart has requested to break into the debugger.
-	/// reset after the hart has finished processing the request.
-	/// this handles debugger interrupts and watchpoints.
-	pub requested_break: Option<HartBreakKind>,
 	pub exec_state: WhiskerExecState,
 
 	pub registers: GPRegisters,
@@ -87,6 +83,11 @@ pub struct WhiskerHart {
 
 	/// for debugging
 	last_instruction: Option<Instruction>,
+	/// set to true if the hart has requested to break into the debugger.
+	/// reset after the hart has finished processing the request.
+	/// this handles debugger interrupts and watchpoints.
+	pub requested_break: Option<HartBreakKind>,
+	pub trap_logging: bool,
 }
 
 #[bitfields]
@@ -188,6 +189,7 @@ impl WhiskerHart {
 			instruction_cache: spin::RwLock::new(FxHashMap::default()),
 
 			last_instruction: None,
+			trap_logging: false,
 		}
 	}
 
@@ -291,15 +293,26 @@ impl WhiskerHart {
 	}
 
 	fn do_trap_m_mode(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
+		let mode = self.mode();
 		// interrupts can be disabled or enabled by status bits
 		if let TrapKind::Interrupt = trap.kind() {
-			if !self.mstatus.get_mie() {
-				trace!("skipped trap cause {:?}: machine interrupts were disabled", trap);
+			let global_enable = (mode == HartMode::Machine && self.mstatus.get_mie()) || mode < HartMode::Machine;
+			if !global_enable {
+				if self.trap_logging {
+					info!(
+						"skipped trap cause {:?}: machine interrupts were disabled mode {:?} mie {}",
+						trap,
+						mode,
+						self.mstatus.get_mie()
+					);
+				}
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
 			if !self.mie.is_enabled(trap) {
-				trace!("skipped interrupt cause {:?}: cause disabled in MIE CSR", trap);
+				if self.trap_logging {
+					trace!("skipped interrupt cause {:?}: cause disabled in MIE CSR", trap);
+				}
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 		}
@@ -314,7 +327,7 @@ impl WhiskerHart {
 		mstatus.set_mpie(mie);
 		mstatus.set_mie(false);
 		// save previous mode in MPP for restoring in xRET
-		mstatus.set_mpp(self.mode());
+		mstatus.set_mpp(mode);
 		self.mstatus = mstatus;
 
 		self.set_mode(HartMode::Machine);
@@ -330,17 +343,28 @@ impl WhiskerHart {
 	}
 
 	fn do_trap_s_mode(&mut self, trap: TrapIdx, tval: u64) -> TrapRequestGuaranteed {
+		let mode = self.mode();
 		// interrupts can be disabled or enabled by status bits
 		if let TrapKind::Interrupt = trap.kind() {
-			if !self.mstatus.get_sie() {
-				trace!("skipped trap cause {:?}: machine interrupts were disabled", trap);
+			let global_enable = (mode == HartMode::Supervisor && self.mstatus.get_sie()) || mode < HartMode::Supervisor;
+			if !global_enable {
+				if self.trap_logging {
+					info!(
+						"skipped trap cause {:?}: supervisor interrupts were disabled mode {:?} sie {}",
+						trap,
+						mode,
+						self.mstatus.get_sie()
+					);
+				}
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 
 			// it's correct to read MIE here because this path can only be taken
 			// if the interrupt was delegated, so it's an S mode visible interrupt
 			if !self.mie.is_enabled(trap) {
-				trace!("skipped interrupt cause {:?}: cause disabled in SIE CSR", trap);
+				if self.trap_logging {
+					info!("skipped interrupt cause {:?}: cause disabled in SIE CSR", trap);
+				}
 				return TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler();
 			}
 		}
@@ -372,17 +396,51 @@ impl WhiskerHart {
 		TrapRequestGuaranteed::__trap_guaranteed_private_new_do_not_use_this_unless_in_trap_handler()
 	}
 
+	#[allow(clippy::collapsible_if, reason = "makes side effects more clear")]
 	pub fn check_interrupt_trap(&mut self) -> bool {
-		let to_trap = match self.mode() {
-			HartMode::User | HartMode::Supervisor => self.check_interrupt_s_mode(),
-			HartMode::Hypervisor => unimplemented!("H-mode traps not implemented"),
-			HartMode::Machine => self.check_interrupt_m_mode(),
-		};
+		let mip = u64::from_le_bytes(self.mip.inner());
+		let mie = u64::from_le_bytes(self.mie.inner());
+		let to_trap = mip & mie;
+		if self.trap_logging {
+			info!("traps pending: {:#018X} pending and enabled: {:#018X}", mip, to_trap);
+		}
 
 		if to_trap == 0 {
 			return false;
 		}
 
+		let mideleg = u64::from_le_bytes(self.mideleg.inner());
+
+		// when an interrupt is delegated, it's always destined for S mode
+		let delegated = to_trap & mideleg;
+		let not_deleg = to_trap & !mideleg;
+
+		let mode = self.mode();
+
+		// interrupts destined for M mode must be checked first
+		// interrupts are taken to M mode if in M mode and mstatus.MIE is set OR if the current mode is less than M
+		if let Some(interrupts) = NonZeroU64::new(not_deleg)
+			&& ((mode == HartMode::Machine && self.mstatus.get_mie()) || mode < HartMode::Machine)
+		{
+			if self.do_interrupts_by_prio(interrupts) {
+				return true;
+			}
+		}
+
+		// interrupts are taken to S mode if in S mode and sstatus.SIE is set OR if the current mode is less than S
+		if let Some(interrupts) = NonZeroU64::new(delegated)
+			&& ((mode == HartMode::Supervisor && self.mstatus.get_sie()) || mode < HartMode::Supervisor)
+		{
+			if self.do_interrupts_by_prio(interrupts) {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	/// returns whether a trap was taken
+	fn do_interrupts_by_prio(&mut self, to_trap: NonZeroU64) -> bool {
 		// this subtraction cannot overflow because we know at least one bit is set
 		let highest_bit = 63 - to_trap.leading_zeros();
 		// implementation specific interrupts have priority from most significant bit to least
@@ -390,6 +448,8 @@ impl WhiskerHart {
 			self.request_trap(TrapIdx::interrupt(highest_bit.extend::<u64>()), 0);
 			return true;
 		}
+
+		let to_trap = to_trap.get();
 
 		// standard interrupts have priority:
 		// MEI, MSI, MTI, SEI, SSI, STI
@@ -415,38 +475,6 @@ impl WhiskerHart {
 			error!("unsupported trap bits {:#018X}", to_trap);
 			false
 		}
-	}
-
-	fn check_interrupt_m_mode(&mut self) -> u64 {
-		trace!("checking interrupts on {:?}", self.hart_id());
-		let global_enable = self.mstatus.get_mie();
-		if !global_enable {
-			trace!("M-mode interrupts globally disabled");
-			return 0;
-		}
-
-		let mip = u64::from_le_bytes(self.mip.inner());
-		trace!(" mip currently pending: {:#018X}", mip);
-		let mie = u64::from_le_bytes(self.mie.inner());
-		let to_trap = mip & mie;
-		trace!("pending and enabled: {:#018X}", to_trap);
-		to_trap
-	}
-
-	fn check_interrupt_s_mode(&mut self) -> u64 {
-		trace!("checking interrupts on {:?}", self.hart_id());
-		let global_enable = self.mstatus.get_sie();
-		if !global_enable {
-			trace!("S-mode interrupts globally disabled");
-			return 0;
-		}
-
-		let sip = csr::read_sip(self);
-		trace!(" sip currently pending: {:#018X}", sip);
-		let sie = csr::read_sie(self);
-		let to_trap = sip & sie;
-		trace!("pending and enabled: {:#018X}", to_trap);
-		to_trap
 	}
 
 	pub fn set_interrupt_pending(&mut self, interrupt: TrapIdx, pending: bool) {
@@ -807,11 +835,11 @@ impl WhiskerHart {
 			}
 			IntInstruction::SetLessThanImmediate { dst, lhs, rhs } => {
 				// SLTI with rd=x0 is a HINT designated for custom use
-				// we use it as a "break to debugger now" without going through the debug exception mechanisms
-				// there are 2^17 values that meet this condition, the canonical should be considered to be
-				// slti x0, x0, 0 which encodes to 0x00002013
-				if dst == GPRegisterIndex::ZERO {
-					self.requested_break = Some(HartBreakKind::DebugPause);
+				// we use the low 12 bits of the immediate as a debug code
+				// see `do_debug_hint` for more information
+				if dst == GPRegisterIndex::ZERO && lhs == GPRegisterIndex::ZERO {
+					let hint = (rhs.cast_unsigned() & 0b1111_1111_1111).truncate::<u16>();
+					self.do_debug_hint(hint);
 				}
 
 				let lhs = self.registers.get(lhs).cast_signed();
@@ -2190,6 +2218,19 @@ impl WhiskerHart {
 
 	pub fn set_pc_debug(&mut self, pc: u64) {
 		self.pc = pc;
+	}
+
+	// slti with rd = zero is a designated HINT instruction for custom use
+	// we use instructions of the form slti x0, x0, hint to pass a 12 bit code
+	// into this function. this is used for extra debugging functionality.
+	fn do_debug_hint(&mut self, hint: u16) {
+		match hint {
+			// break to debugger without going through normal mechanisms
+			0 => self.requested_break = Some(HartBreakKind::DebugPause),
+			1 => self.trap_logging = true,
+			2 => self.trap_logging = false,
+			_ => {}
+		}
 	}
 
 	pub fn dump(&mut self) -> String {

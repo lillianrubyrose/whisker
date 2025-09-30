@@ -18,7 +18,7 @@ pub fn translate(
 	hart: &mut WhiskerHart,
 	addr: u64,
 	access_kind: MemoryOpKind,
-) -> Result<u64, TrapRequestGuaranteed> {
+) -> Result<(u64, bool), TrapRequestGuaranteed> {
 	trace!("translating addr {:#018X} for access {:?} with SV57", addr, access_kind);
 	let Some(va) = Sv57Addr::from_effective_addr(addr) else {
 		trace!("addr not valid SV57 virt addr: {:#018X}", addr);
@@ -72,7 +72,7 @@ pub fn translate(
 		phys_addr.set_ppn_idx(page_num, i);
 	}
 
-	Ok(phys_addr.as_u64())
+	Ok((phys_addr.as_u64(), pte.get_global()))
 }
 
 fn find_page(

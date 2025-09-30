@@ -31,13 +31,21 @@ impl CompressedInstruction {
 				}
 			}
 			FLD => {
-				todo!("FLD (D ext) {:#06X}", parcel)
+				let cl = CLoadType::parse(parcel);
+				Some(
+					DoubleInstruction::Load {
+						dst: cl.dst().to_fp(),
+						src: cl.src(),
+						src_offset: cl.imm().cast_signed(),
+					}
+					.into(),
+				)
 			}
 			LOAD_WORD => {
 				let cl = CLoadType::parse(parcel);
 				Some(
 					IntInstruction::LoadWord {
-						dst: cl.dst(),
+						dst: cl.dst().to_gp(),
 						src: cl.src(),
 						src_offset: cl.imm().cast_signed(),
 					}
@@ -48,7 +56,7 @@ impl CompressedInstruction {
 				let cl = CLoadType::parse(parcel);
 				Some(
 					IntInstruction::LoadDoubleWord {
-						dst: cl.dst(),
+						dst: cl.dst().to_gp(),
 						src: cl.src(),
 						src_offset: cl.imm().cast_signed(),
 					}
@@ -668,7 +676,7 @@ mod ty {
 
 	#[derive(Debug)]
 	pub struct CLoadType {
-		dst: GPRegisterIndex,
+		dst: UnknownRegisterIndex,
 		src: GPRegisterIndex,
 		imm: u64,
 	}
@@ -692,19 +700,23 @@ mod ty {
 					let imm_3_5 = extract_bits_16(parcel, 10, 12);
 					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
-				// TODO: C.FLD not yet implemented
+				FLD => {
+					let imm_5_6 = extract_bits_16(parcel, 5, 6);
+					let imm_10_12 = extract_bits_16(parcel, 10, 12);
+					(imm_5_6 << 5 | imm_10_12 << 10) as u64
+				}
 				_ => unreachable!("invalid CLoadType func3 {func:#05b}"),
 			};
 
 			Self {
-				dst: extract_smol_reg(parcel, 2).to_gp(),
+				dst: extract_smol_reg(parcel, 2),
 				src: extract_smol_reg(parcel, 7).to_gp(),
 				imm,
 			}
 		}
 
 		#[inline]
-		pub fn dst(&self) -> GPRegisterIndex {
+		pub fn dst(&self) -> UnknownRegisterIndex {
 			self.dst
 		}
 		#[inline]

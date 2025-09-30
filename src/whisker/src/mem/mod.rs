@@ -20,10 +20,30 @@ use crate::{
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct PageTableCacheKey((u16, u64));
+
+impl PageTableCacheKey {
+	pub const GLOBAL_ASID: u16 = 0;
+
+	pub fn new(asid: u16, page: u64) -> Self {
+		Self((asid, page))
+	}
+
+	pub fn asid(&self) -> u16 {
+		self.0.0
+	}
+
+	pub fn page(&self) -> u64 {
+		self.0.1
+	}
+}
+
 #[derive(Debug)]
 pub struct Memory {
 	/// cache of page base addresses to physical addresses
-	page_table_cache: parking_lot::RwLock<BTreeMap<u64, u64>>,
+	pub page_table_cache: parking_lot::RwLock<BTreeMap<PageTableCacheKey, u64>>,
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
 	regions: parking_lot::RwLock<Vec<MemoryRegion>>,

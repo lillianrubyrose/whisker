@@ -3,7 +3,7 @@ mod sv57;
 
 use crate::{
 	cpu::{csr::AddressTranslationMode, hart::WhiskerHart},
-	mem::{Memory, MemoryOpKind},
+	mem::{Memory, MemoryOpKind, PageTableCacheKey},
 	tracing::*,
 	ty::{HartMode, TrapIdx, TrapRequestGuaranteed},
 };
@@ -29,12 +29,18 @@ impl Memory {
 		}
 
 		let page = addr & !(PAGE_SIZE - 1);
+		let asid = hart.translation_config.get_address_space_id();
 		let page_table_cache = self.page_table_cache.upgradable_read();
-		let phys_addr = if let Some(virt_base) = page_table_cache.get(&page) {
+
+		let phys_addr = if let Some(virt_base) =
+			page_table_cache.get(&PageTableCacheKey::new(PageTableCacheKey::GLOBAL_ASID, page))
+		{
+			virt_base + (addr & (PAGE_SIZE - 1))
+		} else if let Some(virt_base) = page_table_cache.get(&PageTableCacheKey::new(asid, page)) {
 			virt_base + (addr & (PAGE_SIZE - 1))
 		} else {
 			core::hint::cold_path();
-			let phys_addr = match translation_mode {
+			let (phys_addr, is_global) = match translation_mode {
 				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!("sv48 translation not implemented"),
 				AddressTranslationMode::Sv57 => sv57::translate(self, hart, addr, kind)?,
@@ -43,8 +49,14 @@ impl Memory {
 			};
 
 			let mut page_table_cache = parking_lot::RwLockUpgradableReadGuard::upgrade(page_table_cache);
-			// FIXME: figure out why this breaks things
-			//page_table_cache.insert(page, phys_addr & !(PAGE_SIZE - 1));
+			if is_global {
+				page_table_cache.insert(
+					PageTableCacheKey::new(PageTableCacheKey::GLOBAL_ASID, page),
+					phys_addr & !(PAGE_SIZE - 1),
+				);
+			} else {
+				page_table_cache.insert(PageTableCacheKey::new(asid, page), phys_addr & !(PAGE_SIZE - 1));
+			}
 			phys_addr
 		};
 
@@ -54,7 +66,33 @@ impl Memory {
 
 	pub fn clear_vm_cache(&self, asid: u64, vaddr: u64) {
 		debug!("clearing vm cache asid {:#018X} vaddr {:#018X}", asid, vaddr);
-		self.page_table_cache.write().clear();
+
+		let mut page_table_cache = self.page_table_cache.write();
+
+		// Page 130 riscv-privileged.pdf
+		// if rs1 = 0 & rs2 = 0   - The fence also invalidates all address-translation cache entries, for all address spaces.
+		//
+		// if rs1 = 0 & rs2 != 0  - The fence also invalidates all address-translation cache entries matching the address space
+		//                          identified by integer register rs2, except for entries containing global mappings.
+		//
+		// if rs1 != 0 & rs2 = 0  - The fence also invalidates all address-translation cache entries that contain leaf page table
+		//                          entries corresponding to the virtual address in rs1, for all address spaces.
+		//
+		// if rs1 != 0 & rs2 != 0 - The fence also invalidates all address-translation cache entries that contain leaf page table
+		//                          entries corresponding to the virtual address in rs1 and that match the address space
+		//                          identified by integer register rs2, except for entries containing global mappings.
+
+		if asid == 0 && vaddr == 0 {
+			page_table_cache.clear();
+		} else if vaddr == 0 {
+			page_table_cache.retain(|key, _| key.asid() == PageTableCacheKey::GLOBAL_ASID || key.asid() != asid as u16);
+		} else if asid == 0 {
+			let page = vaddr & !(PAGE_SIZE - 1);
+			page_table_cache.retain(|key, _| key.page() != page);
+		} else {
+			let page = vaddr & !(PAGE_SIZE - 1);
+			page_table_cache.remove(&PageTableCacheKey::new(asid as u16, page));
+		}
 	}
 }
 

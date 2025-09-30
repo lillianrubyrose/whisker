@@ -701,9 +701,9 @@ mod ty {
 					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
 				FLD => {
-					let imm_5_6 = extract_bits_16(parcel, 5, 6);
-					let imm_10_12 = extract_bits_16(parcel, 10, 12);
-					(imm_5_6 << 5 | imm_10_12 << 10) as u64
+					let imm_6_7 = extract_bits_16(parcel, 5, 6);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
 				_ => unreachable!("invalid CLoadType func3 {func:#05b}"),
 			};
@@ -756,9 +756,9 @@ mod ty {
 					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
 				FSD => {
-					let imm_6_5 = extract_bits_16(parcel, 6, 5);
-					let imm_10_12 = extract_bits_16(parcel, 10, 12);
-					(imm_6_5 << 6 | imm_10_12 << 10) as u64
+					let imm_6_7 = extract_bits_16(parcel, 6, 5);
+					let imm_3_5 = extract_bits_16(parcel, 10, 12);
+					(imm_6_7 << 6 | imm_3_5 << 3) as u64
 				}
 				_ => unreachable!("invalid CStoreType func3 {func:#05b}"),
 			};

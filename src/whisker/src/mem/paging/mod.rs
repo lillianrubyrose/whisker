@@ -48,15 +48,16 @@ impl Memory {
 				mode => unreachable!("unimplemented addr mode {:?}", mode),
 			};
 
-			let mut page_table_cache = parking_lot::RwLockUpgradableReadGuard::upgrade(page_table_cache);
-			if is_global {
-				page_table_cache.insert(
-					PageTableCacheKey::new(PageTableCacheKey::GLOBAL_ASID, page),
-					phys_addr & !(PAGE_SIZE - 1),
-				);
-			} else {
-				page_table_cache.insert(PageTableCacheKey::new(asid, page), phys_addr & !(PAGE_SIZE - 1));
-			}
+			// FIXME: Why doesn't this work >:c
+			// let mut page_table_cache = parking_lot::RwLockUpgradableReadGuard::upgrade(page_table_cache);
+			// if is_global {
+			// 	page_table_cache.insert(
+			// 		PageTableCacheKey::new(PageTableCacheKey::GLOBAL_ASID, page),
+			// 		phys_addr & !(PAGE_SIZE - 1),
+			// 	);
+			// } else {
+			// 	page_table_cache.insert(PageTableCacheKey::new(asid, page), phys_addr & !(PAGE_SIZE - 1));
+			// }
 			phys_addr
 		};
 

@@ -8,10 +8,8 @@ use crate::tagged::TaggedPtr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NodeKind {
-	Dense,
 	Leaf64,
 	Range64,
-	ARange64,
 }
 
 pub union Slot<V, const CAPACITY: usize> {

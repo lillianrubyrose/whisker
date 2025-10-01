@@ -6,7 +6,7 @@ use std::{
 	sync::atomic::Ordering,
 };
 
-use crossbeam_epoch::{Atomic, Guard, Owned};
+use crossbeam_epoch::{Atomic, Guard, Owned, Shared};
 use spin::Mutex;
 
 use crate::{
@@ -195,6 +195,50 @@ where
 		}
 	}
 
+	pub fn clear(&self) {
+		let _lock = self.lock.lock();
+		let guard = &crossbeam_epoch::pin();
+
+		let old_root = self.root.swap(Owned::new(NodePtr::Empty), Ordering::Release, guard);
+		if let Some(old_root) = unsafe { old_root.as_ref() } {
+			match old_root {
+				NodePtr::Empty => {}
+				NodePtr::Direct(_, tagged_ptr) => unsafe {
+					guard.defer_destroy(Shared::from(tagged_ptr.ptr().cast_const()));
+				},
+				NodePtr::Node(tagged_ptr) => {
+					self.defer_destroy_node(tagged_ptr.ptr(), guard);
+				}
+			}
+		}
+	}
+
+	fn defer_destroy_node<'guard>(&self, node_ptr: *mut Node<V, CAPACITY>, guard: &'guard Guard) {
+		let node = unsafe { &*node_ptr };
+
+		match node.header.node_kind() {
+			NodeKind::Leaf64 => {
+				let slots = unsafe { (*node_ptr).slots_mut() };
+				for i in 0..node.header.slot_count() as usize {
+					unsafe {
+						ManuallyDrop::drop(&mut slots[i].value);
+					}
+				}
+			}
+			NodeKind::Range64 => {
+				let slots = node.slots();
+				for i in 0..node.header.slot_count() as usize {
+					let child_ptr = unsafe { *slots[i].child };
+					self.defer_destroy_node(child_ptr.ptr(), guard);
+				}
+			}
+		}
+
+		unsafe {
+			guard.defer_destroy(Shared::from(node_ptr.cast_const()));
+		}
+	}
+
 	fn find_leaf<'guard>(
 		&self,
 		mut node: TaggedPtr<Node<V, CAPACITY>>,
@@ -307,6 +351,7 @@ where
 
 		// Overwrite the value in-place if the key already exists.
 		if slot_index < count && pivots[slot_index] == index {
+			unsafe { ManuallyDrop::drop(&mut leaf.slots_mut()[slot_index].value) };
 			leaf.slots_mut()[slot_index].value = ManuallyDrop::new(value);
 			return None;
 		}
@@ -330,11 +375,10 @@ where
 				);
 
 				let slots_ptr = slots.as_mut_ptr();
-				std::ptr::copy(
-					slots_ptr.add(slot_index),
-					slots_ptr.add(slot_index + 1),
-					count - slot_index,
-				);
+				for i in (slot_index..count).rev() {
+					let val = slots_ptr.add(i).read();
+					slots_ptr.add(i + 1).write(val);
+				}
 			}
 
 			pivots[slot_index].write(index);
@@ -352,29 +396,27 @@ where
 			unsafe { MaybeUninit::uninit().assume_init() };
 
 		unsafe {
-			let pivots_ptr = pivots.as_ptr();
-			// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout as eachother.
-			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<u64>();
-			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots_ptr, slot_index);
-			all_pivots_ptr.add(slot_index).write(index);
-			std::ptr::copy_nonoverlapping(
-				pivots_ptr.add(slot_index),
-				all_pivots_ptr.add(slot_index + 1),
-				count - slot_index,
-			);
+			let pivots_ptr = leaf.pivots().as_ptr();
+			let slots_mut_ptr = leaf.slots_mut().as_mut_ptr();
 
-			let slots_ptr = leaf.slots().as_ptr();
-			// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout as eachother.
-			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<V, CAPACITY>>();
-			std::ptr::copy_nonoverlapping(slots_ptr, all_slots_ptr, slot_index);
-			all_slots_ptr.add(slot_index).write(Slot {
+			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots.as_mut_ptr().cast(), slot_index);
+			for i in 0..slot_index {
+				all_slots[i].write(slots_mut_ptr.add(i).read());
+			}
+
+			all_pivots[slot_index].write(index);
+			all_slots[slot_index].write(Slot {
 				value: ManuallyDrop::new(value),
 			});
+
 			std::ptr::copy_nonoverlapping(
-				slots_ptr.add(slot_index),
-				all_slots_ptr.add(slot_index + 1),
+				pivots_ptr.add(slot_index),
+				all_pivots.as_mut_ptr().add(slot_index + 1).cast(),
 				count - slot_index,
 			);
+			for i in slot_index..count {
+				all_slots[i + 1].write(slots_mut_ptr.add(i).read());
+			}
 		}
 
 		// Find the split point and the pivot to promote to the parent
@@ -386,8 +428,13 @@ where
 		leaf.header.set_slot_count(split_point as u8);
 		let (left_pivots, left_slots) = leaf.pivots_and_slots_raw_mut();
 		unsafe {
-			std::ptr::copy_nonoverlapping(all_pivots.as_ptr(), left_pivots.as_mut_ptr(), split_point);
-			std::ptr::copy_nonoverlapping(all_slots.as_ptr(), left_slots.as_mut_ptr(), split_point);
+			let all_pivots_ptr = all_pivots.as_ptr();
+			let all_slots_ptr = all_slots.as_mut_ptr();
+
+			std::ptr::copy_nonoverlapping(all_pivots_ptr, left_pivots.as_mut_ptr(), split_point);
+			for i in 0..split_point {
+				left_slots.as_mut_ptr().add(i).write(all_slots_ptr.add(i).read());
+			}
 		}
 
 		// Create the new right sibling node.
@@ -406,16 +453,16 @@ where
 
 		// Move the second half of the pivots and slots into the new node.
 		unsafe {
-			std::ptr::copy_nonoverlapping(
-				all_pivots.as_ptr().add(split_point),
-				right_pivots.as_mut_ptr(),
-				right_count,
-			);
-			std::ptr::copy_nonoverlapping(
-				all_slots.as_ptr().add(split_point),
-				right_slots.as_mut_ptr(),
-				right_count,
-			);
+			let all_pivots_ptr = all_pivots.as_ptr();
+			let all_slots_ptr = all_slots.as_mut_ptr();
+
+			std::ptr::copy_nonoverlapping(all_pivots_ptr.add(split_point), right_pivots.as_mut_ptr(), right_count);
+			for i in 0..right_count {
+				right_slots
+					.as_mut_ptr()
+					.add(i)
+					.write(all_slots_ptr.add(split_point + i).read());
+			}
 		}
 
 		Some((pivot_to_promote, TaggedPtr::new(new_right_sibling.as_ptr(), 0)))
@@ -721,5 +768,28 @@ mod tests {
 		for i in 0..(RANGE64_SLOTS * 50) as u64 {
 			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
 		}
+	}
+
+	#[test]
+	fn clear_tree() {
+		let tree = MapleTree::<u64, 31>::new();
+		for i in 0..(RANGE64_SLOTS * 50) as u64 {
+			tree.store(i, i * 10);
+		}
+
+		let guard = &crossbeam_epoch::pin();
+		assert_eq!(*tree.load(100, guard).unwrap(), 1000);
+
+		tree.clear();
+
+		for i in 0..(RANGE64_SLOTS * 50) as u64 {
+			assert!(tree.load(i, guard).is_none());
+		}
+
+		tree.store(200, 2000);
+		assert_eq!(*tree.load(200, guard).unwrap(), 2000);
+
+		tree.clear();
+		assert!(tree.load(200, guard).is_none());
 	}
 }

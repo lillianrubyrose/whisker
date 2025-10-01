@@ -1,4 +1,10 @@
-use std::{mem::ManuallyDrop, sync::atomic::Ordering};
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
+
+use std::{
+	mem::{ManuallyDrop, MaybeUninit},
+	sync::atomic::Ordering,
+};
 
 use crossbeam_epoch::{Atomic, Guard, Owned};
 use spin::Mutex;
@@ -37,10 +43,7 @@ pub enum NodePtr<V, const CAPACITY: usize> {
 	Node(TaggedPtr<Node<V, CAPACITY>>),
 }
 
-pub struct MapleTree<V, const CAPACITY: usize>
-where
-	Self: SupportedCapacity,
-{
+pub struct MapleTree<V, const CAPACITY: usize> {
 	root: Atomic<NodePtr<V, CAPACITY>>,
 	arena: NodeArena<V, CAPACITY>,
 	lock: Mutex<()>,
@@ -52,6 +55,7 @@ unsafe impl<V, const CAPACITY: usize> Sync for MapleTree<V, CAPACITY> where Self
 impl<V, const CAPACITY: usize> MapleTree<V, CAPACITY>
 where
 	Self: SupportedCapacity,
+	[(); CAPACITY + 1]:,
 {
 	pub fn new() -> Self {
 		Self {
@@ -343,35 +347,47 @@ where
 		}
 
 		// Node is full, split it
-		let mut all_pivots = Vec::with_capacity(CAPACITY + 1);
-		all_pivots.extend_from_slice(pivots);
-		all_pivots.insert(slot_index, index);
+		let mut all_pivots: [MaybeUninit<u64>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
+		let mut all_slots: [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY + 1] =
+			unsafe { MaybeUninit::uninit().assume_init() };
 
-		let mut all_slots = Vec::with_capacity(CAPACITY + 1);
-		// SAFETY: `leaf.slots()` always returns a slice of initialized slots.
-		// We use `ptr::read` here because `Slot` contains `ManuallyDrop` fields which aren't `Copy`.
-		// We immediately overwrite these slots with the new values preventing use-after-move or a double-free,
-		// the original `leaf` node is becoming the new left sibling in the split and we no longer need it's old content.
-		for i in 0..count {
-			all_slots.push(unsafe { std::ptr::read(&leaf.slots()[i]) });
-		}
-		all_slots.insert(
-			slot_index,
-			Slot {
+		unsafe {
+			let pivots_ptr = pivots.as_ptr();
+			// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout as eachother.
+			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<u64>();
+			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots_ptr, slot_index);
+			all_pivots_ptr.add(slot_index).write(index);
+			std::ptr::copy_nonoverlapping(
+				pivots_ptr.add(slot_index),
+				all_pivots_ptr.add(slot_index + 1),
+				count - slot_index,
+			);
+
+			let slots_ptr = leaf.slots().as_ptr();
+			// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout as eachother.
+			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<V, CAPACITY>>();
+			std::ptr::copy_nonoverlapping(slots_ptr, all_slots_ptr, slot_index);
+			all_slots_ptr.add(slot_index).write(Slot {
 				value: ManuallyDrop::new(value),
-			},
-		);
+			});
+			std::ptr::copy_nonoverlapping(
+				slots_ptr.add(slot_index),
+				all_slots_ptr.add(slot_index + 1),
+				count - slot_index,
+			);
+		}
 
 		// Find the split point and the pivot to promote to the parent
 		let split_point = (CAPACITY + 1) / 2;
-		let pivot_to_promote = all_pivots[split_point - 1];
+		// SAFETY: `all_pivots` is a slice of initialized pivots.
+		let pivot_to_promote = unsafe { all_pivots[split_point - 1].assume_init() };
 
 		// Turn `leaf` into the new left sibling in the split.
 		leaf.header.set_slot_count(split_point as u8);
 		let (left_pivots, left_slots) = leaf.pivots_and_slots_raw_mut();
-		for i in 0..split_point {
-			left_pivots[i].write(all_pivots[i]);
-			left_slots[i].write(all_slots.remove(0));
+		unsafe {
+			std::ptr::copy_nonoverlapping(all_pivots.as_ptr(), left_pivots.as_mut_ptr(), split_point);
+			std::ptr::copy_nonoverlapping(all_slots.as_ptr(), left_slots.as_mut_ptr(), split_point);
 		}
 
 		// Create the new right sibling node.
@@ -384,14 +400,22 @@ where
 		new_sibling_ref.header.parent = leaf.header.parent;
 		new_sibling_ref.header.parent_slot = leaf.header.parent_slot;
 
-		let right_count = all_pivots.len() - split_point;
+		let right_count = (CAPACITY + 1) - split_point;
 		new_sibling_ref.header.set_slot_count(right_count as u8);
 		let (right_pivots, right_slots) = new_sibling_ref.pivots_and_slots_raw_mut();
 
 		// Move the second half of the pivots and slots into the new node.
-		for i in 0..right_count {
-			right_pivots[i].write(all_pivots[split_point + i]);
-			right_slots[i].write(all_slots.remove(0));
+		unsafe {
+			std::ptr::copy_nonoverlapping(
+				all_pivots.as_ptr().add(split_point),
+				right_pivots.as_mut_ptr(),
+				right_count,
+			);
+			std::ptr::copy_nonoverlapping(
+				all_slots.as_ptr().add(split_point),
+				right_slots.as_mut_ptr(),
+				right_count,
+			);
 		}
 
 		Some((pivot_to_promote, TaggedPtr::new(new_right_sibling.as_ptr(), 0)))
@@ -443,37 +467,48 @@ where
 		}
 
 		// Node is full, split it
-		let mut all_pivots = Vec::with_capacity(CAPACITY);
-		all_pivots.extend_from_slice(pivots);
-		all_pivots.insert(pivot_insertion_point, pivot);
+		let pivots_count = count - 1;
+		let mut all_pivots: [MaybeUninit<u64>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
+		let mut all_slots: [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY + 1] =
+			unsafe { MaybeUninit::uninit().assume_init() };
 
-		let mut all_slots = Vec::with_capacity(CAPACITY + 1);
-		// SAFETY: `leaf.slots()` always returns a slice of initialized slots.
-		// We use `ptr::read` here because `Slot` contains `ManuallyDrop` fields which aren't `Copy`.
-		// We immediately overwrite these slots with the new values preventing use-after-move or a double-free,
-		// the original `leaf` node is becoming the new left sibling in the split and we no longer need it's old content.
-		for i in 0..count {
-			all_slots.push(unsafe { std::ptr::read(&node.slots()[i]) });
-		}
-		all_slots.insert(
-			slot_insertion_point,
-			Slot {
+		unsafe {
+			let pivots_ptr = pivots.as_ptr();
+			// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout as eachother.
+			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<u64>();
+			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots_ptr, pivot_insertion_point);
+			all_pivots_ptr.add(pivot_insertion_point).write(pivot);
+			std::ptr::copy_nonoverlapping(
+				pivots_ptr.add(pivot_insertion_point),
+				all_pivots_ptr.add(pivot_insertion_point + 1),
+				pivots_count - pivot_insertion_point,
+			);
+
+			let slots_ptr = node.slots().as_ptr();
+			// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout as eachother.
+			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<V, CAPACITY>>();
+			std::ptr::copy_nonoverlapping(slots_ptr, all_slots_ptr, slot_insertion_point);
+			all_slots_ptr.add(slot_insertion_point).write(Slot {
 				child: ManuallyDrop::new(child),
-			},
-		);
+			});
+			std::ptr::copy_nonoverlapping(
+				slots_ptr.add(slot_insertion_point),
+				all_slots_ptr.add(slot_insertion_point + 1),
+				count - slot_insertion_point,
+			);
+		}
 
 		let left_slots_count = (all_slots.len() + 1) / 2;
 		let left_pivots_count = left_slots_count - 1;
-		let pivot_to_promote = all_pivots.remove(left_pivots_count);
+		// SAFETY: `all_pivots[left_pivots_count]` is initialized.
+		let pivot_to_promote = unsafe { all_pivots[left_pivots_count].assume_init_read() };
 
 		// Turn `node` into the new left sibling in the split.
 		node.header.set_slot_count(left_slots_count as u8);
 		let (left_pivots, left_slots) = node.pivots_and_slots_raw_mut();
-		for i in 0..left_pivots_count {
-			left_pivots[i].write(all_pivots.remove(0));
-		}
-		for i in 0..left_slots_count {
-			left_slots[i].write(all_slots.remove(0));
+		unsafe {
+			std::ptr::copy_nonoverlapping(all_pivots.as_ptr(), left_pivots.as_mut_ptr(), left_pivots_count);
+			std::ptr::copy_nonoverlapping(all_slots.as_ptr(), left_slots.as_mut_ptr(), left_slots_count);
 		}
 
 		// Create the new right sibling node.
@@ -486,18 +521,24 @@ where
 		new_sibling_ref.header.parent = node.header.parent;
 		new_sibling_ref.header.parent_slot = node.header.parent_slot;
 
-		let right_slots_count = all_slots.len();
+		let right_slots_count = (CAPACITY + 1) - left_slots_count;
+		let right_pivots_count = right_slots_count - 1;
 		new_sibling_ref.header.set_slot_count(right_slots_count as u8);
 
-		let right_pivots_count = all_pivots.len();
 		let (right_pivots, right_slots) = new_sibling_ref.pivots_and_slots_raw_mut();
 
 		// Move the second half of the pivots and slots into the new node.
-		for i in 0..right_pivots_count {
-			right_pivots[i].write(all_pivots.remove(0));
-		}
-		for i in 0..right_slots_count {
-			right_slots[i].write(all_slots.remove(0));
+		unsafe {
+			std::ptr::copy_nonoverlapping(
+				all_pivots.as_ptr().add(left_pivots_count + 1),
+				right_pivots.as_mut_ptr(),
+				right_pivots_count,
+			);
+			std::ptr::copy_nonoverlapping(
+				all_slots.as_ptr().add(left_slots_count),
+				right_slots.as_mut_ptr(),
+				right_slots_count,
+			);
 		}
 
 		Some((pivot_to_promote, TaggedPtr::new(new_right_sibling.as_ptr(), 0)))
@@ -660,6 +701,19 @@ mod tests {
 	fn split_leaf() {
 		let tree = MapleTree::<u64, 31>::new();
 		for i in 0..(RANGE64_SLOTS * 50) as u64 {
+			tree.store(i, i * 10);
+		}
+
+		let guard = &crossbeam_epoch::pin();
+		for i in 0..(RANGE64_SLOTS * 50) as u64 {
+			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
+		}
+	}
+
+	#[test]
+	fn split_leaf_rev() {
+		let tree = MapleTree::<u64, 31>::new();
+		for i in (0..(RANGE64_SLOTS * 50) as u64).rev() {
 			tree.store(i, i * 10);
 		}
 

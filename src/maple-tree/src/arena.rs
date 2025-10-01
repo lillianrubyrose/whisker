@@ -113,4 +113,14 @@ impl<V, const CAPACITY: usize> NodeArena<V, CAPACITY> {
 		}
 		new
 	}
+
+	pub fn clone_node_raw(&self, node_ptr: *mut Node<V, CAPACITY>) -> NonNull<Node<V, CAPACITY>> {
+		let new = self.alloc_node();
+
+		// SAFETY: `alloc_node` will always return a valid pointer
+		unsafe {
+			ptr::copy_nonoverlapping(node_ptr, new.as_ptr(), 1);
+		}
+		new
+	}
 }

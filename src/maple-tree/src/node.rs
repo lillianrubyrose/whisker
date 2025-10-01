@@ -21,7 +21,8 @@ pub union Slot<V, const CAPACITY: usize> {
 
 #[repr(C)]
 pub struct NodeHeader<V, const CAPACITY: usize> {
-	pub parent: TaggedPtr<Node<V, CAPACITY>>,
+	pub parent: *mut Node<V, CAPACITY>,
+	pub parent_slot: u8,
 	node_type_and_meta: u8,
 	_marker: PhantomData<V>,
 }
@@ -30,11 +31,6 @@ impl<V, const CAPACITY: usize> NodeHeader<V, CAPACITY> {
 	const NODE_KIND_BITS: u8 = 3;
 	const NODE_KIND_MASK: u8 = (1 << Self::NODE_KIND_BITS) - 1;
 	const SLOT_COUNT_MASK: u8 = !Self::NODE_KIND_MASK;
-
-	#[inline(always)]
-	pub fn parent(&self) -> TaggedPtr<Node<V, CAPACITY>> {
-		self.parent
-	}
 
 	#[inline(always)]
 	pub fn node_kind(&self) -> NodeKind {
@@ -88,7 +84,13 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
 	pub fn pivots(&self) -> &[u64] {
-		let count = self.header.slot_count() as usize;
+		let mut count = self.header.slot_count() as usize;
+
+		// Internal nodes have one less pivot than slot
+		if self.header.node_kind() != NodeKind::Leaf64 {
+			count = count.saturating_sub(1);
+		}
+
 		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
 		// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout. so the cast is safe.
 		unsafe { std::slice::from_raw_parts(self.pivots.as_ptr().cast::<u64>(), count) }
@@ -100,7 +102,13 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
 	pub fn pivots_mut(&mut self) -> &mut [u64] {
-		let count = self.header.slot_count() as usize;
+		let mut count = self.header.slot_count() as usize;
+
+		// Internal nodes have one less pivot than slot
+		if self.header.node_kind() != NodeKind::Leaf64 {
+			count = count.saturating_sub(1);
+		}
+
 		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
 		// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout. so the cast is safe.
 		unsafe { std::slice::from_raw_parts_mut(self.pivots.as_mut_ptr().cast::<u64>(), count) }

@@ -12,20 +12,20 @@ pub enum NodeKind {
 	Range64,
 }
 
-pub union Slot<V, const CAPACITY: usize> {
+pub union Slot<K, V, const CAPACITY: usize> {
 	pub value: ManuallyDrop<V>,
-	pub child: ManuallyDrop<TaggedPtr<Node<V, CAPACITY>>>,
+	pub child: ManuallyDrop<TaggedPtr<Node<K, V, CAPACITY>>>,
 }
 
 #[repr(C)]
-pub struct NodeHeader<V, const CAPACITY: usize> {
-	pub parent: *mut Node<V, CAPACITY>,
+pub struct NodeHeader<K, V, const CAPACITY: usize> {
+	pub parent: *mut Node<K, V, CAPACITY>,
 	pub parent_slot: u8,
 	node_type_and_meta: u8,
 	_marker: PhantomData<V>,
 }
 
-impl<V, const CAPACITY: usize> NodeHeader<V, CAPACITY> {
+impl<K, V, const CAPACITY: usize> NodeHeader<K, V, CAPACITY> {
 	const NODE_KIND_BITS: u8 = 3;
 	const NODE_KIND_MASK: u8 = (1 << Self::NODE_KIND_BITS) - 1;
 	const SLOT_COUNT_MASK: u8 = !Self::NODE_KIND_MASK;
@@ -69,19 +69,19 @@ impl<V, const CAPACITY: usize> NodeHeader<V, CAPACITY> {
 ///
 /// INVARIANT: The first `header.slot_count()` elements of `pivots` and `slots` must be initialized.
 #[repr(C)]
-pub struct Node<V, const CAPACITY: usize> {
-	pub header: NodeHeader<V, CAPACITY>,
-	pivots: [MaybeUninit<u64>; CAPACITY],
-	slots: [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY],
+pub struct Node<K, V, const CAPACITY: usize> {
+	pub header: NodeHeader<K, V, CAPACITY>,
+	pivots: [MaybeUninit<K>; CAPACITY],
+	slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY],
 }
 
-impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
+impl<K, V, const CAPACITY: usize> Node<K, V, CAPACITY> {
 	/// Returns a slice of the initialized pivot keys.
 	///
 	/// # Safety
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
-	pub fn pivots(&self) -> &[u64] {
+	pub fn pivots(&self) -> &[K] {
 		let mut count = self.header.slot_count() as usize;
 
 		// Internal nodes have one less pivot than slot
@@ -90,8 +90,8 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 		}
 
 		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts(self.pivots.as_ptr().cast::<u64>(), count) }
+		// SAFETY: `MaybeUninit<K>` and `K` have the same layout. so the cast is safe.
+		unsafe { std::slice::from_raw_parts(self.pivots.as_ptr().cast::<K>(), count) }
 	}
 
 	/// Returns a mutable slice of the initialized pivot keys.
@@ -99,7 +99,7 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 	/// # Safety
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
-	pub fn pivots_mut(&mut self) -> &mut [u64] {
+	pub fn pivots_mut(&mut self) -> &mut [K] {
 		let mut count = self.header.slot_count() as usize;
 
 		// Internal nodes have one less pivot than slot
@@ -109,7 +109,7 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 
 		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
 		// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts_mut(self.pivots.as_mut_ptr().cast::<u64>(), count) }
+		unsafe { std::slice::from_raw_parts_mut(self.pivots.as_mut_ptr().cast::<K>(), count) }
 	}
 
 	/// Returns a slice of the initialized slots.
@@ -117,11 +117,11 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 	/// # Safety
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `slots` must be initialized.
-	pub fn slots(&self) -> &[Slot<V, CAPACITY>] {
+	pub fn slots(&self) -> &[Slot<K, V, CAPACITY>] {
 		let count = self.header.slot_count() as usize;
 		// SAFETY: `self.slots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot<V, CAPACITY>>(), count) }
+		// SAFETY: `MaybeUninit<Slot<K, V, CAPACITY>>` and `Slot<K, V, CAPACITY>` have the same layout. so the cast is safe.
+		unsafe { std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot<K, V, CAPACITY>>(), count) }
 	}
 
 	/// Returns a mutable slice of the initialized slots.
@@ -129,31 +129,31 @@ impl<V, const CAPACITY: usize> Node<V, CAPACITY> {
 	/// # Safety
 	///
 	/// INVARIANT: The first `header.slot_count()` elements of `slots` must be initialized.
-	pub fn slots_mut(&mut self) -> &mut [Slot<V, CAPACITY>] {
+	pub fn slots_mut(&mut self) -> &mut [Slot<K, V, CAPACITY>] {
 		let count = self.header.slot_count() as usize;
 		// SAFETY: `self.slots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts_mut(self.slots.as_mut_ptr().cast::<Slot<V, CAPACITY>>(), count) }
+		// SAFETY: `MaybeUninit<Slot<K, V, CAPACITY>>` and `Slot<K, V, CAPACITY>` have the same layout. so the cast is safe.
+		unsafe { std::slice::from_raw_parts_mut(self.slots.as_mut_ptr().cast::<Slot<K, V, CAPACITY>>(), count) }
 	}
 
-	pub fn pivots_and_slots(&self) -> (&[u64], &[Slot<V, CAPACITY>]) {
+	pub fn pivots_and_slots(&self) -> (&[K], &[Slot<K, V, CAPACITY>]) {
 		(self.pivots(), self.slots())
 	}
 
 	pub fn pivots_and_slots_raw_mut(
 		&mut self,
 	) -> (
-		&mut [MaybeUninit<u64>; CAPACITY],
-		&mut [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY],
+		&mut [MaybeUninit<K>; CAPACITY],
+		&mut [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY],
 	) {
 		(&mut self.pivots, &mut self.slots)
 	}
 
-	pub fn pivots_raw_mut(&mut self) -> &mut [MaybeUninit<u64>; CAPACITY] {
+	pub fn pivots_raw_mut(&mut self) -> &mut [MaybeUninit<K>; CAPACITY] {
 		&mut self.pivots
 	}
 
-	pub fn slots_raw_mut(&mut self) -> &mut [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY] {
+	pub fn slots_raw_mut(&mut self) -> &mut [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY] {
 		&mut self.slots
 	}
 }

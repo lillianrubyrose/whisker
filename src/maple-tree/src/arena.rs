@@ -50,12 +50,12 @@ impl Drop for ArenaChunk {
 	}
 }
 
-pub struct NodeArena<V, const CAPACITY: usize> {
+pub struct NodeArena<K, V, const CAPACITY: usize> {
 	chunks: RefCell<Vec<ArenaChunk>>,
-	_marker: PhantomData<V>,
+	_marker: PhantomData<(K, V)>,
 }
 
-impl<V, const CAPACITY: usize> NodeArena<V, CAPACITY> {
+impl<K, V, const CAPACITY: usize> NodeArena<K, V, CAPACITY> {
 	pub fn new() -> Self {
 		Self {
 			chunks: RefCell::new(Vec::new()),
@@ -85,12 +85,12 @@ impl<V, const CAPACITY: usize> NodeArena<V, CAPACITY> {
 		ptr.as_ptr()
 	}
 
-	pub fn alloc_node(&self) -> NonNull<Node<V, CAPACITY>> {
-		let layout = Layout::new::<Node<V, CAPACITY>>();
+	pub fn alloc_node(&self) -> NonNull<Node<K, V, CAPACITY>> {
+		let layout = Layout::new::<Node<K, V, CAPACITY>>();
 		let ptr = self.alloc_raw(layout);
 
 		// SAFETY: `alloc_raw` will always return a valid pointer
-		unsafe { NonNull::new_unchecked(ptr as *mut Node<V, CAPACITY>) }
+		unsafe { NonNull::new_unchecked(ptr as *mut Node<K, V, CAPACITY>) }
 	}
 
 	pub fn alloc_value(&self, value: V) -> NonNull<V> {
@@ -104,7 +104,7 @@ impl<V, const CAPACITY: usize> NodeArena<V, CAPACITY> {
 		}
 	}
 
-	pub fn clone_node(&self, node: TaggedPtr<Node<V, CAPACITY>>) -> NonNull<Node<V, CAPACITY>> {
+	pub fn clone_node(&self, node: TaggedPtr<Node<K, V, CAPACITY>>) -> NonNull<Node<K, V, CAPACITY>> {
 		let new = self.alloc_node();
 
 		// SAFETY: `alloc_node` will always return a valid pointer
@@ -114,7 +114,7 @@ impl<V, const CAPACITY: usize> NodeArena<V, CAPACITY> {
 		new
 	}
 
-	pub fn clone_node_raw(&self, node_ptr: *mut Node<V, CAPACITY>) -> NonNull<Node<V, CAPACITY>> {
+	pub fn clone_node_raw(&self, node_ptr: *mut Node<K, V, CAPACITY>) -> NonNull<Node<K, V, CAPACITY>> {
 		let new = self.alloc_node();
 
 		// SAFETY: `alloc_node` will always return a valid pointer

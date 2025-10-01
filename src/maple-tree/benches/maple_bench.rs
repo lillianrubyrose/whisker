@@ -15,7 +15,7 @@ fn bench_insert(c: &mut Criterion) {
 
 	group.bench_function("MapleTree_Sequential", |b| {
 		b.iter(|| {
-			let tree = MapleTree::<u64, 16>::new();
+			let tree = MapleTree::<u64, u64, 16>::new();
 			for i in 0..black_box(DATA_SIZE as u64) {
 				tree.store(i, i * 2);
 			}
@@ -37,7 +37,7 @@ fn bench_insert(c: &mut Criterion) {
 
 	group.bench_with_input(BenchmarkId::new("MapleTree_Random", DATA_SIZE), &keys, |b, k| {
 		b.iter(|| {
-			let tree = MapleTree::<u64, 16>::new();
+			let tree = MapleTree::<u64, u64, 16>::new();
 			for &key in k.iter() {
 				tree.store(black_box(key), black_box(key * 2));
 			}
@@ -60,7 +60,7 @@ fn bench_lookup(c: &mut Criterion) {
 	let mut group = c.benchmark_group("Lookup");
 	group.sample_size(50);
 
-	let maple_tree = MapleTree::<u64, 16>::new();
+	let maple_tree = MapleTree::<u64, u64, 16>::new();
 	let btree_map = RwLock::new(BTreeMap::new());
 	{
 		let mut writer = btree_map.write().unwrap();

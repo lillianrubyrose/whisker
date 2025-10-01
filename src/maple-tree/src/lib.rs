@@ -28,7 +28,7 @@ pub trait SupportedCapacity {}
 macro_rules! supported_capacity {
     ($($capacity:literal),+) => {
         $(
-            impl<V> SupportedCapacity for MapleTree<V, $capacity> {}
+            impl<K, V> SupportedCapacity for MapleTree<K, V, $capacity> {}
         )+
     };
 }
@@ -37,24 +37,25 @@ supported_capacity!(
 	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
 );
 
-pub enum NodePtr<V, const CAPACITY: usize> {
+pub enum NodePtr<K, V, const CAPACITY: usize> {
 	Empty,
-	Direct(u64, TaggedPtr<V>),
-	Node(TaggedPtr<Node<V, CAPACITY>>),
+	Direct(K, TaggedPtr<V>),
+	Node(TaggedPtr<Node<K, V, CAPACITY>>),
 }
 
-pub struct MapleTree<V, const CAPACITY: usize> {
-	root: Atomic<NodePtr<V, CAPACITY>>,
-	arena: NodeArena<V, CAPACITY>,
+pub struct MapleTree<K, V, const CAPACITY: usize> {
+	root: Atomic<NodePtr<K, V, CAPACITY>>,
+	arena: NodeArena<K, V, CAPACITY>,
 	lock: Mutex<()>,
 }
 
-unsafe impl<V, const CAPACITY: usize> Send for MapleTree<V, CAPACITY> where Self: SupportedCapacity {}
-unsafe impl<V, const CAPACITY: usize> Sync for MapleTree<V, CAPACITY> where Self: SupportedCapacity {}
+unsafe impl<K, V, const CAPACITY: usize> Send for MapleTree<K, V, CAPACITY> where Self: SupportedCapacity {}
+unsafe impl<K, V, const CAPACITY: usize> Sync for MapleTree<K, V, CAPACITY> where Self: SupportedCapacity {}
 
-impl<V, const CAPACITY: usize> MapleTree<V, CAPACITY>
+impl<K, V, const CAPACITY: usize> MapleTree<K, V, CAPACITY>
 where
 	Self: SupportedCapacity,
+	K: PartialEq + PartialOrd + Ord + Copy,
 	[(); CAPACITY + 1]:,
 {
 	pub fn new() -> Self {
@@ -65,7 +66,10 @@ where
 		}
 	}
 
-	pub fn load<'guard>(&self, index: u64, guard: &'guard Guard) -> Option<&'guard V> {
+	pub fn load<'guard>(&self, index: K, guard: &'guard Guard) -> Option<&'guard V>
+	where
+		K: 'guard,
+	{
 		let root = self.root.load(Ordering::Relaxed, guard);
 
 		// SAFETY: The `root` pointer is loaded from an `Atomic` pointer that's only ever updated by `store`.
@@ -105,7 +109,7 @@ where
 		}
 	}
 
-	pub fn store(&self, index: u64, value: V) {
+	pub fn store(&self, index: K, value: V) {
 		let _lock = self.lock.lock(); // Synchronize writes
 		let guard = &crossbeam_epoch::pin();
 
@@ -213,7 +217,7 @@ where
 		}
 	}
 
-	fn defer_destroy_node<'guard>(&self, node_ptr: *mut Node<V, CAPACITY>, guard: &'guard Guard) {
+	fn defer_destroy_node<'guard>(&self, node_ptr: *mut Node<K, V, CAPACITY>, guard: &'guard Guard) {
 		let node = unsafe { &*node_ptr };
 
 		match node.header.node_kind() {
@@ -241,10 +245,10 @@ where
 
 	fn find_leaf<'guard>(
 		&self,
-		mut node: TaggedPtr<Node<V, CAPACITY>>,
-		index: u64,
+		mut node: TaggedPtr<Node<K, V, CAPACITY>>,
+		index: K,
 		_guard: &'guard Guard,
-	) -> TaggedPtr<Node<V, CAPACITY>> {
+	) -> TaggedPtr<Node<K, V, CAPACITY>> {
 		const MAPLE_HEIGHT_MAX: usize = 31;
 
 		// A static depth loop is bound to the theoretical maximum height of the tree to prevent an infinite loop.
@@ -274,7 +278,7 @@ where
 
 	/// Updates the parent pointers of all children of `node_ptr`.
 	/// This is called after a node is cloned.
-	fn reparent_children(&self, node_ptr: *mut Node<V, CAPACITY>) {
+	fn reparent_children(&self, node_ptr: *mut Node<K, V, CAPACITY>) {
 		// SAFETY: It is up to the caller to guarantee that `node_ptr` is a valid pointer to a node
 		// and that we have exclusive mutable access.
 		let node = unsafe { &mut *node_ptr };
@@ -304,10 +308,10 @@ where
 
 	fn walk_up_and_update<'guard>(
 		&self,
-		mut original_node_ptr: *mut Node<V, CAPACITY>,
-		mut new_node_ptr: *mut Node<V, CAPACITY>,
+		mut original_node_ptr: *mut Node<K, V, CAPACITY>,
+		mut new_node_ptr: *mut Node<K, V, CAPACITY>,
 		_guard: &'guard Guard,
-	) -> TaggedPtr<Node<V, CAPACITY>> {
+	) -> TaggedPtr<Node<K, V, CAPACITY>> {
 		loop {
 			// SAFETY: `original_node_ptr` always points to a node on the original path.
 			// On the first iteration it points to the original leaf node which is guaranteed to be valid by the caller.
@@ -341,10 +345,10 @@ where
 
 	fn leaf_insert(
 		&self,
-		leaf: &mut Node<V, CAPACITY>,
-		index: u64,
+		leaf: &mut Node<K, V, CAPACITY>,
+		index: K,
 		value: V,
-	) -> Option<(u64, TaggedPtr<Node<V, CAPACITY>>)> {
+	) -> Option<(K, TaggedPtr<Node<K, V, CAPACITY>>)> {
 		let count = leaf.header.slot_count() as usize;
 		let pivots = leaf.pivots();
 		let slot_index = pivots.binary_search(&index).unwrap_or_else(|i| i);
@@ -391,8 +395,8 @@ where
 		}
 
 		// Node is full, split it
-		let mut all_pivots: [MaybeUninit<u64>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
-		let mut all_slots: [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY + 1] =
+		let mut all_pivots: [MaybeUninit<K>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
+		let mut all_slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY + 1] =
 			unsafe { MaybeUninit::uninit().assume_init() };
 
 		unsafe {
@@ -470,10 +474,10 @@ where
 
 	fn internal_insert(
 		&self,
-		node: &mut Node<V, CAPACITY>,
-		pivot: u64,
-		child: TaggedPtr<Node<V, CAPACITY>>,
-	) -> Option<(u64, TaggedPtr<Node<V, CAPACITY>>)> {
+		node: &mut Node<K, V, CAPACITY>,
+		pivot: K,
+		child: TaggedPtr<Node<K, V, CAPACITY>>,
+	) -> Option<(K, TaggedPtr<Node<K, V, CAPACITY>>)> {
 		let count = node.header.slot_count() as usize;
 		let pivots = node.pivots();
 		let pivot_insertion_point = pivots.binary_search(&pivot).unwrap_or_else(|i| i);
@@ -515,14 +519,14 @@ where
 
 		// Node is full, split it
 		let pivots_count = count - 1;
-		let mut all_pivots: [MaybeUninit<u64>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
-		let mut all_slots: [MaybeUninit<Slot<V, CAPACITY>>; CAPACITY + 1] =
+		let mut all_pivots: [MaybeUninit<K>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
+		let mut all_slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY + 1] =
 			unsafe { MaybeUninit::uninit().assume_init() };
 
 		unsafe {
 			let pivots_ptr = pivots.as_ptr();
 			// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout as eachother.
-			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<u64>();
+			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<K>();
 			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots_ptr, pivot_insertion_point);
 			all_pivots_ptr.add(pivot_insertion_point).write(pivot);
 			std::ptr::copy_nonoverlapping(
@@ -533,7 +537,7 @@ where
 
 			let slots_ptr = node.slots().as_ptr();
 			// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout as eachother.
-			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<V, CAPACITY>>();
+			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<K, V, CAPACITY>>();
 			std::ptr::copy_nonoverlapping(slots_ptr, all_slots_ptr, slot_insertion_point);
 			all_slots_ptr.add(slot_insertion_point).write(Slot {
 				child: ManuallyDrop::new(child),
@@ -593,10 +597,10 @@ where
 
 	fn create_new_root(
 		&self,
-		pivot: u64,
-		left_child: *mut Node<V, CAPACITY>,
-		right_child: *mut Node<V, CAPACITY>,
-	) -> TaggedPtr<Node<V, CAPACITY>> {
+		pivot: K,
+		left_child: *mut Node<K, V, CAPACITY>,
+		right_child: *mut Node<K, V, CAPACITY>,
+	) -> TaggedPtr<Node<K, V, CAPACITY>> {
 		let mut new_root = self.arena.alloc_node();
 		// SAFETY: `NodeArena` guarantees that `alloc_node` returns a `NonNull<u8>`
 		// pointer to valid, uninitialized memory for a `Node`.
@@ -621,12 +625,12 @@ where
 
 	fn insert_into_parent<'guard>(
 		&self,
-		mut old_child_ptr: *mut Node<V, CAPACITY>,
-		mut new_child_ptr: *mut Node<V, CAPACITY>,
-		mut pivot: u64,
-		mut new_sibling_ptr: *mut Node<V, CAPACITY>,
+		mut old_child_ptr: *mut Node<K, V, CAPACITY>,
+		mut new_child_ptr: *mut Node<K, V, CAPACITY>,
+		mut pivot: K,
+		mut new_sibling_ptr: *mut Node<K, V, CAPACITY>,
 		guard: &'guard Guard,
-	) -> TaggedPtr<Node<V, CAPACITY>> {
+	) -> TaggedPtr<Node<K, V, CAPACITY>> {
 		// SAFETY: `old_child_ptr` is the original leaf that was split.
 		// The caller (`store`) guarantees that it's valid.
 		let parent_ptr = unsafe { (*old_child_ptr).header.parent };
@@ -685,7 +689,7 @@ mod tests {
 
 	#[test]
 	fn store_single() {
-		let tree = MapleTree::<u64, RANGE64_SLOTS>::new();
+		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
 		tree.store(10, 100u64);
 		let guard = &crossbeam_epoch::pin();
 		assert_eq!(*tree.load(10, guard).unwrap(), 100);
@@ -693,7 +697,7 @@ mod tests {
 
 	#[test]
 	fn store_multiple() {
-		let tree = MapleTree::<u64, RANGE64_SLOTS>::new();
+		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
 		tree.store(10, 100);
 		tree.store(20, 200);
 		tree.store(5, 50);
@@ -706,7 +710,7 @@ mod tests {
 
 	#[test]
 	fn overwrite() {
-		let tree = MapleTree::<u64, RANGE64_SLOTS>::new();
+		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
 		tree.store(10, 100);
 		tree.store(10, 101);
 		let guard = &crossbeam_epoch::pin();
@@ -720,7 +724,7 @@ mod tests {
 
 	#[test]
 	fn fill_leaf() {
-		let tree = MapleTree::<u64, RANGE64_SLOTS>::new();
+		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
 		for i in 0..RANGE64_SLOTS as u64 {
 			tree.store(i, i * 10);
 		}
@@ -733,7 +737,7 @@ mod tests {
 
 	#[test]
 	fn fill_leaf_rev() {
-		let tree = MapleTree::<u64, RANGE64_SLOTS>::new();
+		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
 		for i in (0..RANGE64_SLOTS as u64).rev() {
 			tree.store(i, i * 10);
 		}
@@ -746,7 +750,7 @@ mod tests {
 
 	#[test]
 	fn split_leaf() {
-		let tree = MapleTree::<u64, 31>::new();
+		let tree = MapleTree::<u64, u64, 31>::new();
 		for i in 0..(RANGE64_SLOTS * 50) as u64 {
 			tree.store(i, i * 10);
 		}
@@ -759,7 +763,7 @@ mod tests {
 
 	#[test]
 	fn split_leaf_rev() {
-		let tree = MapleTree::<u64, 31>::new();
+		let tree = MapleTree::<u64, u64, 31>::new();
 		for i in (0..(RANGE64_SLOTS * 50) as u64).rev() {
 			tree.store(i, i * 10);
 		}
@@ -772,7 +776,7 @@ mod tests {
 
 	#[test]
 	fn clear_tree() {
-		let tree = MapleTree::<u64, 31>::new();
+		let tree = MapleTree::<u64, u64, 31>::new();
 		for i in 0..(RANGE64_SLOTS * 50) as u64 {
 			tree.store(i, i * 10);
 		}

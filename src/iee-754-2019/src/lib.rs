@@ -27,6 +27,19 @@ pub enum RoundingMode {
 	RoundTowardZero,
 }
 
+impl RoundingMode {
+	pub const fn const_eq(self, other: RoundingMode) -> bool {
+		match (self, other) {
+			(RoundingMode::RoundTiesToEven, RoundingMode::RoundTiesToEven) => true,
+			(RoundingMode::RoundTiesToAway, RoundingMode::RoundTiesToAway) => true,
+			(RoundingMode::RoundTowardPositive, RoundingMode::RoundTowardPositive) => true,
+			(RoundingMode::RoundTowardNegative, RoundingMode::RoundTowardNegative) => true,
+			(RoundingMode::RoundTowardZero, RoundingMode::RoundTowardZero) => true,
+			_ => false,
+		}
+	}
+}
+
 /// These correspond to the status flags in Section 7.1
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExceptionFlags {
@@ -52,28 +65,39 @@ pub struct ExceptionFlags {
 }
 
 impl ExceptionFlags {
+	pub const fn new() -> Self {
+		Self {
+			invalid_operation: false,
+			div_by_zero: false,
+			overflow: false,
+			underflow: false,
+			inexact: false,
+		}
+	}
+
 	#[inline(always)]
-	pub(crate) fn invalid(&mut self) {
+	pub(crate) const fn invalid(&mut self) {
 		self.invalid_operation = true;
 	}
 
 	#[inline(always)]
-	pub(crate) fn div_by_zero(&mut self) {
+	#[allow(dead_code, reason = "Division not implemented yet")]
+	pub(crate) const fn div_by_zero(&mut self) {
 		self.div_by_zero = true;
 	}
 
 	#[inline(always)]
-	pub(crate) fn overflow(&mut self) {
+	pub(crate) const fn overflow(&mut self) {
 		self.overflow = true;
 	}
 
 	#[inline(always)]
-	pub(crate) fn underflow(&mut self) {
+	pub(crate) const fn underflow(&mut self) {
 		self.underflow = true;
 	}
 
 	#[inline(always)]
-	pub(crate) fn inexact(&mut self) {
+	pub(crate) const fn inexact(&mut self) {
 		self.inexact = true;
 	}
 }

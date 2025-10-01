@@ -1,5 +1,3 @@
-use num_conv::{Extend, Truncate};
-
 use crate::{
 	ExceptionFlags, RoundingMode,
 	RoundingMode::{RoundTiesToAway, RoundTiesToEven, RoundTowardNegative, RoundTowardPositive, RoundTowardZero},
@@ -30,33 +28,45 @@ impl Into<u32> for F32 {
 impl F32 {
 	const Q_NAN: u32 = 0x7FC00000;
 
-	fn is_nan(&self) -> bool {
+	pub const fn from_u32(value: u32) -> Self {
+		Self {
+			sign: (value >> 31) & 1,
+			exponent: (value >> 23) & 0xFF,
+			fraction: value & 0x7FFFFF,
+		}
+	}
+
+	pub const fn into_u32(self) -> u32 {
+		(self.sign << 31) | (self.exponent << 23) | self.fraction
+	}
+
+	const fn is_nan(&self) -> bool {
 		self.exponent == 0xFF && self.fraction != 0
 	}
 
-	fn is_signaling_nan(&self) -> bool {
+	const fn is_signaling_nan(&self) -> bool {
 		self.is_nan() && (self.fraction & 0x400000) == 0
 	}
 
-	fn is_infinity(&self) -> bool {
+	const fn is_infinity(&self) -> bool {
 		self.exponent == 0xFF && self.fraction == 0
 	}
 
-	fn is_zero(&self) -> bool {
+	const fn is_zero(&self) -> bool {
 		self.exponent == 0 && self.fraction == 0
 	}
 
-	fn is_subnormal(&self) -> bool {
+	const fn is_subnormal(&self) -> bool {
 		self.exponent == 0 && self.fraction != 0
 	}
 }
 
 impl F32 {
-	pub fn add(lhs_bits: u32, rhs_bits: u32, rm: RoundingMode) -> (u32, ExceptionFlags) {
-		let lhs = F32::from(lhs_bits);
-		let rhs = F32::from(rhs_bits);
+	pub const fn add(lhs_bits: u32, rhs_bits: u32, rm: RoundingMode) -> (u32, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
 
-		let mut flags = ExceptionFlags::default();
+		let mut flags = ExceptionFlags::new();
 
 		// =============
 		// Special Cases
@@ -106,7 +116,14 @@ impl F32 {
 		if lhs.is_zero() && rhs.is_zero() {
 			// Signs are different: +0 unless RoundTowardNegative
 			if lhs.sign != rhs.sign {
-				return (if rm == RoundTowardNegative { 0x80000000 } else { 0 }, flags);
+				return (
+					if rm.const_eq(RoundTowardNegative) {
+						0x80000000
+					} else {
+						0
+					},
+					flags,
+				);
 			}
 
 			// Signs are same: return +0
@@ -131,8 +148,8 @@ impl F32 {
 		let mut exponent_rhs = rhs.exponent.cast_signed();
 
 		// Significand is 24 bits, extend temporarily so we don't overflow when rounding/shifting
-		let mut significand_lhs = lhs.fraction.extend::<u64>();
-		let mut significand_rhs = rhs.fraction.extend::<u64>();
+		let mut significand_lhs = lhs.fraction as u64;
+		let mut significand_rhs = rhs.fraction as u64;
 
 		if lhs.is_subnormal() {
 			exponent_lhs = 1;
@@ -195,7 +212,11 @@ impl F32 {
 
 			// Section 6.3
 			if result_significand == 0 {
-				let res = if rm == RoundTowardNegative { 0x80000000 } else { 0 };
+				let res = if rm.const_eq(RoundTowardNegative) {
+					0x80000000
+				} else {
+					0
+				};
 				return (res, flags);
 			}
 		}
@@ -205,7 +226,11 @@ impl F32 {
 		// and adjust the exponent
 		// =========================================================================
 
-		let mut result_exponent = exponent_lhs.max(exponent_rhs);
+		let mut result_exponent = if exponent_rhs < exponent_lhs {
+			exponent_lhs
+		} else {
+			exponent_rhs
+		};
 
 		// Check if it's 2 bits or more past the implicit bit
 		if result_significand >= (2 << 26) {
@@ -333,7 +358,7 @@ impl F32 {
 		// =======
 
 		// Remove implicit bit
-		let final_fraction = final_significand.truncate::<u32>() & 0x7FFFFF;
+		let final_fraction = final_significand as u32 & 0x7FFFFF;
 		let final_exponent = result_exponent.cast_unsigned();
 
 		((result_sign << 31) | (final_exponent << 23) | final_fraction, flags)

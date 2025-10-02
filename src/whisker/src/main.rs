@@ -560,18 +560,13 @@ mod tests {
 		println!();
 
 		run_isa_tests("rv32ui-p", &[], &mut failures, &mut successes);
-		run_isa_tests("rv32si-p", &["dirty", "icache-alias"], &mut failures, &mut successes);
-		run_isa_tests(
-			"rv32mi-p",
-			&["breakpoint", "illegal", "instret_overflow", "pmpaddr", "zicntr"],
-			&mut failures,
-			&mut successes,
-		);
+		run_isa_tests("rv32si-p", &[], &mut failures, &mut successes);
+		run_isa_tests("rv32mi-p", &[], &mut failures, &mut successes);
 		run_isa_tests("rv64ui-p", &["ma_data"], &mut failures, &mut successes);
-		run_isa_tests("rv64si-p", &["dirty", "icache-alias"], &mut failures, &mut successes);
+		run_isa_tests("rv64si-p", &["dirty"], &mut failures, &mut successes);
 		run_isa_tests(
 			"rv64mi-p",
-			&["breakpoint", "illegal", "instret_overflow", "pmpaddr", "zicntr"],
+			&["illegal", "breakpoint", "instret_overflow", "zicntr"],
 			&mut failures,
 			&mut successes,
 		);

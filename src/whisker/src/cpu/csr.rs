@@ -243,8 +243,29 @@ fn read_mstatus(hart: &mut WhiskerHart) -> u64 {
 	u64::from_le_bytes(hart.mstatus.inner())
 }
 fn write_mstatus(hart: &mut WhiskerHart, val: u64) {
-	debug!("TODO: implement mstatus properly");
-	hart.mstatus.set_inner(val.to_le_bytes());
+	let mut new_mstatus = MStatus::new();
+	new_mstatus.set_inner(val.to_le_bytes());
+
+	// Chapter 2.3 defines WARL and such fields
+	// Chapter 3.1.6.3 says that SXL and UXL are WARL fields
+	// VS are defined as WARL in Chapter 3.1.6.7
+	// SD is defined as read-only in Chapter 3.1.6.7
+
+	hart.mstatus.set_sie(new_mstatus.get_sie());
+	hart.mstatus.set_mie(new_mstatus.get_mie());
+	hart.mstatus.set_spie(new_mstatus.get_spie());
+	hart.mstatus.set_mpie(new_mstatus.get_mpie());
+	hart.mstatus.set_spp(new_mstatus.get_spp());
+	hart.mstatus.set_mpp(new_mstatus.get_mpp());
+	hart.mstatus.set_mprv(new_mstatus.get_mprv());
+	hart.mstatus.set_sum(new_mstatus.get_sum());
+	hart.mstatus.set_mxr(new_mstatus.get_mxr());
+	hart.mstatus.set_tvm(new_mstatus.get_tvm());
+
+	// If F extension is supported then FS is writable
+	if hart.supports_extensions(RiscvExtensions::FLOAT) {
+		hart.mstatus.set_fs(new_mstatus.get_fs());
+	}
 }
 
 fn read_misa(hart: &mut WhiskerHart) -> u64 {

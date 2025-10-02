@@ -103,8 +103,8 @@ pub struct MStatus {
 	pub mpie: bool,
 	pub spp: U1,
 	_vs: U2,
-	mpp: HartMode,
-	_fs: U2,
+	pub mpp: HartMode,
+	pub fs: U2,
 	_xs: U2,
 	pub mprv: bool,
 	pub sum: bool,
@@ -113,8 +113,8 @@ pub struct MStatus {
 	_tw: U1,
 	_tsr: U1,
 	_res_23_31: U9,
-	_uxl: U2,
-	_sxl: U2,
+	pub uxl: U2,
+	pub sxl: U2,
 	_sbe: U1,
 	_mbe: U1,
 	_res_38_62: U25,
@@ -139,6 +139,17 @@ pub enum HartBreakKind {
 
 impl WhiskerHart {
 	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
+		let mut mstatus = MStatus::new();
+
+		// 2 is the value of UXLEN for RV64
+		// It's defined in Chapter 3.1.1: Table 9
+		if extensions.has(RiscvExtensions::USER_MODE) {
+			mstatus.set_uxl(2);
+		}
+		if extensions.has(RiscvExtensions::SUPERVISOR) {
+			mstatus.set_sxl(2);
+		}
+
 		Self {
 			hart_id,
 			extensions,
@@ -162,7 +173,7 @@ impl WhiskerHart {
 			csr_info: csr::create_info(),
 
 			mscratch: 0,
-			mstatus: MStatus::new(),
+			mstatus,
 			medeleg: ExceptionBits::new(),
 			mideleg: InterruptBits::new(),
 			mie: InterruptBits::new(),
@@ -987,6 +998,11 @@ impl WhiskerHart {
 
 	#[allow(unused_variables, reason = "FIXME: Implement unfinished instructions")]
 	fn execute_f_insn(&mut self, insn: FloatInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+		// If FS is Off, any F or D instruction should trap.
+		if self.mstatus.get_fs() == 0 {
+			return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0));
+		}
+
 		match insn {
 			FloatInstruction::Load { dst, src, src_offset } => {
 				let offset = self.registers.get(src).wrapping_add_signed(src_offset);
@@ -1235,6 +1251,11 @@ impl WhiskerHart {
 	}
 
 	fn execute_d_insn(&mut self, insn: DoubleInstruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+		// If FS is Off, any F or D instruction should trap.
+		if self.mstatus.get_fs() == 0 {
+			return Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0));
+		}
+
 		match insn {
 			DoubleInstruction::Load { dst, src, src_offset } => {
 				let addr = self.registers.get(src).wrapping_add_signed(src_offset);

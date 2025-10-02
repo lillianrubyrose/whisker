@@ -1388,6 +1388,83 @@ impl F32 {
 			}
 		}
 	}
+
+	pub const fn eq(lhs_bits: u32, rhs_bits: u32) -> (bool, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+		let mut flags = ExceptionFlags::new();
+
+		// RISC-V only signals for sNaNs, equivalent to `compareQuietEqual`
+		// Reference: Section 5.11
+		if lhs.is_signaling_nan() || rhs.is_signaling_nan() {
+			flags.invalid();
+			return (false, flags);
+		}
+
+		if lhs.is_nan() || rhs.is_nan() {
+			return (false, flags);
+		}
+
+		if lhs.is_zero() && rhs.is_zero() {
+			return (true, flags);
+		}
+
+		(lhs_bits == rhs_bits, flags)
+	}
+
+	pub const fn lt(lhs_bits: u32, rhs_bits: u32) -> (bool, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+		let mut flags = ExceptionFlags::new();
+
+		// RISC-V signals for any NaN, equivalent to `compareSignalingLess`
+		// Reference: Section 5.11
+		if lhs.is_nan() || rhs.is_nan() {
+			flags.invalid();
+			return (false, flags);
+		}
+
+		if lhs.is_zero() && rhs.is_zero() {
+			return (false, flags);
+		}
+
+		if lhs.sign != rhs.sign {
+			return (lhs.sign == 1, flags);
+		}
+
+		if lhs.sign == 0 {
+			(lhs_bits < rhs_bits, flags)
+		} else {
+			(lhs_bits > rhs_bits, flags)
+		}
+	}
+
+	pub const fn le(lhs_bits: u32, rhs_bits: u32) -> (bool, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+		let mut flags = ExceptionFlags::new();
+
+		// RISC-V signals for any NaN, equivalent to `compareSignalingLessEqual`
+		// Reference: Section 5.11
+		if lhs.is_nan() || rhs.is_nan() {
+			flags.invalid();
+			return (false, flags);
+		}
+
+		if (lhs.is_zero() && rhs.is_zero()) || (lhs_bits == rhs_bits) {
+			return (true, flags);
+		}
+
+		if lhs.sign != rhs.sign {
+			return (lhs.sign == 1, flags);
+		}
+
+		if lhs.sign == 0 {
+			(lhs_bits < rhs_bits, flags)
+		} else {
+			(lhs_bits > rhs_bits, flags)
+		}
+	}
 }
 
 #[cfg(test)]
@@ -1990,5 +2067,78 @@ mod min_max_tests {
 			f32::NAN,
 			INVALID
 		)
+	);
+}
+
+#[cfg(test)]
+mod cmp_tests {
+	use crate::{ExceptionFlags, F32};
+
+	macro_rules! define_test {
+        ($(($name:ident, $func:ident, $lhs:expr, $rhs:expr, $expected_result:expr, $expected_flags:expr)),+) => {
+            $(
+            #[test]
+            fn $name() {
+                let lhs_bits = $lhs.to_bits();
+                let rhs_bits = $rhs.to_bits();
+				let expected_flags = $expected_flags;
+
+                let (result, flags) = F32::$func(lhs_bits, rhs_bits);
+
+                if result != $expected_result {
+                     panic!("\nFor {} {} {}, Expected: {}, Got: {}\n", stringify!($lhs), stringify!($func), stringify!($rhs), $expected_result, result);
+                }
+
+				if flags.invalid_operation != expected_flags.invalid_operation {
+					panic!("\nInvalid operation flag mismatch. Expected: {}, Got: {}\n", expected_flags.invalid_operation, flags.invalid_operation);
+				}
+            }
+            )+
+        };
+    }
+
+	const OK: ExceptionFlags = ExceptionFlags {
+		invalid_operation: false,
+		div_by_zero: false,
+		overflow: false,
+		underflow: false,
+		inexact: false,
+	};
+
+	const INVALID: ExceptionFlags = ExceptionFlags {
+		invalid_operation: true,
+		div_by_zero: false,
+		overflow: false,
+		underflow: false,
+		inexact: false,
+	};
+
+	define_test!(
+		(eq_positives_equal, eq, 1.0f32, 1.0f32, true, OK),
+		(eq_positives_unequal, eq, 1.0f32, 2.0f32, false, OK),
+		(eq_plus_minus_zero, eq, 0.0f32, -0.0f32, true, OK),
+		(eq_infinities, eq, f32::INFINITY, f32::INFINITY, true, OK),
+		(eq_neg_infinities, eq, f32::NEG_INFINITY, f32::NEG_INFINITY, true, OK),
+		(eq_inf_and_neg_inf, eq, f32::INFINITY, f32::NEG_INFINITY, false, OK),
+		(eq_qnan_vs_num, eq, f32::NAN, 1.0f32, false, OK),
+		(eq_qnan_vs_qnan, eq, f32::NAN, f32::NAN, false, OK),
+		(eq_snan_vs_num, eq, f32::from_bits(0x7f800001), 1.0f32, false, INVALID),
+		(lt_1_vs_2, lt, 1.0f32, 2.0f32, true, OK),
+		(lt_2_vs_1, lt, 2.0f32, 1.0f32, false, OK),
+		(lt_neg_2_vs_neg_1, lt, -2.0f32, -1.0f32, true, OK),
+		(lt_neg_1_vs_neg_2, lt, -1.0f32, -2.0f32, false, OK),
+		(lt_neg_1_vs_1, lt, -1.0f32, 1.0f32, true, OK),
+		(lt_zeros, lt, 0.0f32, -0.0f32, false, OK),
+		(lt_qnan, lt, 1.0f32, f32::NAN, false, INVALID),
+		(lt_snan, lt, 1.0f32, f32::from_bits(0x7f800001), false, INVALID),
+		(le_1_vs_2, le, 1.0f32, 2.0f32, true, OK),
+		(le_2_vs_1, le, 2.0f32, 1.0f32, false, OK),
+		(le_1_vs_1, le, 1.0f32, 1.0f32, true, OK),
+		(le_neg_2_vs_neg_1, le, -2.0f32, -1.0f32, true, OK),
+		(le_neg_1_vs_neg_2, le, -1.0f32, -2.0f32, false, OK),
+		(le_neg_1_vs_1, le, -1.0f32, 1.0f32, true, OK),
+		(le_zeros, le, 0.0f32, -0.0f32, true, OK),
+		(le_qnan, le, 1.0f32, f32::NAN, false, INVALID),
+		(le_snan, le, 1.0f32, f32::from_bits(0x7f800001), false, INVALID)
 	);
 }

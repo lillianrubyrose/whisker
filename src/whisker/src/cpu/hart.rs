@@ -1106,40 +1106,28 @@ impl WhiskerHart {
 				self.fp_registers.set_float(dst, res);
 			}
 			FloatInstruction::Equal { dst, lhs, rhs } => {
-				let mut fpu = FPU::default();
-				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
-				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
+				let lhs = self.fp_registers.get_float(lhs).to_u32();
+				let rhs = self.fp_registers.get_float(rhs).to_u32();
 
-				let result = fpu.eq(lhs, rhs);
+				let (result, eflags) = iee_754_2019::F32::eq(lhs, rhs);
 				self.registers.set(dst, u64::from(result));
-
-				if fpu.flags.is_invalid() {
-					self.float_status_control.set_invalid_operation(true);
-				}
+				self.float_status_control.set_from_newlib(eflags);
 			}
 			FloatInstruction::LessThan { dst, lhs, rhs } => {
-				let mut fpu = FPU::default();
-				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
-				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
+				let lhs = self.fp_registers.get_float(lhs).to_u32();
+				let rhs = self.fp_registers.get_float(rhs).to_u32();
 
-				let result = fpu.lt(lhs, rhs);
+				let (result, eflags) = iee_754_2019::F32::lt(lhs, rhs);
 				self.registers.set(dst, u64::from(result));
-
-				if fpu.flags.is_invalid() {
-					self.float_status_control.set_invalid_operation(true);
-				}
+				self.float_status_control.set_from_newlib(eflags);
 			}
 			FloatInstruction::LessOrEqual { dst, lhs, rhs } => {
-				let mut fpu = FPU::default();
-				let lhs = float32_t::from_bits(self.fp_registers.get_float(lhs).to_u32());
-				let rhs = float32_t::from_bits(self.fp_registers.get_float(rhs).to_u32());
+				let lhs = self.fp_registers.get_float(lhs).to_u32();
+				let rhs = self.fp_registers.get_float(rhs).to_u32();
 
-				let result = fpu.le(lhs, rhs);
+				let (result, eflags) = iee_754_2019::F32::le(lhs, rhs);
 				self.registers.set(dst, u64::from(result));
-
-				if fpu.flags.is_invalid() {
-					self.float_status_control.set_invalid_operation(true);
-				}
+				self.float_status_control.set_from_newlib(eflags);
 			}
 			FloatInstruction::ConvertToWord { dst, src, rm } => {
 				let src = self.fp_registers.get_raw(src).truncate::<u32>();

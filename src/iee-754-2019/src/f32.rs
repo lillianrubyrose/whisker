@@ -373,6 +373,219 @@ impl F32 {
 		let negated_rhs_bits = rhs_bits ^ 0x80000000;
 		Self::add(lhs_bits, negated_rhs_bits, rm)
 	}
+
+	pub const fn mul(lhs_bits: u32, rhs_bits: u32, rm: RoundingMode) -> (u32, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+
+		let mut flags = ExceptionFlags::new();
+
+		// Reference: Section 6.3
+		// The sign of a product is the XOR of the signs of the operands.
+		let result_sign = lhs.sign ^ rhs.sign;
+
+		// =======================
+		// Special Cases
+		// Reference: Section 6, 7
+		// =======================
+
+		// Either sNaN: invalid operation and return qNaN
+		if lhs.is_signaling_nan() {
+			flags.invalid();
+			return (lhs_bits | 0x400000, flags);
+		}
+
+		if rhs.is_signaling_nan() {
+			flags.invalid();
+			return (rhs_bits | 0x400000, flags);
+		}
+
+		if lhs.is_nan() {
+			return (lhs_bits, flags);
+		}
+
+		if rhs.is_nan() {
+			return (rhs_bits, flags);
+		}
+
+		if (lhs.is_infinity() && rhs.is_zero()) || (rhs.is_infinity() && lhs.is_zero()) {
+			flags.invalid();
+			return (Self::Q_NAN, flags);
+		}
+
+		if lhs.is_infinity() || rhs.is_infinity() {
+			return ((result_sign << 31) | (0xFF << 23), flags);
+		}
+
+		if lhs.is_zero() || rhs.is_zero() {
+			return ((result_sign << 31), flags);
+		}
+
+		// ==================
+		// Extract components
+		// ==================
+
+		let mut exponent_lhs = lhs.exponent as i32;
+		let mut significand_lhs = lhs.fraction as u64;
+
+		if lhs.is_subnormal() {
+			let shift = significand_lhs.leading_zeros() as i32 - (64 - 24);
+			significand_lhs <<= shift;
+			exponent_lhs = 1 - shift;
+		} else {
+			significand_lhs |= 1 << 23;
+		}
+
+		let mut exponent_rhs = rhs.exponent as i32;
+		let mut significand_rhs = rhs.fraction as u64;
+
+		if rhs.is_subnormal() {
+			let shift = significand_rhs.leading_zeros() as i32 - (64 - 24);
+			significand_rhs <<= shift;
+			exponent_rhs = 1 - shift;
+		} else {
+			significand_rhs |= 1 << 23;
+		}
+
+		let mut result_exponent = exponent_lhs + exponent_rhs - 127;
+		let mut result_significand = significand_lhs * significand_rhs;
+
+		// =====================================================
+		// Normalize the 48bit product and align it for rounding
+		// =====================================================
+
+		// The product of two 24bit significands is either 47 or 48 bits.
+		// Align it to a 24-bit value, the implicit bit at 23 with 3 GRS bits below.
+		if (result_significand & (1u64 << 47)) != 0 {
+			// Product is 48 bits, normalize.
+			// Increment exponent and shift to align.
+			result_exponent += 1;
+			let shift = 47 - 26;
+			let sticky_mask = (1u64 << shift) - 1;
+			let sticky = (result_significand & sticky_mask) != 0;
+			result_significand = (result_significand >> shift) | if sticky { 1 } else { 0 };
+		} else {
+			// Product is 47 bits, already normalized.
+			// Shift to align.
+			let shift = 46 - 26;
+			let sticky_mask = (1u64 << shift) - 1;
+			let sticky = (result_significand & sticky_mask) != 0;
+			result_significand = (result_significand >> shift) | if sticky { 1 } else { 0 };
+		}
+
+		// ========
+		// Overflow
+		// ========
+
+		if result_exponent >= 0xFF {
+			flags.overflow();
+			flags.inexact();
+			let result_fraction = match rm {
+				RoundTowardZero => 0x7FFFFF,
+				RoundTowardNegative if result_sign == 1 => 0,
+				RoundTowardNegative if result_sign == 0 => 0x7FFFFF,
+				RoundTowardPositive if result_sign == 1 => 0x7FFFFF,
+				RoundTowardPositive if result_sign == 0 => 0,
+				_ => 0,
+			};
+			let result_exponent = if result_fraction == 0 { 0xFF } else { 0xFE };
+			return ((result_sign << 31) | (result_exponent << 23) | result_fraction, flags);
+		}
+
+		// =========
+		// Underflow
+		// =========
+
+		if result_exponent <= 0 {
+			// Check tininess before rounding
+			let shift = (1 - result_exponent) as u32;
+
+			let guard_shift = shift + 2;
+			let guard = (result_significand >> guard_shift) & 1;
+
+			let round_sticky_mask = (1u64 << guard_shift) - 1;
+			let round_sticky = (result_significand & round_sticky_mask) != 0;
+
+			let lost_bits = guard != 0 || round_sticky;
+			if lost_bits {
+				flags.inexact();
+				flags.underflow();
+			}
+
+			let mut result_fraction = result_significand >> (shift + 3);
+			let lsb = result_fraction & 1;
+
+			let needs_round = match rm {
+				RoundTiesToEven => guard == 1 && (round_sticky || lsb == 1),
+				RoundTiesToAway => guard == 1,
+				RoundTowardPositive => result_sign == 0 && lost_bits,
+				RoundTowardNegative => result_sign == 1 && lost_bits,
+				RoundTowardZero => false,
+			};
+
+			if needs_round {
+				result_fraction += 1;
+			}
+
+			if result_fraction == (1 << 23) {
+				return ((result_sign << 31) | (1 << 23) | 0, flags);
+			}
+
+			return (
+				(result_sign << 31) | (0 << 23) | (result_fraction as u32 & 0x7FFFFF),
+				flags,
+			);
+		}
+
+		// ========
+		// Rounding
+		// ========
+
+		let guard = (result_significand >> 2) & 1;
+		let round = (result_significand >> 1) & 1;
+		let sticky = result_significand & 1;
+
+		let pre_round_inexact = guard != 0 || round != 0 || sticky != 0;
+		let pre_round_result_significand_lsb = (result_significand >> 3) & 1;
+
+		let mut result_significand = result_significand >> 3;
+
+		let should_round = match rm {
+			RoundTiesToEven => guard == 1 && (round == 1 || sticky == 1 || pre_round_result_significand_lsb == 1),
+			RoundTiesToAway => guard == 1,
+			RoundTowardPositive => result_sign == 0 && pre_round_inexact,
+			RoundTowardNegative => result_sign == 1 && pre_round_inexact,
+			RoundTowardZero => false,
+		};
+
+		if should_round {
+			result_significand += 1;
+
+			if result_significand >= (2 << 23) {
+				result_significand >>= 1;
+				result_exponent += 1;
+
+				if result_exponent >= 0xFF {
+					flags.overflow();
+					flags.inexact();
+					return ((result_sign << 31) | (0xFF << 23) | 0, flags);
+				}
+			}
+		}
+
+		if pre_round_inexact {
+			flags.inexact();
+		}
+
+		// =======
+		// Packing
+		// =======
+
+		let result_fraction = result_significand as u32 & 0x7FFFFF;
+		let result_exponent = result_exponent as u32;
+
+		((result_sign << 31) | (result_exponent << 23) | result_fraction, flags)
+	}
 }
 
 #[cfg(test)]
@@ -488,6 +701,117 @@ mod add_tests {
 			f32::from_bits(0x000116c3),
 			RoundingMode::RoundTiesToEven,
 			f32::from_bits(0x00022d86)
+		)
+	);
+}
+
+#[cfg(test)]
+mod mul_tests {
+	use crate::{F32, RoundingMode};
+
+	macro_rules! define_test {
+        ($(($name:ident, $lhs:expr, $rhs:expr, $rm:expr, $expected_result:expr)),+) => {
+            $(
+            #[test]
+            fn $name() {
+                let lhs_bits = $lhs.to_bits();
+                let rhs_bits = $rhs.to_bits();
+                let expected_bits = $expected_result.to_bits();
+
+                let (result_bits, _eflags) = F32::mul(lhs_bits, rhs_bits, $rm);
+                let result_f32 = f32::from_bits(result_bits);
+
+                if $expected_result.is_nan() {
+                    if !result_f32.is_nan() {
+                        panic!("\nExpected NaN, got: {:?} ({:#010x})\n", result_f32, result_bits);
+                    }
+                } else if result_bits != expected_bits {
+                    panic!("\nExpected: {:?} ({:#010x})\nGot:      {:?} ({:#010x})\n",
+                        $expected_result, expected_bits, result_f32, result_bits);
+                }
+            }
+            )+
+        };
+    }
+
+	define_test!(
+		(two_times_three, 2.0f32, 3.0f32, RoundingMode::RoundTiesToEven, 6.0f32),
+		(
+			neg_point_five_times_ten,
+			-0.5f32,
+			10.0f32,
+			RoundingMode::RoundTiesToEven,
+			-5.0f32
+		),
+		(
+			neg_two_times_neg_three,
+			-2.0f32,
+			-3.0f32,
+			RoundingMode::RoundTiesToEven,
+			6.0f32
+		),
+		(
+			anything_times_zero,
+			123.45f32,
+			0.0f32,
+			RoundingMode::RoundTiesToEven,
+			0.0f32
+		),
+		(
+			anything_times_neg_zero,
+			123.45f32,
+			-0.0f32,
+			RoundingMode::RoundTiesToEven,
+			-0.0f32
+		),
+		(
+			inf_times_two,
+			f32::INFINITY,
+			2.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::INFINITY
+		),
+		(
+			neg_inf_times_two,
+			f32::NEG_INFINITY,
+			2.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::NEG_INFINITY
+		),
+		(
+			inf_times_zero_is_nan,
+			f32::INFINITY,
+			0.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::NAN
+		),
+		(
+			nan_times_two_is_nan,
+			f32::NAN,
+			2.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::NAN
+		),
+		(
+			overflow_to_inf,
+			f32::MAX,
+			2.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::INFINITY
+		),
+		(
+			subnormal_times_two,
+			f32::from_bits(0x00000001),
+			2.0f32,
+			RoundingMode::RoundTiesToEven,
+			f32::from_bits(0x00000002)
+		),
+		(
+			subnormal_underflow_to_zero,
+			f32::from_bits(0x00000001),
+			0.1f32,
+			RoundingMode::RoundTiesToEven,
+			0.0f32
 		)
 	);
 }

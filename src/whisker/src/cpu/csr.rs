@@ -309,10 +309,6 @@ fn read_mtvec(hart: &mut WhiskerHart) -> u64 {
 	u64::from_le_bytes(hart.mtvec.inner())
 }
 fn write_mtvec(hart: &mut WhiskerHart, val: u64) {
-	assert!(
-		val & 0b11 == 0,
-		"alternative mtvec modes not yet implemented or maybe you forgot __attribute__((aligned(4))) on a trap handler"
-	);
 	hart.mtvec.set_inner(val.to_le_bytes());
 }
 
@@ -605,9 +601,18 @@ pub struct TrapVector {
 }
 
 impl TrapVector {
-	pub fn addr_for_trap(self, _trap: TrapIdx) -> u64 {
-		// FIXME: check mode of mtvec and handle offsets
-		self.get_base() << 2
+	pub fn addr_for_trap(self, trap: TrapIdx) -> u64 {
+		let base = self.get_base() << 2;
+		let mode = self.get_mode();
+
+		// Section 3.1
+		// 0 = Direct. All traps set pc to BASE.
+		// 1 = Vectored. Asynchronous interrupts set pc to BASE+4*cause
+		if mode == 1 && trap.kind() == TrapKind::Interrupt {
+			base.wrapping_add(trap.cause() * 4)
+		} else {
+			base
+		}
 	}
 }
 

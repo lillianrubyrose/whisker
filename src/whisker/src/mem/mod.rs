@@ -110,6 +110,7 @@ macro_rules! impl_mem_read_write {
 					effective_addr: u64,
 					kind: ReadKind
 				) -> Result<$ty, TrapRequestGuaranteed> {
+				    hart.check_breakpoints(effective_addr, MemoryOpKind::Load)?;
 					let size = ::core::mem::size_of::<$ty>();
 					let is_misaligned = false; // effective_addr % (size as u64) != 0;
 
@@ -179,6 +180,7 @@ macro_rules! impl_mem_read_write {
 					kind: WriteKind,
 					val: $ty,
 				) -> Result<(), TrapRequestGuaranteed> {
+					hart.check_breakpoints(effective_addr, MemoryOpKind::Store)?;
 					let size = ::core::mem::size_of::<$ty>();
 					let is_misaligned = false; // effective_addr % (size as u64) != 0;
 

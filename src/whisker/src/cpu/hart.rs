@@ -77,6 +77,10 @@ pub struct WhiskerHart {
 	pub scounteren: u64,
 	pub float_status_control: FloatStatusControl,
 
+	pub tselect: u64,
+	pub tcontrol: Tcontrol,
+	pub debug_triggers: Vec<(Tdata1, u64)>,
+
 	pub translation_config: AddressTranslationConfig,
 
 	pub instruction_cache: spin::RwLock<FxHashMap<u64, (Instruction, u64)>>,
@@ -125,8 +129,39 @@ impl MStatus {
 	pub const MASK_S_MODE: u64 = 0b1000_0000_0000_0000_0000_0000_0000_0011_0000_0000_0000_1101_1110_0111_0110_0010;
 }
 
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct Tcontrol {
+	_res_0_2: U3,
+	pub mte: bool,
+	_res_4_63: U60,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, BitFieldRepr)]
+#[allow(non_camel_case_types, reason = "reserved")]
+pub enum DebugTriggerKind {
+	_reserved_1 = 0,
+	_reserved_2 = 1,
+	AddressMatch = 2,
+	_reserved_3 = 3,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct Tdata1 {
+	pub load: bool,
+	pub store: bool,
+	pub execute: bool,
+	_res_3_5: U3,
+	pub m: bool,
+	_res_7_59: U53,
+	pub ty: DebugTriggerKind,
+}
+
 const _: () = {
 	assert!(core::mem::size_of::<MStatus>() == core::mem::size_of::<u64>());
+	assert!(core::mem::size_of::<Tcontrol>() == core::mem::size_of::<u64>());
+	assert!(core::mem::size_of::<Tdata1>() == core::mem::size_of::<u64>());
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,6 +230,10 @@ impl WhiskerHart {
 			stval: 0,
 
 			float_status_control: FloatStatusControl::new(),
+
+			tselect: 0,
+			tcontrol: Tcontrol::new(),
+			debug_triggers: vec![(Tdata1::new(), 0); 16], // Idk this is just a random number
 
 			translation_config: AddressTranslationConfig::new(),
 			instruction_cache: spin::RwLock::new(FxHashMap::default()),
@@ -513,8 +552,35 @@ impl WhiskerHart {
 }
 
 impl WhiskerHart {
+	pub fn check_breakpoints(&mut self, addr: u64, kind: MemoryOpKind) -> Result<(), TrapRequestGuaranteed> {
+		if self.mstatus.get_mie() && self.tcontrol.get_mte() {
+			for trigger in &self.debug_triggers {
+				let tdata1 = trigger.0;
+				if tdata1.get_ty() != DebugTriggerKind::AddressMatch {
+					continue;
+				}
+
+				if self.mode() == HartMode::Machine && tdata1.get_m() {
+					if trigger.1 == addr {
+						let should_trap = match kind {
+							MemoryOpKind::Instruction => tdata1.get_execute(),
+							MemoryOpKind::Load => tdata1.get_load(),
+							MemoryOpKind::Store => tdata1.get_store(),
+						};
+
+						if should_trap {
+							return Err(self.request_trap(TrapIdx::BREAKPOINT, addr));
+						}
+					}
+				}
+			}
+		}
+		Ok(())
+	}
+
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
 	fn fetch_instruction(&mut self, mem: &Memory) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
+		self.check_breakpoints(self.pc, MemoryOpKind::Instruction)?;
 		if let Some(cached) = self.instruction_cache.read().get(&self.pc) {
 			return Ok(*cached);
 		}

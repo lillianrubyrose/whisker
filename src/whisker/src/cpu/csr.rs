@@ -151,6 +151,11 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		csrs, fcsr,   0x003, rw (read_fcsr, write_fcsr);
 
 		csrs, time, 0xc01, ro read_time;
+
+        csrs, tselect,  0x7A0, rw (read_tselect, write_tselect);
+        csrs, tdata1,   0x7A1, rw (read_tdata1, write_tdata1);
+        csrs, tdata2,   0x7A2, rw (read_tdata2, write_tdata2);
+        csrs, tcontrol, 0x7A5, rw (read_tcontrol, write_tcontrol);
 	);
 
 	register_pmp_addrs!(
@@ -410,6 +415,48 @@ fn read_pmpcfg2(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_pmpcfg2(hart: &mut WhiskerHart, val: u64) {
 	hart.pmpcfg[1] = val;
+}
+
+fn read_tselect(hart: &mut WhiskerHart) -> u64 {
+	hart.tselect
+}
+fn write_tselect(hart: &mut WhiskerHart, val: u64) {
+	hart.tselect = val;
+}
+
+fn read_tcontrol(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.tcontrol.inner())
+}
+fn write_tcontrol(hart: &mut WhiskerHart, val: u64) {
+	hart.tcontrol.set_inner(val.to_le_bytes());
+}
+fn read_tdata1(hart: &mut WhiskerHart) -> u64 {
+	let index = hart.tselect as usize;
+	if index < hart.debug_triggers.len() {
+		u64::from_le_bytes(hart.debug_triggers[index].0.inner())
+	} else {
+		0
+	}
+}
+fn write_tdata1(hart: &mut WhiskerHart, val: u64) {
+	let index = hart.tselect as usize;
+	if index < hart.debug_triggers.len() {
+		hart.debug_triggers[index].0.set_inner(val.to_le_bytes());
+	}
+}
+fn read_tdata2(hart: &mut WhiskerHart) -> u64 {
+	let index = hart.tselect as usize;
+	if index < hart.debug_triggers.len() {
+		hart.debug_triggers[index].1
+	} else {
+		0
+	}
+}
+fn write_tdata2(hart: &mut WhiskerHart, val: u64) {
+	let index = hart.tselect as usize;
+	if index < hart.debug_triggers.len() {
+		hart.debug_triggers[index].1 = val;
+	}
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

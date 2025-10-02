@@ -23,6 +23,14 @@ impl FloatStatusControl {
 		self.set_overflow(eflags.is_overflow());
 		self.set_invalid_operation(eflags.is_invalid());
 	}
+
+	pub fn set_from_newlib(&mut self, eflags: iee_754_2019::ExceptionFlags) {
+		self.set_inexact(eflags.inexact);
+		self.set_underflow(eflags.underflow);
+		self.set_overflow(eflags.overflow);
+		self.set_invalid_operation(eflags.invalid_operation);
+		self.set_div_by_zero(eflags.div_by_zero);
+	}
 }
 
 /// Defined on unpriv isa page 119
@@ -122,6 +130,17 @@ impl RoundingMode {
 			RoundingMode::RoundDown => softfloat_pure::RoundingMode::RdnTowardNegative,
 			RoundingMode::RoundUp => softfloat_pure::RoundingMode::RupTowardPositive,
 			RoundingMode::RoundToNearestTiesMaxMagnitude => softfloat_pure::RoundingMode::RmmTiesToAway,
+		}
+	}
+
+	pub fn to_newlib(self, hart: &WhiskerHart) -> iee_754_2019::RoundingMode {
+		match self {
+			RoundingMode::Dynamic => hart.float_status_control.get_rounding_mode().to_newlib(hart),
+			RoundingMode::RoundToNearestTieEven => iee_754_2019::RoundingMode::RoundTiesToEven,
+			RoundingMode::RoundTowardsZero => iee_754_2019::RoundingMode::RoundTowardZero,
+			RoundingMode::RoundDown => iee_754_2019::RoundingMode::RoundTowardNegative,
+			RoundingMode::RoundUp => iee_754_2019::RoundingMode::RoundTowardPositive,
+			RoundingMode::RoundToNearestTiesMaxMagnitude => iee_754_2019::RoundingMode::RoundTiesToAway,
 		}
 	}
 }

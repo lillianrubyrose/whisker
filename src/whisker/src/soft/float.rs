@@ -127,30 +127,21 @@ impl SoftFloat {
 	}
 
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		let result = fpu.add(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::add(self.0, other.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn sub(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		let result = fpu.sub(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::sub(self.0, other.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn mul(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		let result = fpu.mul(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::mul(self.0, other.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {

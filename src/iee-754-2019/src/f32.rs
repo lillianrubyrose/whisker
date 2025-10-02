@@ -368,6 +368,11 @@ impl F32 {
 
 		((result_sign << 31) | (final_exponent << 23) | final_fraction, flags)
 	}
+
+	pub const fn sub(lhs_bits: u32, rhs_bits: u32, rm: RoundingMode) -> (u32, ExceptionFlags) {
+		let negated_rhs_bits = rhs_bits ^ 0x80000000;
+		Self::add(lhs_bits, negated_rhs_bits, rm)
+	}
 }
 
 #[cfg(test)]

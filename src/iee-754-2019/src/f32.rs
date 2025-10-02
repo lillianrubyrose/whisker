@@ -1286,6 +1286,108 @@ impl F32 {
 		let result_exponent = result_exponent as u32;
 		((result_sign << 31) | (result_exponent << 23) | result_fraction, flags)
 	}
+
+	pub const fn min(lhs_bits: u32, rhs_bits: u32) -> (u32, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+
+		let mut flags = ExceptionFlags::new();
+
+		// sNaN = invalid
+		if lhs.is_signaling_nan() || rhs.is_signaling_nan() {
+			flags.invalid();
+		}
+
+		let lhs_is_nan = lhs.is_nan();
+		let rhs_is_nan = rhs.is_nan();
+
+		// If both are NaN return canonical qNaN
+		// If one is NaN then return the other
+		if lhs_is_nan {
+			return if rhs_is_nan {
+				(Self::Q_NAN, flags)
+			} else {
+				(rhs_bits, flags)
+			};
+		}
+		if rhs_is_nan {
+			return (lhs_bits, flags);
+		}
+
+		if lhs.sign != rhs.sign {
+			// neg < pos
+			return if lhs.sign == 1 {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			};
+		}
+
+		if lhs.sign == 0 {
+			if lhs_bits < rhs_bits {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			}
+		} else {
+			if lhs_bits > rhs_bits {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			}
+		}
+	}
+
+	pub const fn max(lhs_bits: u32, rhs_bits: u32) -> (u32, ExceptionFlags) {
+		let lhs = F32::from_u32(lhs_bits);
+		let rhs = F32::from_u32(rhs_bits);
+
+		let mut flags = ExceptionFlags::new();
+
+		// sNaN = invalid
+		if lhs.is_signaling_nan() || rhs.is_signaling_nan() {
+			flags.invalid();
+		}
+
+		let lhs_is_nan = lhs.is_nan();
+		let rhs_is_nan = rhs.is_nan();
+
+		// If both are NaN return canonical qNaN
+		// If one is NaN then return the other
+		if lhs_is_nan {
+			return if rhs_is_nan {
+				(Self::Q_NAN, flags)
+			} else {
+				(rhs_bits, flags)
+			};
+		}
+		if rhs_is_nan {
+			return (lhs_bits, flags);
+		}
+
+		if lhs.sign != rhs.sign {
+			// pos > neg
+			return if lhs.sign == 0 {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			};
+		}
+
+		if lhs.sign == 0 {
+			if lhs_bits > rhs_bits {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			}
+		} else {
+			if lhs_bits < rhs_bits {
+				(lhs_bits, flags)
+			} else {
+				(rhs_bits, flags)
+			}
+		}
+	}
 }
 
 #[cfg(test)]
@@ -1771,6 +1873,122 @@ mod fma_tests {
 			3.0f32,
 			RoundingMode::RoundTiesToEven,
 			f32::NAN
+		)
+	);
+}
+
+#[cfg(test)]
+mod min_max_tests {
+	use crate::{ExceptionFlags, F32};
+
+	macro_rules! define_test {
+        ($(($name:ident, $func:ident, $lhs:expr, $rhs:expr, $expected_result:expr, $expected_flags:expr)),+) => {
+            $(
+            #[test]
+            fn $name() {
+                let lhs_bits = $lhs.to_bits();
+                let rhs_bits = $rhs.to_bits();
+                let expected_bits = $expected_result.to_bits();
+				let expected_flags = $expected_flags;
+
+                let (result_bits, flags) = F32::$func(lhs_bits, rhs_bits);
+                let result_f32 = f32::from_bits(result_bits);
+
+                if $expected_result.is_nan() {
+                    if !result_f32.is_nan() {
+                        panic!("\nExpected NaN, got: {:?} ({:#010x})\n", result_f32, result_bits);
+                    }
+                } else if result_bits != expected_bits {
+                     panic!("\nExpected: {:?} ({:#010x})\nGot:      {:?} ({:#010x})\n",
+                        $expected_result, expected_bits, result_f32, result_bits);
+                }
+
+				if flags.invalid_operation != expected_flags.invalid_operation {
+					panic!("\nInvalid operation flag mismatch. Expected: {}, Got: {}\n", expected_flags.invalid_operation, flags.invalid_operation);
+				}
+            }
+            )+
+        };
+    }
+
+	const OK: ExceptionFlags = ExceptionFlags {
+		invalid_operation: false,
+		div_by_zero: false,
+		overflow: false,
+		underflow: false,
+		inexact: false,
+	};
+
+	const INVALID: ExceptionFlags = ExceptionFlags {
+		invalid_operation: true,
+		div_by_zero: false,
+		overflow: false,
+		underflow: false,
+		inexact: false,
+	};
+
+	define_test!(
+		(min_positives, min, 1.0f32, 2.0f32, 1.0f32, OK),
+		(min_negatives, min, -1.0f32, -2.0f32, -2.0f32, OK),
+		(min_mixed_sign, min, 1.0f32, -2.0f32, -2.0f32, OK),
+		(min_plus_minus_zero, min, 0.0f32, -0.0f32, -0.0f32, OK),
+		(min_qnan_vs_num, min, f32::NAN, 1.0f32, 1.0f32, OK),
+		(min_num_vs_qnan, min, 1.0f32, f32::NAN, 1.0f32, OK),
+		(min_qnan_vs_qnan, min, f32::NAN, f32::NAN, f32::NAN, OK),
+		(
+			min_snan_vs_num,
+			min,
+			f32::from_bits(0x7f800001),
+			1.0f32,
+			1.0f32,
+			INVALID
+		),
+		(
+			min_snan_vs_snan,
+			min,
+			f32::from_bits(0x7f800001),
+			f32::from_bits(0xffc00001),
+			f32::NAN,
+			INVALID
+		),
+		(
+			min_snan_vs_qnan,
+			min,
+			f32::from_bits(0x7f800001),
+			f32::NAN,
+			f32::NAN,
+			INVALID
+		),
+		(max_positives, max, 1.0f32, 2.0f32, 2.0f32, OK),
+		(max_negatives, max, -1.0f32, -2.0f32, -1.0f32, OK),
+		(max_mixed_sign, max, 1.0f32, -2.0f32, 1.0f32, OK),
+		(max_plus_minus_zero, max, 0.0f32, -0.0f32, 0.0f32, OK),
+		(max_qnan_vs_num, max, f32::NAN, 1.0f32, 1.0f32, OK),
+		(max_num_vs_qnan, max, 1.0f32, f32::NAN, 1.0f32, OK),
+		(max_qnan_vs_qnan, max, f32::NAN, f32::NAN, f32::NAN, OK),
+		(
+			max_snan_vs_num,
+			max,
+			f32::from_bits(0x7f800001),
+			1.0f32,
+			1.0f32,
+			INVALID
+		),
+		(
+			max_snan_vs_snan,
+			max,
+			f32::from_bits(0x7f800001),
+			f32::from_bits(0xffc00001),
+			f32::NAN,
+			INVALID
+		),
+		(
+			max_snan_vs_qnan,
+			max,
+			f32::from_bits(0x7f800001),
+			f32::NAN,
+			f32::NAN,
+			INVALID
 		)
 	);
 }

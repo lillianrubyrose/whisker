@@ -1,5 +1,3 @@
-use softfloat_pure::{FPU, float32_t};
-
 use super::{FClass, RoundingMode};
 use crate::cpu::hart::WhiskerHart;
 
@@ -113,17 +111,15 @@ impl SoftFloat {
 	}
 
 	pub fn max(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let res = fpu.max(float32_t { v: self.0 }, float32_t { v: other.0 });
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		return Self::from_u32(res.v);
+		let (result, eflags) = iee_754_2019::F32::max(self.0, other.0);
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn min(self, other: Self, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let res = fpu.min(float32_t { v: self.0 }, float32_t { v: other.0 });
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		return Self::from_u32(res.v);
+		let (result, eflags) = iee_754_2019::F32::min(self.0, other.0);
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn add(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {

@@ -382,14 +382,14 @@ fn read_satp(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_satp(hart: &mut WhiskerHart, val: u64) {
 	let conf = AddressTranslationMode::from_bits((val >> 60).truncate());
-	if !matches!(
+	if matches!(
 		conf,
 		AddressTranslationMode::Bare | AddressTranslationMode::Sv39 | AddressTranslationMode::Sv57
 	) {
+		hart.translation_config.set_inner(val.to_le_bytes());
+	} else {
 		unimplemented!("satp.MODE {:?} not supported", conf);
 	}
-
-	hart.translation_config.set_inner(val.to_le_bytes());
 }
 
 fn read_fcsr(hart: &mut WhiskerHart) -> u64 {
@@ -635,6 +635,34 @@ pub enum AddressTranslationMode {
 	__reserved_13,
 	__reserved_14,
 	__reserved_15,
+}
+
+impl AddressTranslationMode {
+	/// get the size, in bytes, of the page table entry for a given translation mode
+	pub fn get_pte_size(self) -> u64 {
+		match self {
+			AddressTranslationMode::Bare => {
+				panic!("AddressTranslationMode::Bare does not have page tables, but tried to get their size")
+			}
+			// NOTE: for all standard SXLEN=64 translation modes, PTEs are one u64
+			AddressTranslationMode::Sv39
+			| AddressTranslationMode::Sv48
+			| AddressTranslationMode::Sv57
+			| AddressTranslationMode::__reserved_Sv64 => core::mem::size_of::<u64>() as u64,
+			_ => unimplemented!("tried to get pte size for unimplemented translation mode {:?}", self),
+		}
+	}
+
+	pub fn get_levels(self) -> u8 {
+		match self {
+			AddressTranslationMode::Bare => panic!("AddressTranslationMode::Bare does not have page table levels"),
+			AddressTranslationMode::Sv39 => 3,
+			AddressTranslationMode::Sv48 => 4,
+			AddressTranslationMode::Sv57 => 5,
+			AddressTranslationMode::__reserved_Sv64 => 6,
+			_ => unimplemented!("tried to get pte levels for unimplemented translation mode {:?}", self),
+		}
+	}
 }
 
 #[bitfields]

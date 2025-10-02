@@ -265,6 +265,14 @@ impl WhiskerHart {
 		}
 	}
 
+	pub fn get_effective_mode(&self, kind: MemoryOpKind) -> HartMode {
+		if matches!(kind, MemoryOpKind::Load | MemoryOpKind::Store) && self.mstatus.get_mprv() {
+			self.mstatus.get_mpp()
+		} else {
+			self.mode()
+		}
+	}
+
 	pub fn supports_extensions(&self, extensions: RiscvExtensions) -> bool {
 		self.extensions.has(extensions)
 	}
@@ -552,17 +560,6 @@ impl WhiskerHart {
 		let mip = (mip & !mask) | value_bit;
 		assert!(mip <= (1 << 19), "mip {:#018X} {:?}", mip, interrupt);
 		self.mip.set_inner(mip.to_le_bytes());
-	}
-
-	pub fn should_translate(&self, kind: MemoryOpKind) -> bool {
-		let mut effective_mode = self.mode();
-		// if MPRV is set and this is a non-instruction access, translation is done as if the mode was MPP
-		if self.mstatus.get_mprv() && kind != MemoryOpKind::Instruction {
-			effective_mode = self.mstatus.get_mpp();
-		}
-
-		// translation is used when the effective mode is S or U mode
-		matches!(effective_mode, HartMode::Supervisor | HartMode::User)
 	}
 }
 

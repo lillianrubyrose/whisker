@@ -14,6 +14,33 @@ pub trait ExtendExt {
 		Self: sealed::ZeroExtendTarget<Dst>;
 }
 
+pub trait AlignExt {
+	/// aligns `self` down to the previous multiple of `align`.
+	/// `align` must be a power of two or the function may panic or return a meaningless value.
+	fn align_down(self, align: usize) -> Self;
+	/// aligns `self` up to the next multiple of `align`.
+	/// `align` must be a power of two or the function may panic or return a meaningless value.
+	fn align_up(self, align: usize) -> Self;
+}
+
+macro_rules! align_ext_impl {
+	($($ty:ty),+) => {$(
+		impl AlignExt for $ty {
+			fn align_down(self, align: usize) -> Self {
+				debug_assert!(align.is_power_of_two());
+				self & !(align as $ty - 1)
+			}
+
+			fn align_up(self, align: usize) -> Self {
+				debug_assert!(align.is_power_of_two());
+				(self + (align as $ty - 1)) & !(align as $ty - 1)
+			}
+		}
+	)+};
+}
+
+align_ext_impl!(u8, u16, u32, u64, u128);
+
 /// extracts bits start..=end from val
 pub fn extract_bits_8(val: u8, start: u8, end: u8) -> u8 {
 	debug_assert!(start <= end);

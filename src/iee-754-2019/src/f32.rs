@@ -75,9 +75,14 @@ impl F32 {
 
 		// Either sNaN: invalid operation and return qNaN
 		// Section 7.2
-		if lhs.is_signaling_nan() || rhs.is_signaling_nan() {
+		if lhs.is_signaling_nan() {
 			flags.invalid();
-			return (Self::Q_NAN, flags);
+			return (lhs_bits | 0x400000, flags);
+		}
+
+		if rhs.is_signaling_nan() {
+			flags.invalid();
+			return (rhs_bits | 0x400000, flags);
 		}
 
 		// Either NaN: return qNaN

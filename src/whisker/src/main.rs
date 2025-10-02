@@ -565,7 +565,7 @@ mod tests {
 		run_isa_tests("rv64ui-p", &["ma_data"], &mut failures, &mut successes);
 		// dirty passes if we implement the Svade behavior for accessed/dirty bits
 		run_isa_tests("rv64si-p", &["dirty"], &mut failures, &mut successes);
-		run_isa_tests("rv64mi-p", &["illegal", "zicntr"], &mut failures, &mut successes);
+		run_isa_tests("rv64mi-p", &["illegal"], &mut failures, &mut successes);
 
 		println!();
 

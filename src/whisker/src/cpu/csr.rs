@@ -157,6 +157,9 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
         csrs, tdata2,   0x7A2, rw (read_tdata2, write_tdata2);
         csrs, tcontrol, 0x7A5, rw (read_tcontrol, write_tcontrol);
 
+        csrs, cycle,    0xC00, ro read_mcycle;
+        csrs, instret,  0xC02, ro read_minstret;
+
         csrs, mcycle,   0xB00, rw (read_mcycle, write_mcycle);
         csrs, minstret, 0xB02, rw (read_minstret, write_minstret);
 	);

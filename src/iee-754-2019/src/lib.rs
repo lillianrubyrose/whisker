@@ -81,7 +81,6 @@ impl ExceptionFlags {
 	}
 
 	#[inline(always)]
-	#[allow(dead_code, reason = "Division not implemented yet")]
 	pub(crate) const fn div_by_zero(&mut self) {
 		self.div_by_zero = true;
 	}

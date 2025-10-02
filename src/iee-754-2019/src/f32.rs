@@ -109,7 +109,7 @@ impl F32 {
 		}
 
 		if rhs.is_infinity() {
-			return (rhs.sign, flags);
+			return (rhs_bits, flags);
 		}
 
 		// Section 6.3

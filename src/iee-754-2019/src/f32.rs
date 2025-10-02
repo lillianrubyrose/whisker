@@ -826,6 +826,140 @@ impl F32 {
 
 		((result_sign << 31) | (result_exponent << 23) | result_fraction, flags)
 	}
+
+	pub const fn sqrt(bits: u32, rm: RoundingMode) -> (u32, ExceptionFlags) {
+		let this = F32::from_u32(bits);
+
+		let mut flags = ExceptionFlags::new();
+
+		// =======================
+		// Special Cases
+		// Reference: Section 5, 6, 7
+		// =======================
+
+		// sNaN: invalid operation and return qNaN
+		if this.is_signaling_nan() {
+			flags.invalid();
+			return (bits | 0x400000, flags);
+		}
+
+		// qNaN: return qNaN
+		if this.is_nan() {
+			return (bits, flags);
+		}
+
+		// Negative numbers (excl. -ZERO), invalid operation and return qNaN
+		if this.sign == 1 && !this.is_zero() {
+			flags.invalid();
+			return (Self::Q_NAN, flags);
+		}
+
+		// sqrt(-0) = -0
+		if this.sign == 1 && this.is_zero() {
+			return (0x80000000, flags);
+		}
+
+		// sqrt(+inf) = +inf
+		if this.is_infinity() {
+			return (bits, flags);
+		}
+
+		// sqrt(+0) = +0
+		if this.is_zero() {
+			return (bits, flags);
+		}
+
+		// ===========================================
+		// Extract components and normalize subnormals
+		// ===========================================
+
+		let mut exponent = this.exponent as i32;
+		let mut significand = this.fraction as u64;
+
+		if this.is_subnormal() {
+			let shift = significand.leading_zeros() as i32 - (64 - 24);
+			significand <<= shift;
+			exponent = 1 - shift;
+		} else {
+			significand |= 1 << 23;
+		}
+
+		let mut unbiased_exponent = exponent - 127;
+
+		// We need to be able to divide the exponent (E) by 2.
+		// If E is odd then subtract 1 from E and double the significand to compensate.
+		// sqrt(x * 2^E) = sqrt(2x * 2^(E-1))
+		if (unbiased_exponent & 1) != 0 {
+			significand <<= 1;
+			unbiased_exponent -= 1;
+		}
+
+		let result_exponent = (unbiased_exponent / 2) + 127;
+
+		// ============================================================================
+		// We want the sqrt of the significand (S) which is a 24bit integer (Si)
+		// with an implicit leading 1 bit.
+		//
+		// Si represents the value (Sv) of `Si / 2^23`.
+		//
+		// We want `R = sqrt(Sv)`, but to work with integers we:
+		// `Ri = R * 2^23 = sqrt(Sv) * 2^23 = sqrt(Si / 2^23) * 2^23 = sqrt(Si * 2^23)`
+		//
+		// For rounding we use 3 GRS bits, just left-shift the result by 3.
+		// We can achieve this by multiplying the value by `2^6`.
+		//
+		// `Rgrs = sqrt(Si * 2^23 * 2^6) = sqrt(Si * 2^29)`
+		// ============================================================================
+
+		let radicand = significand << 29;
+
+		let root = radicand.isqrt();
+		let remainder = radicand - root * root;
+
+		let mut result_significand = root;
+
+		if remainder != 0 {
+			result_significand |= 1;
+		}
+
+		// ========
+		// Rounding
+		// ========
+
+		let guard = (result_significand >> 2) & 1;
+		let round = (result_significand >> 1) & 1;
+		let sticky = result_significand & 1;
+
+		let pre_round_inexact = guard != 0 || round != 0 || sticky != 0;
+
+		let mut final_significand = result_significand >> 3;
+		let pre_round_result_significand_lsb = final_significand & 1;
+
+		let should_round = match rm {
+			RoundTiesToEven => guard == 1 && (round == 1 || sticky == 1 || pre_round_result_significand_lsb == 1),
+			RoundTiesToAway => guard == 1,
+			RoundTowardPositive => pre_round_inexact,
+			RoundTowardNegative => false,
+			RoundTowardZero => false,
+		};
+
+		if should_round {
+			final_significand += 1;
+		}
+
+		if pre_round_inexact {
+			flags.inexact();
+		}
+
+		// =======
+		// Packing
+		// =======
+
+		let result_fraction = final_significand as u32 & 0x7FFFFF;
+		let result_exponent = result_exponent as u32;
+
+		((result_exponent << 23) | result_fraction, flags)
+	}
 }
 
 #[cfg(test)]
@@ -1160,10 +1294,67 @@ mod div_tests {
 		),
 		(
 			subnormal_div,
-			f32::from_bits(0x00400000), // a subnormal
+			f32::from_bits(0x00400000),
 			2.0f32,
 			RoundingMode::RoundTiesToEven,
-			f32::from_bits(0x00200000) // another subnormal
+			f32::from_bits(0x00200000)
+		)
+	);
+}
+
+#[cfg(test)]
+mod sqrt_tests {
+	use crate::{F32, RoundingMode};
+
+	macro_rules! define_test {
+        ($(($name:ident, $input:expr, $rm:expr, $expected_result:expr)),+) => {
+            $(
+            #[test]
+            fn $name() {
+                let input_bits = $input.to_bits();
+                let expected_bits = $expected_result.to_bits();
+
+                let (result_bits, _eflags) = F32::sqrt(input_bits, $rm);
+                let result_f32 = f32::from_bits(result_bits);
+
+                if $expected_result.is_nan() {
+                    if !result_f32.is_nan() {
+                        panic!("\nInput: {:?}\nExpected NaN, got: {:?} ({:#010x})\n", $input, result_f32, result_bits);
+                    }
+                } else if result_bits != expected_bits {
+                     panic!("\nInput: {:?}\nExpected: {:?} ({:#010x})\nGot:      {:?} ({:#010x})\n",
+                        $input, $expected_result, expected_bits, result_f32, result_bits);
+                }
+            }
+            )+
+        };
+    }
+
+	define_test!(
+		(four, 4.0f32, RoundingMode::RoundTiesToEven, 2.0f32),
+		(two, 2.0f32, RoundingMode::RoundTiesToEven, f32::from_bits(0x3fb504f3)), // 1.4142135
+		(one_hundred, 100.0f32, RoundingMode::RoundTiesToEven, 10.0f32),
+		(positive_zero, 0.0f32, RoundingMode::RoundTiesToEven, 0.0f32),
+		(negative_zero, -0.0f32, RoundingMode::RoundTiesToEven, -0.0f32),
+		(
+			positive_infinity,
+			f32::INFINITY,
+			RoundingMode::RoundTiesToEven,
+			f32::INFINITY
+		),
+		(negative_one, -1.0f32, RoundingMode::RoundTiesToEven, f32::NAN),
+		(max, f32::MAX, RoundingMode::RoundTiesToEven, f32::from_bits(0x5f7fffff)),
+		(
+			min_normal,
+			f32::from_bits(0x00800000),
+			RoundingMode::RoundTiesToEven,
+			f32::from_bits(0x20000000)
+		),
+		(
+			min_subnormal,
+			f32::MIN_POSITIVE,
+			RoundingMode::RoundTiesToEven,
+			f32::from_bits(0x20000000)
 		)
 	);
 }

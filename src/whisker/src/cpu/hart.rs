@@ -81,6 +81,9 @@ pub struct WhiskerHart {
 	pub tcontrol: Tcontrol,
 	pub debug_triggers: Vec<(Tdata1, u64)>,
 
+	pub minstret: u64,
+	pub suppress_instret_increment: bool,
+
 	pub translation_config: AddressTranslationConfig,
 
 	pub instruction_cache: spin::RwLock<FxHashMap<u64, (Instruction, u64)>>,
@@ -235,6 +238,9 @@ impl WhiskerHart {
 			tcontrol: Tcontrol::new(),
 			debug_triggers: vec![(Tdata1::new(), 0); 16], // Idk this is just a random number
 
+			minstret: 0,
+			suppress_instret_increment: false,
+
 			translation_config: AddressTranslationConfig::new(),
 			instruction_cache: spin::RwLock::new(FxHashMap::default()),
 
@@ -276,7 +282,6 @@ impl WhiskerHart {
 			error!("{:?} still in debug mode at start of step", self.hart_id);
 		}
 
-		self.cycles += 1;
 		trace!("{:?} cycle {}", self.hart_id, self.cycles);
 
 		// DEBUG: send timer interrupts occasionally
@@ -290,6 +295,8 @@ impl WhiskerHart {
 		// next cycle will fetch
 		if self.check_interrupt_trap() {
 			self.pc = self.next_pc;
+			self.suppress_instret_increment = false;
+
 			self.dump();
 			return;
 		}
@@ -299,10 +306,18 @@ impl WhiskerHart {
 				trace!("{:#018X}: fetched {:?}", self.pc, inst);
 				self.next_pc = self.pc.wrapping_add(size);
 				self.last_instruction = Some(inst);
-				self.execute_instruction(inst, &mem);
+				if self.execute_instruction(inst, &mem).is_ok() {
+					if !self.suppress_instret_increment {
+						self.cycles += 1;
+						self.minstret = self.minstret.wrapping_add(1);
+					}
+				}
+				self.suppress_instret_increment = false;
 			}
 			// trap was requested during decoding
-			Err(TrapRequestGuaranteed { .. }) => {}
+			Err(TrapRequestGuaranteed { .. }) => {
+				self.suppress_instret_increment = false;
+			}
 		}
 
 		self.pc = self.next_pc;
@@ -655,8 +670,8 @@ impl WhiskerHart {
 		}
 	}
 
-	fn execute_instruction(&mut self, insn: Instruction, mem: &Memory) {
-		let _ = match insn {
+	fn execute_instruction(&mut self, insn: Instruction, mem: &Memory) -> Result<(), TrapRequestGuaranteed> {
+		match insn {
 			Instruction::Int(insn) => self.execute_i_insn(insn, mem),
 			Instruction::Float(insn) if self.supports_extensions(RiscvExtensions::FLOAT) => {
 				self.execute_f_insn(insn, mem)
@@ -678,7 +693,7 @@ impl WhiskerHart {
 			Instruction::Privileged(insn) => self.execute_privileged_insn(insn, mem),
 			// FIXME: Supposed to be the bits of the instruction instead of zero
 			_ => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, 0)),
-		};
+		}
 	}
 }
 

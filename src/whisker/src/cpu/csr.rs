@@ -156,6 +156,9 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
         csrs, tdata1,   0x7A1, rw (read_tdata1, write_tdata1);
         csrs, tdata2,   0x7A2, rw (read_tdata2, write_tdata2);
         csrs, tcontrol, 0x7A5, rw (read_tcontrol, write_tcontrol);
+
+        csrs, mcycle,   0xB00, rw (read_mcycle, write_mcycle);
+        csrs, minstret, 0xB02, rw (read_minstret, write_minstret);
 	);
 
 	register_pmp_addrs!(
@@ -457,6 +460,22 @@ fn write_tdata2(hart: &mut WhiskerHart, val: u64) {
 	if index < hart.debug_triggers.len() {
 		hart.debug_triggers[index].1 = val;
 	}
+}
+
+fn read_mcycle(hart: &mut WhiskerHart) -> u64 {
+	hart.cycles
+}
+fn write_mcycle(hart: &mut WhiskerHart, val: u64) {
+	hart.cycles = val;
+	hart.suppress_instret_increment = true;
+}
+
+fn read_minstret(hart: &mut WhiskerHart) -> u64 {
+	hart.minstret
+}
+fn write_minstret(hart: &mut WhiskerHart, val: u64) {
+	hart.minstret = val;
+	hart.suppress_instret_increment = true;
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

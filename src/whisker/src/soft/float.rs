@@ -145,30 +145,21 @@ impl SoftFloat {
 	}
 
 	pub fn div(self, other: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let rhs = float32_t::from_bits(other.0);
-		let result = fpu.div(lhs, rhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::div(self.0, other.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn sqrt(self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let lhs = float32_t::from_bits(self.0);
-		let result = fpu.sqrt(lhs, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::sqrt(self.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let this = float32_t::from_bits(self.0);
-		let mul = float32_t::from_bits(mul.0);
-		let add = float32_t::from_bits(add.0);
-		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v)
+		let (result, eflags) = iee_754_2019::F32::fma(self.0, mul.0, add.0, rm.to_newlib(hart));
+		hart.float_status_control.set_from_newlib(eflags);
+		Self::from_u32(result)
 	}
 
 	pub fn mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
@@ -176,13 +167,7 @@ impl SoftFloat {
 	}
 
 	pub fn neg_mul_add(self, mul: Self, add: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {
-		let mut fpu = FPU::default();
-		let this = float32_t::from_bits(self.0);
-		let mul = float32_t::from_bits(mul.0);
-		let add = float32_t::from_bits(add.0);
-		let result = fpu.mul_add(this, mul, add, rm.to_sf(hart));
-		hart.float_status_control.set_from_fpu(fpu.flags);
-		Self::from_u32(result.v).neg(hart)
+		self.mul_add(mul, add, rm, hart).neg(hart)
 	}
 
 	pub fn neg_mul_sub(self, mul: Self, sub: Self, rm: RoundingMode, hart: &mut WhiskerHart) -> Self {

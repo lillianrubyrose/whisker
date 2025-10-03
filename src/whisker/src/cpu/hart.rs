@@ -88,7 +88,7 @@ pub struct WhiskerHart {
 
 	pub translation_config: AddressTranslationConfig,
 
-	pub instruction_cache: spin::RwLock<FxHashMap<u64, (Instruction, u64)>>,
+	pub instruction_cache: FxHashMap<u64, (Instruction, u64)>,
 
 	/// for debugging
 	last_instruction: Option<Instruction>,
@@ -267,7 +267,7 @@ impl WhiskerHart {
 			menvcfg: Menvcfg::new(),
 
 			translation_config: AddressTranslationConfig::new(),
-			instruction_cache: spin::RwLock::new(FxHashMap::default()),
+			instruction_cache: FxHashMap::default(),
 
 			last_instruction: None,
 			trap_logging: false,
@@ -618,7 +618,7 @@ impl WhiskerHart {
 	/// tries to fetch an instruction, or returns Err if a trap happened during the fetch
 	fn fetch_instruction(&mut self, mem: &Memory) -> Result<(Instruction, u64), TrapRequestGuaranteed> {
 		self.check_breakpoints(self.pc, MemoryOpKind::Instruction)?;
-		if let Some(cached) = self.instruction_cache.read().get(&self.pc) {
+		if let Some(cached) = self.instruction_cache.get(&self.pc) {
 			return Ok(*cached);
 		}
 
@@ -639,7 +639,7 @@ impl WhiskerHart {
 		if extract_bits_16(parcel_u16, 0, 1) != 0b11 {
 			if support_compressed {
 				if let Some(insn) = insn16::parse(parcel_u16) {
-					self.instruction_cache.write().insert(pc, (insn, 2));
+					self.instruction_cache.insert(pc, (insn, 2));
 					Ok((insn, 2))
 				} else {
 					warn!("unable to parse 16 bit instruction {parcel_u16:#06X}");
@@ -667,7 +667,7 @@ impl WhiskerHart {
 			// enabled, 32 bit instructions may start at addresses only aligned to a multiple of 2.
 			match insn32::parse(parcel) {
 				Some(insn) => {
-					self.instruction_cache.write().insert(pc, (insn, 4));
+					self.instruction_cache.insert(pc, (insn, 4));
 					Ok((insn, 4))
 				}
 				None => Err(self.request_trap(TrapIdx::ILLEGAL_INSTRUCTION, parcel.extend())),
@@ -1076,7 +1076,7 @@ impl WhiskerHart {
 			// we don't do reordering, fence is a no-op
 			IntInstruction::Fence { .. } => {}
 			IntInstruction::InstructionFence => {
-				self.instruction_cache.write().clear();
+				self.instruction_cache.clear();
 			}
 
 			// =========

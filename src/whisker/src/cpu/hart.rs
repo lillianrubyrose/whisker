@@ -2312,7 +2312,6 @@ impl WhiskerHart {
 				let vaddr = self.registers.get(vaddr);
 				let asid = self.registers.get(asid);
 
-				self.instruction_cache.write().clear();
 				mem.clear_vm_cache(asid, vaddr);
 			}
 		}

@@ -3,210 +3,12 @@ mod sv57;
 
 use crate::{
 	cpu::{csr::AddressTranslationMode, hart::WhiskerHart},
-	mem::{
-		Memory, MemoryOpKind, PageTableCacheKey,
-		paging::{sv39::Sv39, sv57::Sv57},
-	},
+	mem::{Memory, MemoryOpKind, PageTableCacheKey},
 	tracing::*,
 	ty::{HartMode, TrapIdx, TrapRequestGuaranteed},
 };
 
 pub const PAGE_SIZE: u64 = 4096;
-
-pub trait VAddr
-where
-	Self: Sized,
-{
-	fn from_effective_addr(addr: u64) -> Option<Self>;
-	fn as_effective_addr(self) -> u64;
-
-	fn get_page_num(self, idx: u8) -> u64;
-	fn get_page_offset_bits(self) -> u16;
-}
-
-pub trait PAddr {
-	fn as_u64(self) -> u64;
-
-	fn set_ppn_idx(&mut self, ppn: u64, idx: u8);
-	fn set_page_offset_bits(&mut self, offset: u16);
-}
-
-pub trait Pte
-where
-	Self: Sized,
-{
-	fn read_from_mem(
-		memory: &Memory,
-		hart: &mut WhiskerHart,
-		pte_addr: u64,
-		access_kind: MemoryOpKind,
-	) -> Result<Self, TrapRequestGuaranteed>;
-
-	fn as_u64(self) -> u64;
-
-	fn get_valid_bit(self) -> bool;
-	fn get_read_bit(self) -> bool;
-	fn get_write_bit(self) -> bool;
-	fn get_execute_bit(self) -> bool;
-	fn get_user_accessible_bit(self) -> bool;
-	fn get_global_bit(self) -> bool;
-	fn get_accessed_bit(self) -> bool;
-	fn get_dirty_bit(self) -> bool;
-	fn set_accessed_bit(&mut self, val: bool);
-	fn set_dirty_bit(&mut self, val: bool);
-	fn get_phys_page_num(self, idx: u8) -> u64;
-	fn get_full_phys_page_num(self) -> u64;
-
-	fn has_reserved_bits_set(self) -> bool;
-}
-
-pub trait Paging {
-	type VirtAddr: VAddr + Copy;
-	type PhysAddr: PAddr + Copy + Default;
-	type Pte: Pte + Copy + PartialEq;
-
-	const LEVELS: u8;
-	const PTE_SIZE: u64;
-}
-
-pub fn translate<P: Paging>(
-	memory: &Memory,
-	hart: &mut WhiskerHart,
-	addr: u64,
-	access_kind: MemoryOpKind,
-) -> Result<(u64, bool), TrapRequestGuaranteed> {
-	trace!("translating addr {:#018X} for access {:?} with SV39", addr, access_kind);
-	let Some(va) = P::VirtAddr::from_effective_addr(addr) else {
-		trace!("addr not valid SV39 virt addr: {:#018X}", addr);
-		return Err(trap_page_fault(hart, addr, access_kind));
-	};
-
-	let base = hart.translation_config.get_root_page_num() * PAGE_SIZE;
-	trace!("PTE root at {:#018X}", base);
-	let (pte, pte_addr, level_idx) = find_page::<P>(memory, hart, access_kind, P::LEVELS - 1, base, va)?;
-	trace!("found final PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-	let r = pte.get_read_bit();
-	let w = pte.get_write_bit();
-	let x = pte.get_execute_bit();
-	let u = pte.get_user_accessible_bit();
-	if !is_access_allowed(hart, access_kind, r, w, x, u) {
-		trace!("access not allowed: {:?} r:{} w:{} x:{} u:{}", access_kind, r, w, x, u);
-		return Err(trap_page_fault(hart, addr, access_kind));
-	}
-
-	trace!("PTE access allowed");
-
-	let accessed = pte.get_accessed_bit();
-	let dirty = pte.get_dirty_bit();
-
-	// If ADEU, then do Svadu behavior
-	if hart.menvcfg.get_adue() {
-		let mut new_pte = pte;
-		// any memory access sets the accessed bit
-		if !accessed {
-			new_pte.set_accessed_bit(true);
-		}
-		if !dirty && access_kind == MemoryOpKind::Store {
-			new_pte.set_dirty_bit(true);
-		}
-		if new_pte != pte {
-			memory
-				.write_pte(hart, pte_addr, new_pte.as_u64())
-				.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
-		}
-	} else {
-		// Otherwise, do Svade behavior
-		if !accessed || (!dirty && access_kind == MemoryOpKind::Store) {
-			return Err(trap_page_fault(hart, addr, access_kind));
-		}
-	}
-
-	let mut phys_addr = P::PhysAddr::default();
-	trace!("va page offset {:#018X}", va.get_page_offset_bits());
-	phys_addr.set_page_offset_bits(va.get_page_offset_bits());
-
-	// superpage bits
-	for i in 0..level_idx {
-		let page_num = va.get_page_num(i);
-		phys_addr.set_ppn_idx(page_num, i);
-	}
-
-	for i in level_idx..P::LEVELS {
-		let page_num = pte.get_phys_page_num(i);
-		phys_addr.set_ppn_idx(page_num, i);
-	}
-
-	Ok((phys_addr.as_u64(), pte.get_global_bit()))
-}
-
-fn find_page<P: Paging>(
-	memory: &Memory,
-	hart: &mut WhiskerHart,
-	access_kind: MemoryOpKind,
-	level_idx: u8,
-	base: u64,
-	va: P::VirtAddr,
-) -> Result<(P::Pte, u64, u8), TrapRequestGuaranteed> {
-	trace!(
-		"page lookup base {:#018X} level {} va {:#018X}",
-		base,
-		level_idx,
-		va.as_effective_addr()
-	);
-	let pte_addr = base + P::PTE_SIZE * va.get_page_num(level_idx);
-	trace!("pte addr for level {}: {:#018X}", level_idx, pte_addr);
-	let pte = P::Pte::read_from_mem(memory, hart, pte_addr, access_kind)?;
-
-	if !pte.get_valid_bit() {
-		trace!("PTE valid bit clear: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-	if !pte.get_read_bit() && pte.get_write_bit() {
-		trace!("PTE W without R: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-	if pte.has_reserved_bits_set() {
-		trace!("PTE reserved bits set: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-	// if pte.get_res_54_60() != 0 || pte.get_res_61_62() != 0 || pte.get_res_63_63() != 0 {}
-
-	trace!("found valid PTE: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-
-	// PTE with R or X are valid leaf PTEs
-	if pte.get_read_bit() || pte.get_execute_bit() {
-		trace!("leaf PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-		// check superpage alignment
-		for i in 0..level_idx {
-			if pte.get_phys_page_num(i) != 0 {
-				trace!(
-					"misaligned superpage: pte {:#018X} at level {} has non-zero ppn for level {}",
-					pte.as_u64(),
-					level_idx,
-					i
-				);
-				return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-			}
-		}
-
-		return Ok((pte, pte_addr, level_idx));
-	}
-
-	trace!("parent PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-	// here the PTE must not have any of RWX, which makes it a pointer to a lower level
-	let Some(level_idx) = level_idx.checked_sub(1) else {
-		trace!("PTE level <0");
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	};
-	let ppn = pte.get_full_phys_page_num();
-	trace!("parent PTE {:#018X} points to ppn {:#015X}", pte.as_u64(), ppn);
-	let base = ppn * PAGE_SIZE;
-
-	find_page::<P>(memory, hart, access_kind, level_idx, base, va)
-}
 
 impl Memory {
 	pub fn translate_addr(
@@ -239,9 +41,9 @@ impl Memory {
 		} else {
 			core::hint::cold_path();
 			let (phys_addr, _is_global) = match translation_mode {
-				AddressTranslationMode::Sv39 => translate::<Sv39>(self, hart, addr, kind)?,
+				AddressTranslationMode::Sv39 => sv39::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Sv48 => todo!("sv48 translation not implemented"),
-				AddressTranslationMode::Sv57 => translate::<Sv57>(self, hart, addr, kind)?,
+				AddressTranslationMode::Sv57 => sv57::translate(self, hart, addr, kind)?,
 				AddressTranslationMode::Bare => unreachable!("already checked"),
 				mode => unreachable!("unimplemented addr mode {:?}", mode),
 			};

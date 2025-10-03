@@ -565,12 +565,9 @@ impl Deref for CSRReadWriteToken {
 	}
 }
 
-#[macro_export]
 macro_rules! assert_xlen {
-    ($($ty:ty),+) => {
-        $(
-            assert!(::core::mem::size_of::<$ty>() == ::core::mem::size_of::<u64>());
-        )+
+	($ty:ty) => {
+		assert!(::core::mem::size_of::<$ty>() == ::core::mem::size_of::<u64>());
 	};
 }
 

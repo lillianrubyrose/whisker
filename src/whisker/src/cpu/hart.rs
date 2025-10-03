@@ -84,8 +84,6 @@ pub struct WhiskerHart {
 	pub minstret: u64,
 	pub suppress_instret_increment: bool,
 
-	pub menvcfg: Menvcfg,
-
 	pub translation_config: AddressTranslationConfig,
 
 	pub instruction_cache: spin::RwLock<FxHashMap<u64, (Instruction, u64)>>,
@@ -163,31 +161,10 @@ pub struct Tdata1 {
 	pub ty: DebugTriggerKind,
 }
 
-#[bitfields]
-#[derive(Debug, Clone, Copy)]
-pub struct Menvcfg {
-	_fiom: bool,
-	_res_1_1: U1,
-	_lpe: bool,
-	_sse: bool,
-	_cbie: bool,
-	_cbcfe: bool,
-	_cbze: bool,
-	_res_7_31: U25,
-	_pmm: U2,
-	_res_34_58: U25,
-	_dte: bool,
-	_cde: bool,
-	pub adue: bool,
-	_pbmte: bool,
-	_stce: bool,
-}
-
 const _: () = {
 	assert!(core::mem::size_of::<MStatus>() == core::mem::size_of::<u64>());
 	assert!(core::mem::size_of::<Tcontrol>() == core::mem::size_of::<u64>());
 	assert!(core::mem::size_of::<Tdata1>() == core::mem::size_of::<u64>());
-	assert!(core::mem::size_of::<Menvcfg>() == core::mem::size_of::<u64>());
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,8 +240,6 @@ impl WhiskerHart {
 
 			minstret: 0,
 			suppress_instret_increment: false,
-
-			menvcfg: Menvcfg::new(),
 
 			translation_config: AddressTranslationConfig::new(),
 			instruction_cache: spin::RwLock::new(FxHashMap::default()),

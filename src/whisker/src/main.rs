@@ -1,5 +1,5 @@
-#![feature(assert_matches, duration_millis_float)]
-#![feature(cold_path)]
+// library features
+#![feature(assert_matches, duration_millis_float, debug_closure_helpers, cold_path)]
 
 mod args;
 mod cpu;

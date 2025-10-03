@@ -1,167 +1,18 @@
 use bitfield::prelude::*;
 
 use crate::{
+	assert_xlen,
 	cpu::hart::WhiskerHart,
 	mem::{
 		Memory, MemoryOpKind,
-		paging::{PAGE_SIZE, is_access_allowed, trap_page_fault},
+		paging::{PAddr, Paging, Pte, VAddr},
 	},
-	tracing::*,
 	ty::TrapRequestGuaranteed,
 };
 
-const SV_39_LEVELS: u8 = 3;
-const PTE_SIZE: u64 = core::mem::size_of::<Sv39PageTableEntry>() as u64;
+pub struct Sv39;
 
-pub fn translate(
-	memory: &Memory,
-	hart: &mut WhiskerHart,
-	addr: u64,
-	access_kind: MemoryOpKind,
-) -> Result<(u64, bool), TrapRequestGuaranteed> {
-	trace!("translating addr {:#018X} for access {:?} with SV39", addr, access_kind);
-	let Some(va) = Sv39Addr::from_effective_addr(addr) else {
-		trace!("addr not valid SV39 virt addr: {:#018X}", addr);
-		return Err(trap_page_fault(hart, addr, access_kind));
-	};
-
-	let base = hart.translation_config.get_root_page_num() * PAGE_SIZE;
-	trace!("PTE root at {:#018X}", base);
-	let (pte, pte_addr, level_idx) = find_page(memory, hart, access_kind, SV_39_LEVELS - 1, base, va)?;
-	trace!("found final PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-	let r = pte.get_read();
-	let w = pte.get_write();
-	let x = pte.get_execute();
-	let u = pte.get_user_accessible();
-	if !is_access_allowed(hart, access_kind, r, w, x, u) {
-		trace!("access not allowed: {:?} r:{} w:{} x:{} u:{}", access_kind, r, w, x, u);
-		return Err(trap_page_fault(hart, addr, access_kind));
-	}
-
-	trace!("PTE access allowed");
-
-	let accessed = pte.get_accessed();
-	let dirty = pte.get_dirty();
-
-	// If ADEU, then do Svadu behavior
-	if hart.menvcfg.get_adue() {
-		let mut new_pte = pte;
-		// any memory access sets the accessed bit
-		if !accessed {
-			new_pte.set_accessed(true);
-		}
-		if !dirty && access_kind == MemoryOpKind::Store {
-			new_pte.set_dirty(true);
-		}
-		if new_pte != pte {
-			memory
-				.write_pte(hart, pte_addr, new_pte.as_u64())
-				.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
-		}
-	} else {
-		// Otherwise, do Svade behavior
-		if !accessed || (!dirty && access_kind == MemoryOpKind::Store) {
-			return Err(trap_page_fault(hart, addr, access_kind));
-		}
-	}
-
-	let mut phys_addr = Sv39PhysAddr::new();
-	trace!("va page offset {:#018X}", va.get_page_offset());
-	phys_addr.set_page_offset(va.get_page_offset());
-
-	// superpage bits
-	for i in 0..level_idx {
-		let page_num = va.get_page_num(i);
-		phys_addr.set_ppn_idx(page_num, i);
-	}
-
-	for i in level_idx..SV_39_LEVELS {
-		let page_num = pte.get_phys_page_num(i);
-		phys_addr.set_ppn_idx(page_num, i);
-	}
-
-	Ok((phys_addr.as_u64(), pte.get_global()))
-}
-
-fn find_page(
-	memory: &Memory,
-	hart: &mut WhiskerHart,
-	access_kind: MemoryOpKind,
-	level_idx: u8,
-	base: u64,
-	va: Sv39Addr,
-) -> Result<(Sv39PageTableEntry, u64, u8), TrapRequestGuaranteed> {
-	trace!(
-		"page lookup base {:#018X} level {} va {:#018X}",
-		base,
-		level_idx,
-		va.as_effective_addr()
-	);
-	let pte_addr = base + PTE_SIZE * va.get_page_num(level_idx);
-	trace!("pte addr for level {}: {:#018X}", level_idx, pte_addr);
-	let pte = Sv39PageTableEntry::read_from_mem(memory, hart, pte_addr, access_kind)?;
-
-	if !pte.get_valid() {
-		trace!("PTE valid bit clear: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-	if !pte.get_read() && pte.get_write() {
-		trace!("PTE W without R: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-	if pte.get_res_54_60() != 0 || pte.get_res_61_62() != 0 || pte.get_res_63_63() != 0 {
-		trace!("PTE reserved bits set: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	}
-
-	trace!("found valid PTE: {:#018X} at {:#018X}", pte.as_u64(), pte_addr);
-
-	// PTE with R or X are valid leaf PTEs
-	if pte.get_read() || pte.get_execute() {
-		trace!("leaf PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-		// check superpage alignment
-		for i in 0..level_idx {
-			if pte.get_phys_page_num(i) != 0 {
-				trace!(
-					"misaligned superpage: pte {:#018X} at level {} has non-zero ppn for level {}",
-					pte.as_u64(),
-					level_idx,
-					i
-				);
-				return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-			}
-		}
-
-		return Ok((pte, pte_addr, level_idx));
-	}
-
-	trace!("parent PTE {:#018X} at level {}", pte.as_u64(), level_idx);
-
-	// here the PTE must not have any of RWX, which makes it a pointer to a lower level
-	let Some(level_idx) = level_idx.checked_sub(1) else {
-		trace!("PTE level <0");
-		return Err(trap_page_fault(hart, va.as_effective_addr(), access_kind));
-	};
-	let ppn = pte.get_full_phys_page_num();
-	trace!("parent PTE {:#018X} points to ppn {:#015X}", pte.as_u64(), ppn);
-	let base = ppn * PAGE_SIZE;
-
-	find_page(memory, hart, access_kind, level_idx, base, va)
-}
-
-#[bitfields]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct Sv39Addr {
-	pub page_offset: U12,
-	pub virt_page_0: U9,
-	pub virt_page_1: U9,
-	pub virt_page_2: U9,
-	_pad: U25,
-}
-
-impl Sv39Addr {
+impl VAddr for Sv39Addr {
 	/// Creates a virtual address from an effective address `addr`.
 	/// Effective addresses are the address that an instruction or instruction fetch tried to access.
 	/// Returns Some if the effective address is a valid Sv39 virtual address and None otherwise.
@@ -190,29 +41,32 @@ impl Sv39Addr {
 			_ => unreachable!("Sv39 only has page index 0,1,2, found {}", idx),
 		}
 	}
+
+	fn get_page_offset_bits(self) -> u16 {
+		self.get_page_offset()
+	}
 }
 
-#[bitfields]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Sv39PageTableEntry {
-	valid: bool,
-	read: bool,
-	write: bool,
-	execute: bool,
-	user_accessible: bool,
-	global: bool,
-	accessed: bool,
-	dirty: bool,
-	_impl_ignore: U2,
-	phys_page_num_0: U9,
-	phys_page_num_1: U9,
-	phys_page_num_2: U26,
-	res_54_60: U7,
-	res_61_62: U2,
-	res_63_63: U1,
+impl PAddr for Sv39PhysAddr {
+	fn as_u64(self) -> u64 {
+		u64::from_le_bytes(self.inner())
+	}
+
+	fn set_ppn_idx(&mut self, ppn: u64, idx: u8) {
+		match idx {
+			0 => self.set_ppn0(ppn as u16),
+			1 => self.set_ppn1(ppn as u16),
+			2 => self.set_ppn2(ppn as u32),
+			_ => unreachable!(),
+		}
+	}
+
+	fn set_page_offset_bits(&mut self, offset: u16) {
+		self.set_page_offset(offset);
+	}
 }
 
-impl Sv39PageTableEntry {
+impl Pte for Sv39PageTableEntry {
 	fn read_from_mem(
 		memory: &Memory,
 		hart: &mut WhiskerHart,
@@ -223,6 +77,50 @@ impl Sv39PageTableEntry {
 		let mut this = Self::new();
 		this.set_inner(pte.to_le_bytes());
 		Ok(this)
+	}
+
+	fn as_u64(self) -> u64 {
+		u64::from_le_bytes(self.inner())
+	}
+
+	fn get_valid_bit(self) -> bool {
+		self.get_valid()
+	}
+
+	fn get_read_bit(self) -> bool {
+		self.get_read()
+	}
+
+	fn get_write_bit(self) -> bool {
+		self.get_write()
+	}
+
+	fn get_execute_bit(self) -> bool {
+		self.get_execute()
+	}
+
+	fn get_user_accessible_bit(self) -> bool {
+		self.get_user_accessible()
+	}
+
+	fn get_global_bit(self) -> bool {
+		self.get_global()
+	}
+
+	fn get_accessed_bit(self) -> bool {
+		self.get_accessed()
+	}
+
+	fn get_dirty_bit(self) -> bool {
+		self.get_dirty()
+	}
+
+	fn set_accessed_bit(&mut self, val: bool) {
+		self.set_accessed(val);
+	}
+
+	fn set_dirty_bit(&mut self, val: bool) {
+		self.set_dirty(val);
 	}
 
 	fn get_phys_page_num(self, idx: u8) -> u64 {
@@ -240,13 +138,53 @@ impl Sv39PageTableEntry {
 			| u64::from(self.get_phys_page_num_2()) << 18
 	}
 
-	fn as_u64(self) -> u64 {
-		u64::from_le_bytes(self.inner())
+	fn has_reserved_bits_set(self) -> bool {
+		self.get_res_54_60() != 0 || self.get_res_61_62() != 0 || self.get_res_63_63() != 0
 	}
 }
 
+impl Paging for Sv39 {
+	type VirtAddr = Sv39Addr;
+	type PhysAddr = Sv39PhysAddr;
+	type Pte = Sv39PageTableEntry;
+
+	const LEVELS: u8 = 3;
+	const PTE_SIZE: u64 = core::mem::size_of::<Sv39PageTableEntry>() as u64;
+}
+
 #[bitfields]
-struct Sv39PhysAddr {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Sv39Addr {
+	pub page_offset: U12,
+	pub virt_page_0: U9,
+	pub virt_page_1: U9,
+	pub virt_page_2: U9,
+	_pad: U25,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sv39PageTableEntry {
+	valid: bool,
+	read: bool,
+	write: bool,
+	execute: bool,
+	user_accessible: bool,
+	global: bool,
+	accessed: bool,
+	dirty: bool,
+	_impl_ignore: U2,
+	phys_page_num_0: U9,
+	phys_page_num_1: U9,
+	phys_page_num_2: U26,
+	res_54_60: U7,
+	res_61_62: U2,
+	res_63_63: U1,
+}
+
+#[bitfields]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Sv39PhysAddr {
 	page_offset: U12,
 	ppn0: U9,
 	ppn1: U9,
@@ -254,23 +192,6 @@ struct Sv39PhysAddr {
 	_pad_56_64: U8,
 }
 
-impl Sv39PhysAddr {
-	fn set_ppn_idx(&mut self, ppn: u64, idx: u8) {
-		match idx {
-			0 => self.set_ppn0(ppn as u16),
-			1 => self.set_ppn1(ppn as u16),
-			2 => self.set_ppn2(ppn as u32),
-			_ => unreachable!(),
-		}
-	}
-
-	fn as_u64(&self) -> u64 {
-		u64::from_le_bytes(self.inner())
-	}
-}
-
 const _SIZE_ASSERTS: () = {
-	assert!(core::mem::size_of::<Sv39Addr>() == core::mem::size_of::<u64>());
-	assert!(core::mem::size_of::<Sv39PageTableEntry>() == core::mem::size_of::<u64>());
-	assert!(core::mem::size_of::<Sv39PhysAddr>() == core::mem::size_of::<u64>());
+	assert_xlen!(Sv39Addr, Sv39PageTableEntry, Sv39PhysAddr);
 };

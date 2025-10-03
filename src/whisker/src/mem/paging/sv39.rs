@@ -43,18 +43,27 @@ pub fn translate(
 
 	let accessed = pte.get_accessed();
 	let dirty = pte.get_dirty();
-	let mut new_pte = pte;
-	// any memory access sets the accessed bit
-	if !accessed {
-		new_pte.set_accessed(true);
-	}
-	if !dirty && access_kind == MemoryOpKind::Store {
-		new_pte.set_dirty(true);
-	}
-	if new_pte != pte {
-		memory
-			.write_pte(hart, pte_addr, new_pte.as_u64())
-			.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
+
+	// If ADEU, then do Svadu behavior
+	if hart.menvcfg.get_adue() {
+		let mut new_pte = pte;
+		// any memory access sets the accessed bit
+		if !accessed {
+			new_pte.set_accessed(true);
+		}
+		if !dirty && access_kind == MemoryOpKind::Store {
+			new_pte.set_dirty(true);
+		}
+		if new_pte != pte {
+			memory
+				.write_pte(hart, pte_addr, new_pte.as_u64())
+				.map_err(|_| trap_page_fault(hart, pte_addr, MemoryOpKind::Store))?;
+		}
+	} else {
+		// Otherwise, do Svade behavior
+		if !accessed || (!dirty && access_kind == MemoryOpKind::Store) {
+			return Err(trap_page_fault(hart, addr, access_kind));
+		}
 	}
 
 	let mut phys_addr = Sv39PhysAddr::new();

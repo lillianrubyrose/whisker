@@ -162,6 +162,8 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 
         csrs, mcycle,   0xB00, rw (read_mcycle, write_mcycle);
         csrs, minstret, 0xB02, rw (read_minstret, write_minstret);
+
+        csrs, menvcfg,  0x30A, rw (read_menvcfg, write_menvcfg);
 	);
 
 	register_pmp_addrs!(
@@ -475,6 +477,13 @@ fn read_minstret(hart: &mut WhiskerHart) -> u64 {
 fn write_minstret(hart: &mut WhiskerHart, val: u64) {
 	hart.minstret = val;
 	hart.suppress_instret_increment = true;
+}
+
+fn read_menvcfg(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.menvcfg.inner())
+}
+fn write_menvcfg(hart: &mut WhiskerHart, val: u64) {
+	hart.menvcfg.set_inner(val.to_le_bytes());
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

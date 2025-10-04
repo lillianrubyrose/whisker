@@ -293,7 +293,17 @@ impl WhiskerHart {
 
 			tselect: 0,
 			tcontrol: Tcontrol::new(),
-			debug_triggers: vec![(Tdata1::new(), 0); 16], // Idk this is just a random number
+			debug_triggers: vec![
+				(
+					{
+						let mut tdata = Tdata1::new();
+						tdata.set_ty(DebugTriggerKind::AddressMatch);
+						tdata
+					},
+					0
+				);
+				16
+			], // Idk this is just a random number
 
 			minstret: 0,
 			suppress_instret_increment: false,

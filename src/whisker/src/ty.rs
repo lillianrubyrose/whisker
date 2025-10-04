@@ -414,6 +414,7 @@ impl TrapIdx {
 	pub const MACHINE_TIMER_INTERRUPT: Self = Self::interrupt(7);
 	pub const SUPERVISOR_EXTERNAL_INTERRUPT: Self = Self::interrupt(9);
 	pub const MACHINE_EXTERNAL_INTERRUPT: Self = Self::interrupt(11);
+	pub const LOCAL_COUNTER_OVERFLOW: Self = Self::interrupt(13);
 }
 
 impl Debug for TrapIdx {

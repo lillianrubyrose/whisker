@@ -76,6 +76,11 @@ pub struct WhiskerHart {
 	pub pmpaddr: [u64; 64],
 	pub mcounteren: u64,
 	pub scounteren: u64,
+	pub mcountinhibit: u32,
+	pub mhpmevent: [u64; 29],
+	pub mhpmcounter: [u64; 29],
+	pub mcyclecfg: PrivilegeModeFilter,
+	pub minstretcfg: PrivilegeModeFilter,
 	pub float_status_control: FloatStatusControl,
 
 	pub tselect: u64,
@@ -193,11 +198,24 @@ pub struct Menvcfg {
 	pub stce: bool,
 }
 
+#[bitfields]
+#[derive(Debug, Clone, Copy)]
+pub struct PrivilegeModeFilter {
+	_res_0_57: U58,
+	pub vuinh: bool,
+	pub vsinh: bool,
+	pub uinh: bool,
+	pub sinh: bool,
+	pub minh: bool,
+	_read_only_zero: U1,
+}
+
 const _: () = {
 	assert!(core::mem::size_of::<MStatus>() == core::mem::size_of::<u64>());
 	assert!(core::mem::size_of::<Tcontrol>() == core::mem::size_of::<u64>());
 	assert!(core::mem::size_of::<Tdata1>() == core::mem::size_of::<u64>());
 	assert!(core::mem::size_of::<Menvcfg>() == core::mem::size_of::<u64>());
+	assert!(core::mem::size_of::<PrivilegeModeFilter>() == core::mem::size_of::<u64>());
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,6 +247,11 @@ impl WhiskerHart {
 			pmpaddr: [0; 64],
 			mcounteren: 0,
 			scounteren: 0,
+			mcountinhibit: 0,
+			mhpmevent: [0; 29],
+			mhpmcounter: [0; 29],
+			mcyclecfg: PrivilegeModeFilter::new(),
+			minstretcfg: PrivilegeModeFilter::new(),
 			mode: HartMode::Machine,
 			debug: false,
 			requested_break: None,
@@ -361,8 +384,27 @@ impl WhiskerHart {
 				self.last_instruction = Some(inst);
 				if self.execute_instruction(inst, &mem).is_ok() {
 					if !self.suppress_instret_increment {
-						self.cycles += 1;
-						self.minstret = self.minstret.wrapping_add(1);
+						// Privileged ISA Chapter 7
+						let mcyclecfg_inhibited = match self.mode {
+							HartMode::User => self.mcyclecfg.get_uinh(),
+							HartMode::Supervisor => self.mcyclecfg.get_sinh(),
+							HartMode::Machine => self.mcyclecfg.get_minh(),
+							HartMode::Hypervisor => true,
+						};
+						if !mcyclecfg_inhibited {
+							self.cycles += 1;
+						}
+
+						// Privileged ISA Chapter 7
+						let minstret_inhibited = match self.mode {
+							HartMode::User => self.minstretcfg.get_uinh(),
+							HartMode::Supervisor => self.minstretcfg.get_sinh(),
+							HartMode::Machine => self.minstretcfg.get_minh(),
+							HartMode::Hypervisor => true,
+						};
+						if !minstret_inhibited {
+							self.minstret += 1;
+						}
 					}
 				}
 				self.suppress_instret_increment = false;
@@ -370,6 +412,20 @@ impl WhiskerHart {
 			// trap was requested during decoding
 			Err(TrapRequestGuaranteed { .. }) => {
 				self.suppress_instret_increment = false;
+			}
+		}
+
+		// Privileged ISA Chapter 20
+		for i in 0..self.mhpmevent.len() {
+			if self.mcountinhibit & (1 << (i + 3)) == 0 {
+				if self.mhpmevent[i] != 0 {
+					let (val, overflow) = self.mhpmcounter[i].overflowing_add(1);
+					self.mhpmcounter[i] = val;
+					if overflow {
+						self.mhpmevent[i] |= 1 << 63;
+						self.set_interrupt_pending(TrapIdx::LOCAL_COUNTER_OVERFLOW, true);
+					}
+				}
 			}
 		}
 

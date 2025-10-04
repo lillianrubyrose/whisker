@@ -30,9 +30,9 @@
 			reg = <0x00>;
 			status = "okay";
 			compatible = "riscv";
-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zaamo", "zalrsc", "zca", "zcd", "svadu", "sstc", "smcntrpmf", "sscofpmf";
 			riscv,isa-base = "rv64i";
-			riscv,isa = "rv64imafdc_zicsr_zifencei_zaamo_zalrsc_zca_zcd";
+			riscv,isa = "rv64imafdc_zicsr_zifencei_zaamo_zalrsc_zca_zcd_svadu_sstc_smcntrpmf_sscofpmf";
 			mmu-type = "riscv,sv39";
 
 			interrupt-controller {

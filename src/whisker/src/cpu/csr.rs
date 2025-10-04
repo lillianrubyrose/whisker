@@ -5,7 +5,7 @@ use bytemuck::bytes_of_mut;
 use num_conv::prelude::*;
 
 use crate::{
-	cpu::hart::{MStatus, Menvcfg, WhiskerHart},
+	cpu::hart::{MStatus, Menvcfg, PrivilegeModeFilter, WhiskerHart},
 	mem::mmio::MMIOKind,
 	tracing::*,
 	ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
@@ -87,6 +87,56 @@ define_pmp_addr_accessors!(
 	60, 61, 62, 63
 );
 
+macro_rules! define_mhpm_accessors {
+    ($($id:literal),*) => {
+        paste::paste! {
+            $(
+                fn [<read_mhpmcounter_ $id>](hart: &mut WhiskerHart) -> u64 {
+                    hart.mhpmcounter[$id-3]
+                }
+                fn [<write_mhpmcounter_ $id>](hart: &mut WhiskerHart, val: u64) {
+                    hart.mhpmcounter[$id-3] = val;
+                }
+                fn [<read_mhpmevent_ $id>](hart: &mut WhiskerHart) -> u64 {
+                    hart.mhpmevent[$id-3]
+                }
+                fn [<write_mhpmevent_ $id>](hart: &mut WhiskerHart, val: u64) {
+                    hart.mhpmevent[$id-3] = val;
+                }
+            )*
+        }
+    };
+}
+
+macro_rules! register_mhpm_csrs {
+    ($reg_info:expr, $($id:literal),*) => {
+        paste::paste! {
+            $(
+                ($reg_info).insert(
+                    CSRIndex::new(0xB00 + $id).unwrap(),
+                    CSRInfo::new_read_write(
+                        stringify!([< mhpmcounter $id >]),
+                        [<read_mhpmcounter_ $id>],
+                        [<write_mhpmcounter_ $id>]
+                    )
+                );
+                ($reg_info).insert(
+                    CSRIndex::new(0x320 + $id).unwrap(),
+                    CSRInfo::new_read_write(
+                        stringify!([< mhpmevent $id >]),
+                        [<read_mhpmevent_ $id>],
+                        [<write_mhpmevent_ $id>]
+                    )
+                );
+            )*
+        }
+    };
+}
+
+define_mhpm_accessors!(
+	3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+);
+
 pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 	let mut csrs = BTreeMap::default();
 	#[rustfmt::skip]
@@ -136,6 +186,10 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 
 		csrs, mcounteren, 0x306, rw read_write_trivial!(mcounteren);
 		csrs, scounteren, 0x106, rw read_write_trivial!(scounteren);
+		csrs, scountovf,  0xDA0, ro read_scountovf;
+        csrs, mcountinhibit, 0x320, rw (read_mcountinhibit, write_mcountinhibit);
+        csrs, mcyclecfg, 0x321, rw (read_mcyclecfg, write_mcyclecfg);
+        csrs, minstretcfg, 0x322, rw (read_minstretcfg, write_minstretcfg);
 
 		// float status
 		csrs, fflags, 0x001, rw (
@@ -171,6 +225,11 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		&mut csrs, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
 		27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
 		55, 56, 57, 58, 59, 60, 61, 62, 63
+	);
+
+	register_mhpm_csrs!(
+		&mut csrs, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+		30, 31
 	);
 
 	csrs
@@ -420,6 +479,56 @@ fn read_pmpcfg2(hart: &mut WhiskerHart) -> u64 {
 }
 fn write_pmpcfg2(hart: &mut WhiskerHart, val: u64) {
 	hart.pmpcfg[1] = val;
+}
+
+// Privileged ISA Section 20.2
+fn read_scountovf(hart: &mut WhiskerHart) -> u64 {
+	let mut scountovf = 0;
+	for i in 0..hart.mhpmevent.len() {
+		let counter_idx = i + 3;
+		if hart.mode() < HartMode::Machine {
+			let counter_enabled = (hart.mcounteren >> counter_idx) & 1 == 1;
+			if !counter_enabled {
+				continue;
+			}
+		}
+
+		if (hart.mhpmevent[i] >> 63) & 1 == 1 {
+			scountovf |= 1 << counter_idx;
+		}
+	}
+	scountovf
+}
+
+fn read_mcountinhibit(hart: &mut WhiskerHart) -> u64 {
+	hart.mcountinhibit as u64
+}
+fn write_mcountinhibit(hart: &mut WhiskerHart, val: u64) {
+	hart.mcountinhibit = val as u32;
+}
+
+fn read_mcyclecfg(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.mcyclecfg.inner())
+}
+fn write_mcyclecfg(hart: &mut WhiskerHart, val: u64) {
+	let mut new = PrivilegeModeFilter::new();
+	new.set_inner(val.to_le_bytes());
+
+	hart.mcyclecfg.set_minh(new.get_minh());
+	hart.mcyclecfg.set_sinh(new.get_sinh());
+	hart.mcyclecfg.set_uinh(new.get_uinh());
+}
+
+fn read_minstretcfg(hart: &mut WhiskerHart) -> u64 {
+	u64::from_le_bytes(hart.minstretcfg.inner())
+}
+fn write_minstretcfg(hart: &mut WhiskerHart, val: u64) {
+	let mut new = PrivilegeModeFilter::new();
+	new.set_inner(val.to_le_bytes());
+
+	hart.minstretcfg.set_minh(new.get_minh());
+	hart.minstretcfg.set_sinh(new.get_sinh());
+	hart.minstretcfg.set_uinh(new.get_uinh());
 }
 
 fn read_tselect(hart: &mut WhiskerHart) -> u64 {

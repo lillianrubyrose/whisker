@@ -126,6 +126,7 @@ pub fn create_info() -> BTreeMap<CSRIndex, CSRInfo> {
 		csrs, scause,   0x142, rw (read_scause, write_scause);
 		csrs, stval,    0x143, rw read_write_trivial!(stval);
 		csrs, sip,      0x144, rw (read_sip, write_sip);
+		csrs, stimecmp, 0x14D, rw read_write_trivial!(stimecmp);
 
 		// supervisor protection and translation
 		csrs, satp, 0x180, rw (read_satp, write_satp);
@@ -401,7 +402,7 @@ fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
 	let val = val.truncate::<u8>();
 	hart.float_status_control.set_inner([val]);
 }
-fn read_time(hart: &mut WhiskerHart) -> u64 {
+pub fn read_time(hart: &mut WhiskerHart) -> u64 {
 	let mut val = 0_u64;
 	let buf = bytes_of_mut(&mut val);
 	MMIOKind::Clint.read(hart, crate::mem::mmio::clint::MTIME, buf);
@@ -490,6 +491,8 @@ fn write_menvcfg(hart: &mut WhiskerHart, val: u64) {
 	hart.menvcfg.set_fiom(new.get_fiom());
 	// Because we implement Svadu behavior
 	hart.menvcfg.set_adue(new.get_adue());
+	// Because we implement Sstc
+	hart.menvcfg.set_stce(new.get_stce());
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

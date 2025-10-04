@@ -70,6 +70,7 @@ pub struct WhiskerHart {
 	pub sepc: u64,
 	pub scause: TrapIdx,
 	pub stval: u64,
+	pub stimecmp: u64,
 
 	pub pmpcfg: [u64; 2],
 	pub pmpaddr: [u64; 64],
@@ -263,6 +264,7 @@ impl WhiskerHart {
 			// FIXME: better sentinel?
 			scause: TrapIdx::exception(0),
 			stval: 0,
+			stimecmp: 0,
 
 			float_status_control: FloatStatusControl::new(),
 
@@ -332,6 +334,15 @@ impl WhiskerHart {
 		// 	let mip = self.read_csr_unchecked(csr::MIP);
 		// 	self.write_csr_unchecked(csr::MIP, mip | 1 << 7);
 		// }
+
+		if self.menvcfg.get_stce() {
+			let time = csr::read_time(self);
+			if self.stimecmp > 0 && time >= self.stimecmp {
+				self.set_interrupt_pending(TrapIdx::SUPERVISOR_TIMER_INTERRUPT, true);
+			} else {
+				self.set_interrupt_pending(TrapIdx::SUPERVISOR_TIMER_INTERRUPT, false);
+			}
+		}
 
 		// if a trap happened, just update pc and return
 		// next cycle will fetch

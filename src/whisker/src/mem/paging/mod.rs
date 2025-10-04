@@ -138,39 +138,44 @@ impl Memory {
 	}
 
 	pub fn clear_vm_cache(&self, asid: u64, vaddr: u64) {
-		debug!("clearing vm cache asid {:#018X} vaddr {:#018X}", asid, vaddr);
-
+		debug!("clear_vm_cache: asid={:#X}, vaddr={:#X}", asid, vaddr);
 		let mut page_table_cache = self.page_table_cache.write();
 
-		// Page 130 riscv-privileged.pdf
-		// if rs1 = 0 & rs2 = 0   - The fence also invalidates all address-translation cache entries, for all address spaces.
-		//
-		// if rs1 = 0 & rs2 != 0  - The fence also invalidates all address-translation cache entries matching the address space
-		//                          identified by integer register rs2, except for entries containing global mappings.
-		//
-		// if rs1 != 0 & rs2 = 0  - The fence also invalidates all address-translation cache entries that contain leaf page table
-		//                          entries corresponding to the virtual address in rs1, for all address spaces.
-		//
-		// if rs1 != 0 & rs2 != 0 - The fence also invalidates all address-translation cache entries that contain leaf page table
-		//                          entries corresponding to the virtual address in rs1 and that match the address space
-		//                          identified by integer register rs2, except for entries containing global mappings.
+		// Privileged spec: Section 12.2.1
+		// rs1 = vaddr, rs2 = asid
 
-		// DEBUGGING: conservatively clear everything
-		page_table_cache.clear();
-
-		/*
-		if asid == 0 && vaddr == 0 {
+		if vaddr == 0 && asid == 0 {
+			// rs1=0 && rs2=0
+			// Invalidates all address-translation cache entries for all address spaces.
+			trace!("clear_vm_cache: invalidating cache");
 			page_table_cache.clear();
-		} else if vaddr == 0 {
-			page_table_cache.retain(|key, _| key.asid() == PageTableCacheKey::GLOBAL_ASID || key.asid() != asid as u16);
+		} else if vaddr == 0 && asid != 0 {
+			// rs1=0 && rs2!=0
+			// Invalidates all entries for the ASID, except for global mappings.
+			trace!("clear_vm_cache: invalidating asid {:#X}", asid);
+			page_table_cache.retain(|(entry_asid, _), _| match entry_asid {
+				Some(entry_asid) => *entry_asid != asid as u16,
+				None => true,
+			});
 		} else if asid == 0 {
-			let page = vaddr.align_down(PAGE_SIZE as usize);
-			page_table_cache.retain(|key, _| key.page() != page);
+			// rs1=0 && rs2!=0
+			// Invalidates all entries for a specific virtual address.
+			// For now I'll implement this as a full cache invalidation.
+			trace!(
+				"clear_vm_cache: over-fencing vaddr {:#X} (full cache invalidation)",
+				vaddr
+			);
+			page_table_cache.clear();
 		} else {
-			let page = vaddr.align_down(PAGE_SIZE as usize);
-			page_table_cache.remove(&PageTableCacheKey::new(asid as u16, page));
+			// rs1!=0 && rs2!=0
+			// Invalidates all entries for a specific virtual address and ASID.
+			// For now I'll implement this as rs1=0 && rs2!=0
+			trace!("clear_vm_cache: over-fencing vaddr {:#X} for asid {:#X}", vaddr, asid);
+			page_table_cache.retain(|(entry_asid, _), _| match entry_asid {
+				Some(entry_asid) => *entry_asid != asid as u16,
+				None => true,
+			});
 		}
-		*/
 	}
 }
 

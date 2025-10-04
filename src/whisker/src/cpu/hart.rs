@@ -4,7 +4,7 @@
 	use `truncate`, `extend`, `cast_signed`, `cast_unsigned`, `sign_extend`, and `zero_extend` instead."
 )]
 
-use std::{assert_matches::assert_matches, collections::BTreeMap, fmt::Write as _, num::NonZeroU64};
+use std::{assert_matches::assert_matches, collections::BTreeMap, fmt::Write as _, num::NonZeroU64, sync::Arc};
 
 use bitfield::{bitfields, prelude::*};
 use gdbstub::target::ext::breakpoints::WatchKind;
@@ -30,8 +30,8 @@ use crate::{
 #[derive(Debug)]
 pub struct WhiskerHart {
 	hart_id: HartId,
-
 	extensions: RiscvExtensions,
+	pub memory: Arc<Memory>,
 
 	mode: HartMode,
 	/// whether this hart is in debug mode, which prevents certain things from trapping or erroring
@@ -227,7 +227,7 @@ pub enum HartBreakKind {
 }
 
 impl WhiskerHart {
-	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64) -> Self {
+	pub fn new(hart_id: HartId, extensions: RiscvExtensions, initial_pc: u64, memory: Arc<Memory>) -> Self {
 		let mut mstatus = MStatus::new();
 
 		// 2 is the value of UXLEN for RV64
@@ -242,6 +242,7 @@ impl WhiskerHart {
 		Self {
 			hart_id,
 			extensions,
+			memory,
 
 			pmpcfg: [0; 2],
 			pmpaddr: [0; 64],

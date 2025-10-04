@@ -1,7 +1,7 @@
 use std::{
 	fs::{File, OpenOptions},
 	io::Write,
-	path::{Path, PathBuf},
+	path::PathBuf,
 	sync::Arc,
 };
 
@@ -21,7 +21,7 @@ pub mod hart;
 use crate::{
 	cpu::hart::WhiskerHart,
 	interrupts::PlatformInterruptController,
-	mem::{self, Memory, mmio::MMIOKind},
+	mem::Memory,
 	ty::{HartId, RiscvExtensions},
 };
 
@@ -67,8 +67,10 @@ impl WhiskerCpu {
 		logfile: Option<PathBuf>,
 		num_harts: u16,
 		initial_pc: u64,
-		fs_img: Option<&Path>,
 		memory: Arc<Memory>,
+		interrupt_controller: Arc<Mutex<PlatformInterruptController>>,
+		clint: Arc<Mutex<Clint>>,
+		goldfish_rtc: Arc<Mutex<GoldfishRTC>>,
 	) -> Self {
 		assert!(0 < num_harts && num_harts <= HartId::MAX_NUM_HARTS);
 
@@ -82,31 +84,8 @@ impl WhiskerCpu {
 		});
 
 		let harts = (0..num_harts)
-			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc))
+			.map(|id| WhiskerHart::new(HartId::new(id), supported_extensions, initial_pc, memory.clone()))
 			.collect();
-
-		// FIXME: interrupt controller refactor
-		let (int_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
-		let clint = Arc::new(Mutex::new(Clint::new()));
-		let goldfish_rtc = Arc::new(Mutex::new(GoldfishRTC::new(int_tx.clone())));
-
-		mem::mmio::register_mmio(MMIOKind::PLIC, interrupt_controller.clone() as _).unwrap();
-		mem::mmio::register_mmio(MMIOKind::UART, mem::mmio::UART::init(int_tx.clone()) as _).unwrap();
-		mem::mmio::register_mmio(MMIOKind::Clint, clint.clone() as _).unwrap();
-		mem::mmio::register_mmio(
-			MMIOKind::Shutdown,
-			Arc::new(Mutex::new(mem::mmio::shutdown::ShutdownDevice)) as _,
-		)
-		.unwrap();
-		mem::mmio::register_mmio(MMIOKind::GoldfishRTC, goldfish_rtc.clone() as _).unwrap();
-
-		if let Some(fs_img) = fs_img {
-			mem::mmio::register_mmio(
-				MMIOKind::VirtioBlock,
-				mem::mmio::virtio_block::VirtioBlockDevice::init(memory.clone(), fs_img, int_tx.clone()) as _,
-			)
-			.unwrap();
-		}
 
 		Self {
 			steps: 0,

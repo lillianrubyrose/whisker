@@ -6,7 +6,7 @@ use num_conv::prelude::*;
 
 use crate::{
 	cpu::hart::{MStatus, Menvcfg, PrivilegeModeFilter, WhiskerHart},
-	mem::mmio::MMIOKind,
+	mem::mmio::{MMIODevice, clint},
 	tracing::*,
 	ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
 	util::extract_bits_16,
@@ -462,9 +462,17 @@ fn write_fcsr(hart: &mut WhiskerHart, val: u64) {
 	hart.float_status_control.set_inner([val]);
 }
 pub fn read_time(hart: &mut WhiskerHart) -> u64 {
-	let mut val = 0_u64;
-	let buf = bytes_of_mut(&mut val);
-	MMIOKind::Clint.read(hart, crate::mem::mmio::clint::MTIME, buf);
+	// Temporarily to prevent traps because CSR reads can't cause memory exceptions
+	hart.debug = true;
+
+	let val = hart
+		.memory
+		.clone()
+		.read_u64(hart, crate::mem::mmio::clint::MTIME, crate::mem::ReadKind::Normal)
+		.unwrap_or(0);
+
+	hart.debug = false;
+
 	val
 }
 

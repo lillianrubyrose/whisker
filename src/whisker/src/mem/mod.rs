@@ -1,11 +1,15 @@
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use bitflags::bitflags;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use spin::Mutex;
 
-use crate::tracing::*;
+use crate::{
+	mem::mmio::{MMIO, MMIODevice},
+	tracing::*,
+};
 
 pub mod mmio;
 
@@ -15,7 +19,7 @@ use crate::{
 	cpu::hart::WhiskerHart,
 	mem::mmio::MMIOKind,
 	soft::{double::SoftDouble, float::SoftFloat},
-	ty::{HartId, HartMode, TrapIdx, TrapRequestGuaranteed},
+	ty::{HartId, TrapIdx, TrapRequestGuaranteed},
 };
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
@@ -34,6 +38,25 @@ pub struct Memory {
 }
 
 impl Memory {
+	pub fn add_region(&self, region: MemoryRegion) {
+		let mut regions = self.regions.write();
+		let region_end = region.start + region.len;
+		for existing in regions.iter() {
+			let existing_end = existing.start + existing.len;
+			if region.start < existing_end && region_end > existing.start {
+				assert!(
+					region_end <= existing.start || region.start >= existing_end,
+					"memory region {:?} overlaps with existing region {:?}",
+					region,
+					existing
+				);
+			}
+		}
+
+		regions.push(region);
+		regions.sort_unstable_by_key(|r| r.start);
+	}
+
 	fn region_for_addr(&self, phys_addr: u64) -> Option<MappedRwLockReadGuard<'_, MemoryRegion>> {
 		let regions = self.regions.read();
 		regions
@@ -130,8 +153,8 @@ macro_rules! impl_mem_read_write {
 
 					check_read_access(hart, &*region, effective_addr, phys_addr, kind, size as u8)?;
 
-					let ret = match region.kind {
-						MemoryKind::MainMemory { ref backing } => {
+					let ret = match &region.kind {
+						MemoryKind::MainMemory { backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
 							ret.copy_from_slice(&backing[offset as usize..][..size]);
@@ -188,8 +211,8 @@ macro_rules! impl_mem_read_write {
 					let region = &mut *region_guard;
 					check_write_access(hart, &*region, effective_addr, phys_addr, kind, size as u8)?;
 
-					let ret = match region.kind {
-						MemoryKind::MainMemory { ref mut backing } => {
+					let ret = match &mut region.kind {
+						MemoryKind::MainMemory { backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
 							backing[offset as usize..][..size].copy_from_slice(&bytes);
@@ -242,8 +265,8 @@ impl Memory {
 			size as u8,
 		)?;
 
-		match region.kind {
-			MemoryKind::MainMemory { ref backing } => {
+		match &region.kind {
+			MemoryKind::MainMemory { backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u16::default().to_le_bytes();
 				ret.copy_from_slice(&backing[offset as usize..][..size]);
@@ -276,8 +299,8 @@ impl Memory {
 			size as u8,
 		)?;
 
-		let ret = match region.kind {
-			MemoryKind::MainMemory { ref backing } => {
+		let ret = match &region.kind {
+			MemoryKind::MainMemory { backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u32::default().to_le_bytes();
 				ret.copy_from_slice(&backing[offset as usize..][..size]);
@@ -320,8 +343,8 @@ impl Memory {
 			size as u8,
 		)?;
 
-		let ret = match region.kind {
-			MemoryKind::MainMemory { ref backing } => {
+		let ret = match &region.kind {
+			MemoryKind::MainMemory { backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
 				ret.copy_from_slice(&backing[offset as usize..][..size]);
@@ -364,8 +387,8 @@ impl Memory {
 		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
-			match region.kind {
-				MemoryKind::MainMemory { ref mut backing } => {
+			match &mut region.kind {
+				MemoryKind::MainMemory { backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
 					backing[offset as usize..][..size].copy_from_slice(&bytes);
@@ -421,8 +444,8 @@ impl Memory {
 		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		if is_reserved {
-			match region.kind {
-				MemoryKind::MainMemory { ref mut backing } => {
+			match &mut region.kind {
+				MemoryKind::MainMemory { backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
 					backing[offset as usize..][..size].copy_from_slice(&bytes);
@@ -605,8 +628,8 @@ impl Memory {
 			return Err(pte_fault(hart, kind, phys_addr));
 		}
 
-		let ret = match region.kind {
-			MemoryKind::MainMemory { ref backing } => {
+		let ret = match &region.kind {
+			MemoryKind::MainMemory { backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
 				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
@@ -731,8 +754,8 @@ macro_rules! impl_hw_read_write {
 						return Err(());
 					}
 
-					match region.kind {
-						MemoryKind::MainMemory { ref backing } => {
+					match &region.kind {
+						MemoryKind::MainMemory { backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
 							ret.copy_from_slice(&backing[offset as usize..][..size]);
@@ -786,8 +809,8 @@ macro_rules! impl_hw_read_write {
 						return Err(());
 					}
 
-					match region.kind {
-						MemoryKind::MainMemory { ref mut backing } => {
+					match &mut region.kind {
+						MemoryKind::MainMemory { backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
 							backing[offset as usize..][..size].copy_from_slice(&bytes);
@@ -986,7 +1009,7 @@ pub enum WriteKind {
 	Atomic,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryRegion {
 	start: u64,
 	// INVARIANT: has the same length as kind.backing if MemoryKind is MainMemory
@@ -1001,8 +1024,14 @@ impl MemoryRegion {
 		Self::new(start, len, MemoryKind::MainMemory { backing }, attrs)
 	}
 
-	pub fn new_mmio(start: u64, len: u64, mmio: MMIOKind, attrs: AccessAttrs) -> Self {
-		Self::new(start, len, MemoryKind::MMIO(mmio), attrs)
+	pub fn new_mmio(
+		start: u64,
+		len: u64,
+		kind: MMIOKind,
+		device: Arc<Mutex<dyn MMIODevice + Send>>,
+		attrs: AccessAttrs,
+	) -> Self {
+		Self::new(start, len, MemoryKind::MMIO(MMIO::new(kind, device)), attrs)
 	}
 
 	pub fn new(start: u64, len: u64, kind: MemoryKind, attrs: AccessAttrs) -> Self {
@@ -1038,16 +1067,17 @@ impl MemoryRegion {
 	}
 }
 
+#[derive(Clone)]
 pub enum MemoryKind {
 	MainMemory { backing: Box<[u8]> },
-	MMIO(MMIOKind),
+	MMIO(MMIO),
 }
 
 impl Debug for MemoryKind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			MemoryKind::MainMemory { backing } => write!(f, "MemoryKind::MainMemory({:#018X} bytes)", backing.len()),
-			MemoryKind::MMIO(mmiokind) => write!(f, "MemoryKind::MMIO({:?})", mmiokind),
+			MemoryKind::MMIO(mmio) => write!(f, "MemoryKind::MMIO({:?})", mmio.kind),
 		}
 	}
 }
@@ -1079,7 +1109,7 @@ bitflags! {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MemoryBuilder {
 	regions: Vec<MemoryRegion>,
 }

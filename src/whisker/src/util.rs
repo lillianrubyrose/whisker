@@ -14,6 +14,7 @@ pub trait ExtendExt {
 		Self: sealed::ZeroExtendTarget<Dst>;
 }
 
+#[allow(dead_code, reason = "is still useful")]
 pub trait AlignExt {
 	/// aligns `self` down to the previous multiple of `align`.
 	/// `align` must be a power of two or the function may panic or return a meaningless value.

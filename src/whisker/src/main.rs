@@ -32,20 +32,22 @@ use std::{
 use ::tracing::level_filters::LevelFilter;
 use elfie::{ElfFile, ElfType, Endianness, ISA, ProgramHeaderType};
 use gdbstub::{conn::ConnectionExt, stub::GdbStub};
+use spin::Mutex;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 use crate::{
 	args::{CliCommand, KernelData},
 	cpu::{WhiskerCpu, WhiskerExecState, WhiskerExecStatus, csr},
 	gdb::WhiskerEventLoop,
-	interrupts::{PLIC_BASE, PLIC_LEN},
+	interrupts::{PLIC_BASE, PLIC_LEN, PlatformInterruptController},
 	mem::{
 		AccessAttrs, AccessKind, MemoryBuilder, MemoryRegion,
 		mmio::{
-			MMIO_DEVICES, MMIOKind, UART_BASE,
-			clint::{CLINT_BASE, CLINT_SIZE},
-			goldfish_rtc::{GOLDFISH_RTC_BASE, GOLDFISH_RTC_SIZE},
-			virtio_block::VIRTIO_BLOCK_BASE,
+			MMIOKind, UART, UART_BASE,
+			clint::{CLINT_BASE, CLINT_SIZE, Clint},
+			goldfish_rtc::{GOLDFISH_RTC_BASE, GOLDFISH_RTC_SIZE, GoldfishRTC},
+			shutdown::ShutdownDevice,
+			virtio_block::{VIRTIO_BLOCK_BASE, VirtioBlockDevice},
 		},
 	},
 	ty::{FPRegisterIndex, GPRegisterIndex, RiscvExtensions},
@@ -124,15 +126,7 @@ fn main() {
 		} => {
 			// FIXME: get this from cli or something
 			const NUM_HARTS: u16 = 1;
-			let cpu = init_cpu(
-				bootrom,
-				bootloader,
-				kernel_data,
-				logfile,
-				NUM_HARTS,
-				fs_img.as_deref(),
-				false,
-			);
+			let cpu = init_cpu(bootrom, bootloader, kernel_data, logfile, NUM_HARTS, fs_img.as_deref());
 			if use_gdb {
 				run_gdb(cpu);
 			} else {
@@ -160,7 +154,6 @@ fn init_cpu(
 	logfile: Option<PathBuf>,
 	num_harts: u16,
 	fs_img: Option<&Path>,
-	is_test: bool,
 ) -> WhiskerCpu {
 	const ACCESS_MAX_U64: u8 = core::mem::size_of::<u64>() as u8;
 
@@ -183,7 +176,13 @@ fn init_cpu(
 		| RiscvExtensions::SUPERVISOR
 		| RiscvExtensions::USER_MODE;
 
-	let mut mem_builder = MemoryBuilder::default()
+	let (interrupt_tx, interrupt_controller) = PlatformInterruptController::new(num_harts);
+	let clint = Arc::new(Mutex::new(Clint::new()));
+	let goldfish_rtc = Arc::new(Mutex::new(GoldfishRTC::new(interrupt_tx.clone())));
+	let uart = UART::init(interrupt_tx.clone());
+	let shutdown = Arc::new(Mutex::new(ShutdownDevice));
+
+	let mem_builder = MemoryBuilder::default()
 		// FIXME: maybe model the bootrom as an IO region so it can be RX instead of RWX
 		.add_region(MemoryRegion::new_main_mem(
 			BOOTROM_OFFSET,
@@ -195,18 +194,14 @@ fn init_cpu(
 			UART_BASE,
 			0x1000,
 			MMIOKind::UART,
+			uart,
 			AccessAttrs::new(1, AccessKind::READ | AccessKind::WRITE),
 		))
 		.add_region(MemoryRegion::new_mmio(
 			PLIC_BASE,
 			PLIC_LEN,
 			MMIOKind::PLIC,
-			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
-		))
-		.add_region(MemoryRegion::new_mmio(
-			VIRTIO_BLOCK_BASE,
-			0x1000,
-			MMIOKind::VirtioBlock,
+			interrupt_controller.clone(),
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		))
 		// FIXME: hook this up to actual clock and timers
@@ -214,18 +209,21 @@ fn init_cpu(
 			CLINT_BASE,
 			CLINT_SIZE,
 			MMIOKind::Clint,
+			clint.clone(),
 			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
 		))
 		.add_region(MemoryRegion::new_mmio(
 			0x100000,
 			0x1000,
 			MMIOKind::Shutdown,
+			shutdown,
 			AccessAttrs::new(8, AccessKind::READ | AccessKind::WRITE),
 		))
 		.add_region(MemoryRegion::new_mmio(
 			GOLDFISH_RTC_BASE,
 			GOLDFISH_RTC_SIZE,
 			MMIOKind::GoldfishRTC,
+			goldfish_rtc.clone(),
 			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
 		));
 
@@ -264,18 +262,29 @@ fn init_cpu(
 	let dtb_ptr = 0xF000_0000;
 	main_mem[(dtb_ptr - DRAM_BASE as usize)..][..dtb.len()].copy_from_slice(dtb.as_slice());
 
-	mem_builder = mem_builder.add_region(MemoryRegion::new_main_mem(
-		DRAM_BASE,
-		DRAM_SIZE,
-		main_mem,
-		AccessAttrs::new(
-			ACCESS_MAX_U64,
-			AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
-		),
-	));
+	let memory = mem_builder
+		.add_region(MemoryRegion::new_main_mem(
+			DRAM_BASE,
+			DRAM_SIZE,
+			main_mem,
+			AccessAttrs::new(
+				ACCESS_MAX_U64,
+				AccessKind::READ | AccessKind::WRITE | AccessKind::EXEC | AccessKind::ATOMIC,
+			),
+		))
+		.build();
 
-	if is_test {
-		MMIO_DEVICES.lock().clear();
+	let memory = Arc::new(memory);
+
+	if let Some(fs_img) = fs_img {
+		let virtio_block = VirtioBlockDevice::init(memory.clone(), fs_img, interrupt_tx);
+		memory.add_region(MemoryRegion::new_mmio(
+			VIRTIO_BLOCK_BASE,
+			0x1000,
+			MMIOKind::VirtioBlock,
+			virtio_block,
+			AccessAttrs::new(4, AccessKind::READ | AccessKind::WRITE),
+		));
 	}
 
 	let mut cpu = WhiskerCpu::new(
@@ -283,8 +292,10 @@ fn init_cpu(
 		logfile,
 		num_harts,
 		BOOTROM_OFFSET,
-		fs_img,
-		Arc::new(mem_builder.build()),
+		memory,
+		interrupt_controller,
+		clint,
+		goldfish_rtc,
 	);
 	cpu.tohost_addr = tohost_addr;
 	for (hart_id, hart) in cpu.harts.iter_mut().enumerate() {
@@ -529,7 +540,7 @@ mod tests {
 			let bootloader = fs::read(&bootloader_path)
 				.unwrap_or_else(|e| panic!("unable to read test {}: {}", bootloader_path.display(), e));
 
-			let mut cpu = init_cpu(bootrom.clone(), Some(bootloader), None, None, 1, None, true);
+			let mut cpu = init_cpu(bootrom.clone(), Some(bootloader), None, None, 1, None);
 			assert!(
 				cpu.tohost_addr.is_some(),
 				"tohost addr was not set for test {}",

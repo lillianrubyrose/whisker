@@ -166,21 +166,30 @@ pub struct Tdata1 {
 #[bitfields]
 #[derive(Debug, Clone, Copy)]
 pub struct Menvcfg {
-	_fiom: bool,
+	pub fiom: bool,
 	_res_1_1: U1,
-	_lpe: bool,
-	_sse: bool,
-	_cbie: bool,
-	_cbcfe: bool,
-	_cbze: bool,
-	_res_7_31: U25,
+	// Zicflip
+	pub lpe: bool,
+	// Zicfliss
+	pub sse: bool,
+	_cbie: U2,
+	// Zicbom
+	pub cbcfe: bool,
+	// Zicboz
+	pub cbze: bool,
+	_res_8_31: U24,
 	_pmm: U2,
 	_res_34_58: U25,
-	_dte: bool,
-	_cde: bool,
+	// Ssdbltrp
+	pub dte: bool,
+	// Smcdeleg
+	pub cde: bool,
+	// Svadu
 	pub adue: bool,
-	_pbmte: bool,
-	_stce: bool,
+	// Svpbmt
+	pub pbmte: bool,
+	// Sstc
+	pub stce: bool,
 }
 
 const _: () = {

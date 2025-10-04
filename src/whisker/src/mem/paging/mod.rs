@@ -103,31 +103,29 @@ impl Memory {
 
 			// FIXME: should this check the bits in memory or the cached bits?
 			// update A and D bits
-			// if hart.menvcfg.get_adue() {
-			// Svadu behavior
 			if !pte.is_accessed() || (kind == MemoryOpKind::Store && !pte.is_dirty()) {
-				// FIXME: this needs to all be atomic
-				let (mem_pte, was_cached) = PageTableEntry::read_from_memory(self, false, hart, asid, pte_addr, kind)?;
-				assert!(!was_cached); // sanity
-				if pte == mem_pte {
-					let mut pte = pte;
-					pte.set_accessed(true);
-					if kind == MemoryOpKind::Store {
-						pte.set_dirty(true);
+				if hart.menvcfg.get_adue() {
+					// Svadu
+					let (mem_pte, was_cached) =
+						PageTableEntry::read_from_memory(self, false, hart, asid, pte_addr, kind)?;
+					assert!(!was_cached); // sanity
+					if pte == mem_pte {
+						let mut pte = pte;
+						pte.set_accessed(true);
+						if kind == MemoryOpKind::Store {
+							pte.set_dirty(true);
+						}
+						self.write_pte(hart, pte_addr, pte.0)?;
+					} else {
+						// The PTE changed in memory, so we need to restart the translation.
+						use_cache = false;
+						continue;
 					}
-					self.write_pte(hart, pte_addr, pte.0)?;
 				} else {
-					// loop back to step 2
-					use_cache = false;
-					continue;
+					// Svade
+					return Err(trap_page_fault(hart, virt_addr.inner(), kind));
 				}
 			}
-			// } else {
-			// 	// Svade behavior
-			// 	if !pte.is_accessed() || (!pte.is_dirty() && kind == MemoryOpKind::Store) {
-			// 		return Err(trap_page_fault(hart, pte_addr, kind));
-			// 	}
-			// }
 
 			// if A and D bit updates did not happen, or passed, exit with the leaf pte
 			break pte;

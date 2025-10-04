@@ -5,7 +5,7 @@ use bytemuck::bytes_of_mut;
 use num_conv::prelude::*;
 
 use crate::{
-	cpu::hart::{MStatus, WhiskerHart},
+	cpu::hart::{MStatus, Menvcfg, WhiskerHart},
 	mem::mmio::MMIOKind,
 	tracing::*,
 	ty::{ExceptionBits, HartMode, RiscvExtensions, TrapIdx, TrapKind, TrapRequestGuaranteed},
@@ -483,7 +483,13 @@ fn read_menvcfg(hart: &mut WhiskerHart) -> u64 {
 	u64::from_le_bytes(hart.menvcfg.inner())
 }
 fn write_menvcfg(hart: &mut WhiskerHart, val: u64) {
-	hart.menvcfg.set_inner(val.to_le_bytes());
+	let mut new = Menvcfg::new();
+	new.set_inner(val.to_le_bytes());
+
+	// Because we implement more than the bare translation mode
+	hart.menvcfg.set_fiom(new.get_fiom());
+	// Because we implement Svadu behavior
+	hart.menvcfg.set_adue(new.get_adue());
 }
 
 /// INVARIANT: holds a valid CSR index (0..`NUM_CSRS`)

@@ -106,18 +106,13 @@ impl Memory {
 			if !pte.is_accessed() || (kind == MemoryOpKind::Store && !pte.is_dirty()) {
 				if hart.menvcfg.get_adue() {
 					// Svadu
-					let (mem_pte, was_cached) =
-						PageTableEntry::read_from_memory(self, false, hart, asid, pte_addr, kind)?;
-					assert!(!was_cached); // sanity
-					if pte == mem_pte {
-						let mut pte = pte;
-						pte.set_accessed(true);
-						if kind == MemoryOpKind::Store {
-							pte.set_dirty(true);
-						}
-						self.write_pte(hart, pte_addr, pte.0)?;
-					} else {
-						// The PTE changed in memory, so we need to restart the translation.
+					let mut new_pte = pte;
+					new_pte.set_accessed(true);
+					if kind == MemoryOpKind::Store {
+						new_pte.set_dirty(true);
+					}
+
+					if !self.write_pte_atomic_cas(hart, pte_addr, pte.0, new_pte.0, kind)? {
 						use_cache = false;
 						continue;
 					}

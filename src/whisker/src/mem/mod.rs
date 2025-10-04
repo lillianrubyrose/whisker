@@ -15,7 +15,7 @@ use crate::{
 	cpu::hart::WhiskerHart,
 	mem::mmio::MMIOKind,
 	soft::{double::SoftDouble, float::SoftFloat},
-	ty::{HartId, TrapIdx, TrapRequestGuaranteed},
+	ty::{HartId, HartMode, TrapIdx, TrapRequestGuaranteed},
 };
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
@@ -464,12 +464,56 @@ impl Memory {
 		virt_addr: u64,
 		op: F,
 	) -> Result<u32, TrapRequestGuaranteed> {
-		// FIXME: maybe actually do atomics here
-		let word = self.read_u32(hart, virt_addr, ReadKind::AMO)?;
-		if let Some(replacement) = op(hart, word) {
-			self.write_u32(hart, virt_addr, WriteKind::Atomic, replacement)?;
+		hart.check_breakpoints(virt_addr, MemoryOpKind::Store)?;
+
+		let size = core::mem::size_of::<u32>();
+		let phys_addr = self.translate_addr(hart, virt_addr, MemoryOpKind::Store)?;
+
+		// This exclusive write lock is what makes the operation atomic
+		let mut regions_guard = self.regions.write();
+		let Some(region) = regions_guard.iter_mut().find(|r| {
+			let r_end = r.start + r.len;
+			phys_addr >= r.start && phys_addr < r_end
+		}) else {
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, virt_addr));
+		};
+
+		check_read_access(hart, &*region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
+		check_write_access(hart, &*region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
+
+		let original_val;
+		if let MemoryKind::MainMemory { backing } = &mut region.kind {
+			let offset = (phys_addr - region.start) as usize;
+			let mut bytes = [0u8; 4];
+			bytes.copy_from_slice(&backing[offset..][..size]);
+			original_val = u32::from_le_bytes(bytes);
+
+			if let Some(replacement) = op(hart, original_val) {
+				let bytes = replacement.to_le_bytes();
+				backing[offset..][..size].copy_from_slice(&bytes);
+			}
+		} else {
+			drop(regions_guard);
+			let word = self.read_u32(hart, virt_addr, ReadKind::AMO)?;
+			if let Some(replacement) = op(hart, word) {
+				self.write_u32(hart, virt_addr, WriteKind::Atomic, replacement)?;
+			}
+			return Ok(word);
 		}
-		Ok(word)
+
+		drop(regions_guard);
+
+		self.reservations
+			.write()
+			.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
+
+		if !hart.debug {
+			if let Some(watch_kind) = self.is_watchpoint(virt_addr, size as u8) {
+				hart.request_watchpoint(watch_kind, virt_addr);
+			}
+		}
+
+		Ok(original_val)
 	}
 
 	pub fn atomic_op_dword<F: FnOnce(&mut WhiskerHart, u64) -> Option<u64>>(
@@ -478,12 +522,56 @@ impl Memory {
 		virt_addr: u64,
 		op: F,
 	) -> Result<u64, TrapRequestGuaranteed> {
-		// FIXME: maybe actually do atomics here
-		let dword = self.read_u64(hart, virt_addr, ReadKind::AMO)?;
-		if let Some(replacement) = op(hart, dword) {
-			self.write_u64(hart, virt_addr, WriteKind::Atomic, replacement)?;
+		hart.check_breakpoints(virt_addr, MemoryOpKind::Store)?;
+
+		let size = core::mem::size_of::<u64>();
+		let phys_addr = self.translate_addr(hart, virt_addr, MemoryOpKind::Store)?;
+
+		// This exclusive write lock is what makes the operation atomic
+		let mut regions_guard = self.regions.write();
+		let Some(region) = regions_guard.iter_mut().find(|r| {
+			let r_end = r.start + r.len;
+			phys_addr >= r.start && phys_addr < r_end
+		}) else {
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, virt_addr));
+		};
+
+		check_read_access(hart, &*region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
+		check_write_access(hart, &*region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
+
+		let original_val;
+		if let MemoryKind::MainMemory { backing } = &mut region.kind {
+			let offset = (phys_addr - region.start) as usize;
+			let mut bytes = [0u8; 8];
+			bytes.copy_from_slice(&backing[offset..][..size]);
+			original_val = u64::from_le_bytes(bytes);
+
+			if let Some(replacement) = op(hart, original_val) {
+				let bytes = replacement.to_le_bytes();
+				backing[offset..][..size].copy_from_slice(&bytes);
+			}
+		} else {
+			drop(regions_guard);
+			let dword = self.read_u64(hart, virt_addr, ReadKind::AMO)?;
+			if let Some(replacement) = op(hart, dword) {
+				self.write_u64(hart, virt_addr, WriteKind::Atomic, replacement)?;
+			}
+			return Ok(dword);
 		}
-		Ok(dword)
+
+		drop(regions_guard);
+
+		self.reservations
+			.write()
+			.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
+
+		if !hart.debug {
+			if let Some(watch_kind) = self.is_watchpoint(virt_addr, size as u8) {
+				hart.request_watchpoint(watch_kind, virt_addr);
+			}
+		}
+
+		Ok(original_val)
 	}
 }
 
@@ -537,53 +625,56 @@ impl Memory {
 		ret
 	}
 
-	pub fn write_pte(&self, hart: &mut WhiskerHart, phys_addr: u64, val: u64) -> Result<(), TrapRequestGuaranteed> {
-		let Some(mut region) = self.region_for_addr_mut(phys_addr) else {
-			// FIXME: use effective addr
-			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
+	pub fn write_pte_atomic_cas(
+		&self,
+		hart: &mut WhiskerHart,
+		pte_addr: u64,
+		expected_pte_val: u64,
+		new_pte_val: u64,
+		orig_access_kind: MemoryOpKind,
+	) -> Result<bool, TrapRequestGuaranteed> {
+		let size = core::mem::size_of::<u64>();
+
+		// This is what makes this atomic
+		let mut regions_guard = self.regions.write();
+		let Some(region) = regions_guard.iter_mut().find(|r| {
+			let r_end = r.start + r.len;
+			pte_addr >= r.start && pte_addr < r_end
+		}) else {
+			return Err(pte_access_fault(hart, orig_access_kind, pte_addr));
 		};
-		let region = &mut *region;
 
-		let access_kinds = region.attrs.access_kinds;
-		let max_size = region.attrs.max_size;
-		let size = core::mem::size_of::<u64>() as u8;
-		if !access_kinds.contains(AccessKind::WRITE) || size > max_size {
-			trace!("PTE write not in write region: {:?} at {:#018X}", region, phys_addr);
-			// FIXME: use effective addr
-			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
-		}
-		// FIXME: can this be removed?
-		if !access_kinds.contains(AccessKind::MISALIGNED) && !phys_addr.is_multiple_of(u64::from(size)) {
-			trace!(
-				"PTE access not in misaligned region: {:?} at {:#018X}",
-				region, phys_addr
-			);
-			// FIXME: use effective addr
-			return Err(pte_fault(hart, MemoryOpKind::Store, phys_addr));
-		}
+		check_write_access(hart, &*region, pte_addr, pte_addr, WriteKind::Normal, size as u8)?;
 
-		let ret = match region.kind {
-			MemoryKind::MainMemory { ref mut backing } => {
-				let offset = phys_addr - region.start;
-				let bytes = val.to_le_bytes();
-				backing[offset as usize..][..size as usize].copy_from_slice(&bytes);
-				Ok(())
+		Ok(if let MemoryKind::MainMemory { backing } = &mut region.kind {
+			let offset = (pte_addr - region.start) as usize;
+
+			let mut current_bytes = [0u8; 8];
+			current_bytes.copy_from_slice(&backing[offset..][..size]);
+			let current_val = u64::from_le_bytes(current_bytes);
+
+			if current_val == expected_pte_val {
+				let new_bytes = new_pte_val.to_le_bytes();
+				backing[offset..][..size].copy_from_slice(&new_bytes);
+				true
+			} else {
+				false
 			}
-			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Store, phys_addr)),
-		};
-
-		if !hart.debug
-			&& let Some(watch_kind) = self.is_watchpoint(phys_addr, size)
-			&& matches!(watch_kind, WatchKind::Write | WatchKind::ReadWrite)
-		{
-			hart.request_watchpoint(watch_kind, phys_addr);
-		}
-
-		ret
+		} else {
+			return Err(pte_access_fault(hart, orig_access_kind, pte_addr));
+		})
 	}
 }
 
 fn pte_fault(hart: &mut WhiskerHart, kind: MemoryOpKind, effective_addr: u64) -> TrapRequestGuaranteed {
+	match kind {
+		MemoryOpKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr),
+		MemoryOpKind::Load => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr),
+		MemoryOpKind::Store => hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr),
+	}
+}
+
+fn pte_access_fault(hart: &mut WhiskerHart, kind: MemoryOpKind, effective_addr: u64) -> TrapRequestGuaranteed {
 	match kind {
 		MemoryOpKind::Instruction => hart.request_trap(TrapIdx::INSTRUCTION_ACCESS_FAULT, effective_addr),
 		MemoryOpKind::Load => hart.request_trap(TrapIdx::LOAD_ACCESS_FAULT, effective_addr),

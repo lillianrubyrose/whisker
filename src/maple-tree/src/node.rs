@@ -1,159 +1,218 @@
 use std::{
-	marker::PhantomData,
-	mem::{ManuallyDrop, MaybeUninit},
+	ptr,
+	sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-use crate::tagged::TaggedPtr;
+use super::{MAPLE_NODE_SLOTS, Range};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum NodeKind {
-	Leaf64,
-	Range64,
+/// Nodes are either leaves (containing values) or internal nodes (containing child nodes).
+pub(crate) enum Node<T> {
+	Leaf(LeafNode<T>),
+	Internal(InternalNode<T>),
 }
 
-pub union Slot<K, V, const CAPACITY: usize> {
-	pub value: ManuallyDrop<V>,
-	pub child: ManuallyDrop<TaggedPtr<Node<K, V, CAPACITY>>>,
-}
-
-#[repr(C)]
-pub struct NodeHeader<K, V, const CAPACITY: usize> {
-	pub parent: *mut Node<K, V, CAPACITY>,
-	pub parent_slot: u8,
-	node_type_and_meta: u8,
-	_marker: PhantomData<V>,
-}
-
-impl<K, V, const CAPACITY: usize> NodeHeader<K, V, CAPACITY> {
-	const NODE_KIND_BITS: u8 = 3;
-	const NODE_KIND_MASK: u8 = (1 << Self::NODE_KIND_BITS) - 1;
-	const SLOT_COUNT_MASK: u8 = !Self::NODE_KIND_MASK;
-
-	#[inline(always)]
-	pub fn node_kind(&self) -> NodeKind {
-		// SAFETY: You can only set the node type to a valid value
-		unsafe { std::mem::transmute(self.node_type_and_meta & Self::NODE_KIND_MASK) }
+impl<T> Node<T> {
+	/// Check if this is a leaf node.
+	pub fn is_leaf(&self) -> bool {
+		matches!(self, Node::Leaf(_))
 	}
 
-	#[inline(always)]
-	pub fn set_node_kind(&mut self, kind: NodeKind) {
-		debug_assert!(
-			(kind as u8) <= Self::NODE_KIND_MASK,
-			"NodeKind value must fit in {} bits",
-			Self::NODE_KIND_BITS
-		);
-		self.node_type_and_meta = (self.node_type_and_meta & Self::SLOT_COUNT_MASK) | (kind as u8);
-	}
-
-	#[inline(always)]
-	pub fn slot_count(&self) -> u8 {
-		self.node_type_and_meta >> Self::NODE_KIND_BITS
-	}
-
-	#[inline(always)]
-	pub fn set_slot_count(&mut self, count: u8) {
-		debug_assert!(
-			count <= (Self::SLOT_COUNT_MASK >> Self::NODE_KIND_BITS),
-			"Slot count must fit in {} bits. Max value: {}",
-			8 - Self::NODE_KIND_BITS,
-			Self::SLOT_COUNT_MASK >> Self::NODE_KIND_BITS
-		);
-		self.node_type_and_meta = (self.node_type_and_meta & Self::NODE_KIND_MASK) | (count << Self::NODE_KIND_BITS);
-	}
-}
-
-/// Represents a node in the tree.
-///
-/// # Safety
-///
-/// INVARIANT: The first `header.slot_count()` elements of `pivots` and `slots` must be initialized.
-#[repr(C)]
-pub struct Node<K, V, const CAPACITY: usize> {
-	pub header: NodeHeader<K, V, CAPACITY>,
-	pivots: [MaybeUninit<K>; CAPACITY],
-	slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY],
-}
-
-impl<K, V, const CAPACITY: usize> Node<K, V, CAPACITY> {
-	/// Returns a slice of the initialized pivot keys.
-	///
 	/// # Safety
-	///
-	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
-	pub fn pivots(&self) -> &[K] {
-		let mut count = self.header.slot_count() as usize;
+	/// Caller must ensure this is actually a leaf node.
+	pub unsafe fn as_leaf(&self) -> &LeafNode<T> {
+		match self {
+			Node::Leaf(node) => node,
+			_ => unsafe { std::hint::unreachable_unchecked() },
+		}
+	}
 
-		// Internal nodes have one less pivot than slot
-		if self.header.node_kind() != NodeKind::Leaf64 {
-			count = count.saturating_sub(1);
+	/// # Safety
+	/// Caller must ensure this is actually an internal node.
+	pub unsafe fn as_internal(&self) -> &InternalNode<T> {
+		match self {
+			Node::Internal(node) => node,
+			_ => unsafe { std::hint::unreachable_unchecked() },
+		}
+	}
+}
+
+/// A leaf node containing values.
+#[repr(align(64))]
+pub(crate) struct LeafNode<T> {
+	/// Number of active slots in this node
+	pub count: AtomicUsize,
+	/// The ranges covered by each slot
+	pub ranges: [Range; MAPLE_NODE_SLOTS],
+	/// Values for each range
+	pub values: [AtomicPtr<T>; MAPLE_NODE_SLOTS],
+}
+
+impl<T> Clone for LeafNode<T> {
+	/// The values themselves are not copied, only the pointers.
+	/// This is safe because we manage value lifetimes through RCU.
+	fn clone(&self) -> Self {
+		let count = self.count.load(Ordering::Relaxed);
+		let values = [const { AtomicPtr::new(ptr::null_mut()) }; MAPLE_NODE_SLOTS];
+
+		for i in 0..count {
+			values[i].store(self.values[i].load(Ordering::Relaxed), Ordering::Relaxed);
 		}
 
-		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<K>` and `K` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts(self.pivots.as_ptr().cast::<K>(), count) }
+		Self {
+			ranges: self.ranges,
+			values,
+			count: AtomicUsize::new(count),
+		}
+	}
+}
+
+impl<T> LeafNode<T> {
+	pub fn new() -> Self {
+		Self {
+			ranges: [Range { start: 0, end: 0 }; MAPLE_NODE_SLOTS],
+			values: [const { AtomicPtr::new(ptr::null_mut()) }; MAPLE_NODE_SLOTS],
+			count: AtomicUsize::new(0),
+		}
 	}
 
-	/// Returns a mutable slice of the initialized pivot keys.
-	///
-	/// # Safety
-	///
-	/// INVARIANT: The first `header.slot_count()` elements of `pivots` must be initialized.
-	pub fn pivots_mut(&mut self) -> &mut [K] {
-		let mut count = self.header.slot_count() as usize;
+	/// Find the position where a new range should be inserted.
+	pub fn find_insert_pos(&self, start: usize) -> usize {
+		let count = self.count.load(Ordering::Acquire);
 
-		// Internal nodes have one less pivot than slot
-		if self.header.node_kind() != NodeKind::Leaf64 {
-			count = count.saturating_sub(1);
+		let mut left = 0;
+		let mut right = count;
+
+		while left < right {
+			let mid = left.midpoint(right);
+			if start < self.ranges[mid].start {
+				right = mid;
+			} else {
+				left = mid + 1;
+			}
+		}
+		left
+	}
+
+	/// Insert a range and value at a specific index.
+	///
+	/// Shifts existing entries to make room.
+	pub fn insert_at_index(&mut self, idx: usize, range: Range, value: *mut T) {
+		let count = self.count.load(Ordering::Acquire);
+
+		// Shift entries to the right
+		for i in (idx..count).rev() {
+			self.ranges[i + 1] = self.ranges[i];
+			self.values[i + 1].store(self.values[i].load(Ordering::Acquire), Ordering::Release);
 		}
 
-		// SAFETY: `self.pivots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts_mut(self.pivots.as_mut_ptr().cast::<K>(), count) }
+		// Insert new entry
+		self.ranges[idx] = range;
+		self.values[idx].store(value, Ordering::Release);
+		self.count.fetch_add(1, Ordering::Release);
 	}
 
-	/// Returns a slice of the initialized slots.
+	/// Update or insert a range and value at a specific index.
 	///
-	/// # Safety
+	/// If there's an old value, it's freed.
+	pub fn insert_or_update(&mut self, range: Range, value: *mut T, idx: usize) {
+		self.ranges[idx] = range;
+
+		let old = self.values[idx].swap(value, Ordering::AcqRel);
+		if !old.is_null() {
+			// SAFETY: Old pointer is valid and we own it
+			unsafe {
+				let _ = Box::from_raw(old);
+			}
+		}
+	}
+}
+
+/// An internal node containing child pointers.
+pub(crate) struct InternalNode<T> {
+	/// Number of active children
+	pub count: AtomicUsize,
+	/// The maximum value in each child's subtree
+	pub pivots: [AtomicUsize; MAPLE_NODE_SLOTS],
+	pub children: [AtomicPtr<Node<T>>; MAPLE_NODE_SLOTS],
+}
+
+impl<T> Clone for InternalNode<T> {
+	/// The children themselves are not copied, only the pointers.
+	/// This is safe because we manage children lifetimes through RCU.
+	fn clone(&self) -> Self {
+		let count = self.count.load(Ordering::Relaxed);
+		let pivots = [const { AtomicUsize::new(0) }; MAPLE_NODE_SLOTS];
+		let children = [const { AtomicPtr::new(ptr::null_mut()) }; MAPLE_NODE_SLOTS];
+
+		for i in 0..count {
+			if i < count - 1 {
+				pivots[i].store(self.pivots[i].load(Ordering::Relaxed), Ordering::Relaxed);
+			}
+			children[i].store(self.children[i].load(Ordering::Relaxed), Ordering::Relaxed);
+		}
+
+		Self {
+			pivots,
+			children,
+			count: AtomicUsize::new(count),
+		}
+	}
+}
+
+impl<T> InternalNode<T> {
+	pub const fn new() -> Self {
+		Self {
+			pivots: [const { AtomicUsize::new(0) }; MAPLE_NODE_SLOTS],
+			children: [const { AtomicPtr::new(ptr::null_mut()) }; MAPLE_NODE_SLOTS],
+			count: AtomicUsize::new(0),
+		}
+	}
+
+	/// Find which child should contain the given index.
+	pub fn find_child(&self, index: usize) -> usize {
+		let count = self.count.load(Ordering::Acquire);
+
+		let mut left = 0;
+		let mut right = count;
+
+		while left < right {
+			let mid = left.midpoint(right);
+			let pivot = self.pivots[mid].load(Ordering::Acquire);
+
+			if index <= pivot {
+				right = mid;
+			} else {
+				left = mid + 1;
+			}
+		}
+		left.min(count.saturating_sub(1))
+	}
+
+	/// Insert a child at a specific position.
+	pub fn insert_child(&mut self, idx: usize, child: *mut Node<T>, pivot: usize) {
+		let count = self.count.load(Ordering::Acquire);
+
+		// Shift entries to the right
+		for i in (idx..count).rev() {
+			self.children[i + 1].store(self.children[i].load(Ordering::Acquire), Ordering::Release);
+			self.pivots[i + 1].store(self.pivots[i].load(Ordering::Acquire), Ordering::Release);
+		}
+
+		self.children[idx].store(child, Ordering::Release);
+		self.pivots[idx].store(pivot, Ordering::Release);
+		self.count.fetch_add(1, Ordering::Release);
+	}
+
+	/// Update the pivot value at a specific index if the new value is larger.
 	///
-	/// INVARIANT: The first `header.slot_count()` elements of `slots` must be initialized.
-	pub fn slots(&self) -> &[Slot<K, V, CAPACITY>] {
-		let count = self.header.slot_count() as usize;
-		// SAFETY: `self.slots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<Slot<K, V, CAPACITY>>` and `Slot<K, V, CAPACITY>` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot<K, V, CAPACITY>>(), count) }
-	}
-
-	/// Returns a mutable slice of the initialized slots.
-	///
-	/// # Safety
-	///
-	/// INVARIANT: The first `header.slot_count()` elements of `slots` must be initialized.
-	pub fn slots_mut(&mut self) -> &mut [Slot<K, V, CAPACITY>] {
-		let count = self.header.slot_count() as usize;
-		// SAFETY: `self.slots` contains only initialized values as guaranteed by the invariant.
-		// SAFETY: `MaybeUninit<Slot<K, V, CAPACITY>>` and `Slot<K, V, CAPACITY>` have the same layout. so the cast is safe.
-		unsafe { std::slice::from_raw_parts_mut(self.slots.as_mut_ptr().cast::<Slot<K, V, CAPACITY>>(), count) }
-	}
-
-	pub fn pivots_and_slots(&self) -> (&[K], &[Slot<K, V, CAPACITY>]) {
-		(self.pivots(), self.slots())
-	}
-
-	pub fn pivots_and_slots_raw_mut(
-		&mut self,
-	) -> (
-		&mut [MaybeUninit<K>; CAPACITY],
-		&mut [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY],
-	) {
-		(&mut self.pivots, &mut self.slots)
-	}
-
-	pub fn pivots_raw_mut(&mut self) -> &mut [MaybeUninit<K>; CAPACITY] {
-		&mut self.pivots
-	}
-
-	pub fn slots_raw_mut(&mut self) -> &mut [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY] {
-		&mut self.slots
+	/// This is used when a child's maximum value increases.
+	pub fn update_pivot(&mut self, idx: usize, new_max: usize) {
+		let count = self.count.load(Ordering::Acquire);
+		if idx < count {
+			let current = self.pivots[idx].load(Ordering::Acquire);
+			if new_max > current {
+				self.pivots[idx].store(new_max, Ordering::Release);
+			}
+		}
 	}
 }

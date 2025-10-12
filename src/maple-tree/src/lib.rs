@@ -1,799 +1,676 @@
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
+mod node;
+mod range;
+mod rcu;
+mod spin_lock;
 
 use std::{
-	mem::{ManuallyDrop, MaybeUninit},
-	sync::atomic::Ordering,
+	ptr,
+	sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-use crossbeam_epoch::{Atomic, Guard, Owned, Shared};
-use spin::Mutex;
+use node::{InternalNode, LeafNode, Node};
+use range::Range;
+use rcu::{RCU_READER_COUNT, RcuGuard, call_rcu, rcu_barrier};
+use spin_lock::SpinLock;
 
-use crate::{
-	arena::NodeArena,
-	node::{Node, NodeKind, Slot},
-	tagged::TaggedPtr,
-};
+const MAPLE_NODE_SLOTS: usize = 16;
 
-pub mod arena;
-pub mod node;
-pub mod tagged;
+/// Minimum number of slots that must be filled in a node (excluding root)
+/// before a rebalance will happen.
+const MIN_SLOTS: usize = MAPLE_NODE_SLOTS / 2;
 
-// Branching factor for standard nodes.
-pub const RANGE64_SLOTS: usize = 16;
-pub const RANGE64_PIVOTS: usize = RANGE64_SLOTS - 1;
-
-pub trait SupportedCapacity {}
-
-macro_rules! supported_capacity {
-    ($($capacity:literal),+) => {
-        $(
-            impl<K, V> SupportedCapacity for MapleTree<K, V, $capacity> {}
-        )+
-    };
+#[derive(Debug)]
+pub struct MapleTree<T> {
+	root: AtomicPtr<Node<T>>,
+	height: AtomicUsize,
+	lock: SpinLock,
 }
 
-supported_capacity!(
-	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
-);
+// SAFETY: Our RCU and locking mechanisms ensure thread-safe access
+unsafe impl<T: Send> Send for MapleTree<T> {}
+unsafe impl<T: Sync> Sync for MapleTree<T> {}
 
-pub enum NodePtr<K, V, const CAPACITY: usize> {
-	Empty,
-	Direct(K, TaggedPtr<V>),
-	Node(TaggedPtr<Node<K, V, CAPACITY>>),
+#[derive(Debug)]
+enum StoreType {
+	/// The new range exactly matches an existing slot - just replace the value
+	ExactFit,
+
+	/// Can modify an existing slot by updating its range
+	UpdateExistingSlotRange,
+
+	/// Need to insert into an existing node that has space
+	InsertIntoExistingNode,
+
+	/// Node is full and needs to be split
+	SplitNode,
 }
 
-pub struct MapleTree<K, V, const CAPACITY: usize> {
-	root: Atomic<NodePtr<K, V, CAPACITY>>,
-	arena: NodeArena<K, V, CAPACITY>,
-	lock: Mutex<()>,
+struct WriteState {
+	store_type: StoreType,
+	slot_idx: usize,
 }
 
-unsafe impl<K, V, const CAPACITY: usize> Send for MapleTree<K, V, CAPACITY> where Self: SupportedCapacity {}
-unsafe impl<K, V, const CAPACITY: usize> Sync for MapleTree<K, V, CAPACITY> where Self: SupportedCapacity {}
-
-impl<K, V, const CAPACITY: usize> MapleTree<K, V, CAPACITY>
-where
-	Self: SupportedCapacity,
-	K: PartialEq + PartialOrd + Ord + Copy,
-	[(); CAPACITY + 1]:,
-{
-	pub fn new() -> Self {
+impl<T: 'static> MapleTree<T> {
+	pub const fn new() -> Self {
 		Self {
-			root: Atomic::new(NodePtr::Empty),
-			arena: NodeArena::new(),
-			lock: Mutex::new(()),
+			root: AtomicPtr::new(ptr::null_mut()),
+			height: AtomicUsize::new(0),
+			lock: SpinLock::new(),
 		}
 	}
 
-	pub fn load<'guard>(&self, index: K, guard: &'guard Guard) -> Option<&'guard V>
-	where
-		K: 'guard,
-	{
-		let root = self.root.load(Ordering::Relaxed, guard);
+	/// Try to load a value at a specific index.
+	pub fn load(&self, index: usize) -> Option<&T> {
+		let _guard = RcuGuard::new();
 
-		// SAFETY: The `root` pointer is loaded from an `Atomic` pointer that's only ever updated by `store`.
-		// `store` always allocates memory for new nodes and values through `NodeArena`, ensuring the pointer is valid.
-		// The `guard` ensures that the memory will not be freed for the lifetime of the guard.
-		match unsafe { root.as_ref() } {
-			Some(NodePtr::Direct(stored_index, ptr)) => {
-				if index == *stored_index {
-					// SAFETY: The `ptr` points to a value allocated by `NodeArena`.
-					// The `guard` ensures that the value is pinned and will not be freed during the lifetime of this function.
-					Some(unsafe { &*ptr.ptr() })
-				} else {
-					None
-				}
-			}
-
-			Some(NodePtr::Node(ptr)) => {
-				let leaf = self.find_leaf(*ptr, index, guard);
-
-				// SAFETY: `find_leaf` returns a `TaggedPtr` to a leaf node that's allocated by `NodeArena`.
-				// The `guard` ensures that the leaf node is pinned and will not be freed during the lifetime of this function.
-				let leaf = unsafe { &*leaf.ptr() };
-				let pivots = leaf.pivots();
-				let slots = leaf.slots();
-
-				match pivots.binary_search(&index) {
-					// SAFETY: `find_leaf` guarantees that it returns a node of kind `NodeKind::Leaf64`.
-					// In a `Leaf64` node, the `Slot` union is defined to hold a `value` and not a `child` pointer.
-					// Because we have found an exact match for the index in the pivots array, we can be sure that
-					// the corresponding slot at `slots[idx]` contains a value due to the slot_count invariant on `Node`.
-					Ok(idx) => Some(unsafe { &*slots[idx].value }),
-					Err(_) => None,
-				}
-			}
-
-			_ => None,
+		let root = self.root.load(Ordering::Acquire);
+		if root.is_null() {
+			return None;
 		}
+
+		// SAFETY: Root pointer is valid while holding RCU read lock
+		unsafe { self.load_from(root, index).map(|ptr| &*ptr) }
 	}
 
-	pub fn store(&self, index: K, value: V) {
-		let _lock = self.lock.lock(); // Synchronize writes
-		let guard = &crossbeam_epoch::pin();
+	/// Try to load a value at a specific index.
+	///
+	/// # Safety
+	///
+	/// This is unsafe in a concurrent context.
+	/// The caller must ensure exclusive access.
+	pub fn load_mut(&self, index: usize) -> Option<&mut T> {
+		let _guard = RcuGuard::new();
 
-		let root = self.root.load(Ordering::Relaxed, guard);
-
-		// SAFETY: The `root` pointer is loaded from an `Atomic` pointer that's only ever updated by this function,
-		// which is synchronized with a `Mutex` ensuring that the root always points to valid memory.
-		// The `guard` ensures that the memory will not be freed for the lifetime of the guard.
-		match unsafe { root.as_ref() } {
-			Some(NodePtr::Empty) => {
-				let new_value_ptr = self.arena.alloc_value(value);
-				let new_root = NodePtr::Direct(index, TaggedPtr::new(new_value_ptr.as_ptr(), 0));
-				self.root.store(Owned::new(new_root), Ordering::Release);
-			}
-
-			Some(NodePtr::Direct(existing_index, existing_ptr)) => {
-				if index == *existing_index {
-					// SAFETY: The `existing_ptr` points to a value allocated by `NodeArena`.
-					// The `guard` ensures that the value is pinned and will not be freed during the lifetime of this function.
-					// The mutex on this function prevents data races.
-					unsafe { existing_ptr.ptr().write(value) };
-					return;
-				}
-
-				let mut node = self.arena.alloc_node();
-				// SAFETY: `NodeArena` guarantees that `alloc_node` returns a `NonNull<u8>`
-				// pointer to valid, uninitialized memory for a `Node`.
-				// The mutex on this function ensures that we have exclusive access to the memory.
-				let node_ref = unsafe { node.as_mut() };
-				node_ref.header.parent = std::ptr::null_mut();
-				node_ref.header.parent_slot = 0;
-				node_ref.header.set_slot_count(2);
-				node_ref.header.set_node_kind(NodeKind::Leaf64);
-
-				// SAFETY: The `existing_ptr` is valid for the duration of the guard.
-				// `ptr::read` is used to move the value, which is safe because we immediately
-				// re-insert it into the new node which avoids a double-free, as the value is now
-				// owned by the new node and the old `Direct` pointer will be replaced.
-				let existing_value = unsafe { existing_ptr.ptr().read() };
-				if index < *existing_index {
-					let pivots = node_ref.pivots_mut();
-					pivots[0] = index;
-					pivots[1] = *existing_index;
-
-					let slots = node_ref.slots_mut();
-					slots[0].value = ManuallyDrop::new(value);
-					slots[1].value = ManuallyDrop::new(existing_value);
-				} else {
-					let pivots = node_ref.pivots_mut();
-					pivots[0] = *existing_index;
-					pivots[1] = index;
-
-					let slots = node_ref.slots_mut();
-					slots[0].value = ManuallyDrop::new(existing_value);
-					slots[1].value = ManuallyDrop::new(value);
-				}
-
-				let new_root = NodePtr::Node(TaggedPtr::new(node.as_ptr(), 0));
-				self.root.store(Owned::new(new_root), Ordering::Release);
-			}
-
-			Some(NodePtr::Node(node)) => {
-				let leaf_ptr = self.find_leaf(*node, index, guard);
-
-				// CoW
-				let mut new_leaf = self.arena.clone_node(leaf_ptr);
-
-				// SAFETY: `NodeArena` guarantees that `clone_node` returns a `NonNull<u8>`
-				// pointer to a valid copy of the original `Node`.
-				// The mutex on this function ensures that we have exclusive access to the memory.
-				let new_leaf_ref = unsafe { new_leaf.as_mut() };
-
-				// `leaf_insert` will either insert the value or split the node if full.
-				if let Some((pivot, new_sibling_ptr)) = self.leaf_insert(new_leaf_ref, index, value) {
-					// The leaf was split. We need to insert the new pivot and sibling into the parent.
-					let new_root_ptr =
-						self.insert_into_parent(leaf_ptr.ptr(), new_leaf.as_ptr(), pivot, new_sibling_ptr.ptr(), guard);
-					self.root
-						.store(Owned::new(NodePtr::Node(new_root_ptr)), Ordering::Release);
-				} else {
-					let new_root_ptr = self.walk_up_and_update(leaf_ptr.ptr(), new_leaf.as_ptr(), guard);
-					self.root
-						.store(Owned::new(NodePtr::Node(new_root_ptr)), Ordering::Release);
-				}
-			}
-			_ => {}
+		let root = self.root.load(Ordering::Acquire);
+		if root.is_null() {
+			return None;
 		}
+
+		// SAFETY: Caller ensures exclusive access for mutation
+		unsafe { self.load_from(root, index).map(|ptr| &mut *ptr) }
 	}
 
-	pub fn clear(&self) {
-		let _lock = self.lock.lock();
-		let guard = &crossbeam_epoch::pin();
-
-		let old_root = self.root.swap(Owned::new(NodePtr::Empty), Ordering::Release, guard);
-		if let Some(old_root) = unsafe { old_root.as_ref() } {
-			match old_root {
-				NodePtr::Empty => {}
-				NodePtr::Direct(_, tagged_ptr) => unsafe {
-					guard.defer_destroy(Shared::from(tagged_ptr.ptr().cast_const()));
-				},
-				NodePtr::Node(tagged_ptr) => {
-					self.defer_destroy_node(tagged_ptr.ptr(), guard);
-				}
-			}
-		}
+	/// Store a value at a single index.
+	pub fn store(&self, index: usize, value: T) {
+		self.insert(Range::new(index, index), value);
 	}
 
-	fn defer_destroy_node<'guard>(&self, node_ptr: *mut Node<K, V, CAPACITY>, guard: &'guard Guard) {
-		let node = unsafe { &*node_ptr };
+	/// Store a value across a range of indices.
+	pub fn store_range(&self, start: usize, end: usize, value: T) {
+		self.insert(Range::new(start, end), value);
+	}
 
-		match node.header.node_kind() {
-			NodeKind::Leaf64 => {
-				let slots = unsafe { (*node_ptr).slots_mut() };
-				for i in 0..node.header.slot_count() as usize {
-					unsafe {
-						ManuallyDrop::drop(&mut slots[i].value);
-					}
-				}
-			}
-			NodeKind::Range64 => {
-				let slots = node.slots();
-				for i in 0..node.header.slot_count() as usize {
-					let child_ptr = unsafe { *slots[i].child };
-					self.defer_destroy_node(child_ptr.ptr(), guard);
-				}
-			}
+	/// Remove and return the value at a specific index.
+	pub fn erase(&self, index: usize) -> Option<T> {
+		let _guard = self.lock.lock();
+		let old_root = self.root.load(Ordering::Acquire);
+		if old_root.is_null() {
+			return None;
 		}
 
+		// SAFETY: We hold the write lock
 		unsafe {
-			guard.defer_destroy(Shared::from(node_ptr.cast_const()));
-		}
-	}
-
-	fn find_leaf<'guard>(
-		&self,
-		mut node: TaggedPtr<Node<K, V, CAPACITY>>,
-		index: K,
-		_guard: &'guard Guard,
-	) -> TaggedPtr<Node<K, V, CAPACITY>> {
-		const MAPLE_HEIGHT_MAX: usize = 31;
-
-		// A static depth loop is bound to the theoretical maximum height of the tree to prevent an infinite loop.
-		// The current Linux C implementation defines this here: https://github.com/torvalds/linux/blob/50c19e20ed2ef359cf155a39c8462b0a6351b9fa/include/linux/maple_tree.h#L188
-		for _ in 0..MAPLE_HEIGHT_MAX {
-			// SAFETY: The initial `node` pointer is guaranteed to be valid by the caller.
-			// In subsequent iterations `node` is updated with a child pointer from a valid parent node, so `node.ptr()` is
-			// always guaranteed to be a valid pointer of `Node` that will not be freed during the lifetime of this function.
-			let node_ref = unsafe { &*node.ptr() };
-			if node_ref.header.node_kind() == NodeKind::Leaf64 {
-				return node;
+			let (new_root, erased_val, _) = self.erase_recursive(old_root, index);
+			if new_root != old_root {
+				self.root.store(new_root, Ordering::Release);
+				call_rcu(old_root);
 			}
 
-			let pivots = node_ref.pivots();
-			let slots = node_ref.slots();
-
-			let slot_index = pivots.partition_point(|&p| p < index);
-
-			// SAFETY: This node isn't a Leaf node so it is an internal node.
-			// The Tree's invariant that all slots of an internal node always contain `child` valid pointers
-			// guarantees that this is a safe access.
-			node = unsafe { *slots[slot_index].child };
+			erased_val.map(|ptr| *Box::from_raw(ptr))
 		}
-
-		panic!("maple tree max depth exceeded");
 	}
 
-	/// Updates the parent pointers of all children of `node_ptr`.
-	/// This is called after a node is cloned.
-	fn reparent_children(&self, node_ptr: *mut Node<K, V, CAPACITY>) {
-		// SAFETY: It is up to the caller to guarantee that `node_ptr` is a valid pointer to a node
-		// and that we have exclusive mutable access.
-		let node = unsafe { &mut *node_ptr };
+	pub fn clear(&mut self) {
+		let root = self.root.swap(ptr::null_mut(), Ordering::AcqRel);
+		if !root.is_null() {
+			call_rcu(root);
+			rcu_barrier();
+		}
+	}
 
-		// Leaf nodes don't have children.
-		if node.header.node_kind() == NodeKind::Leaf64 {
+	unsafe fn load_from(&self, node: *const Node<T>, index: usize) -> Option<*mut T> {
+		if unsafe { (*node).is_leaf() } {
+			let leaf = unsafe { (*node).as_leaf() };
+			let count = leaf.count.load(Ordering::Acquire);
+			for i in 0..count {
+				let range = leaf.ranges[i];
+				if index >= range.start && index <= range.end {
+					return Some(leaf.values[i].load(Ordering::Acquire));
+				}
+			}
+			None
+		} else {
+			let internal = unsafe { (*node).as_internal() };
+			let count = internal.count.load(Ordering::Acquire);
+			for i in 0..count {
+				let pivot = internal.pivots[i].load(Ordering::Acquire);
+				if index <= pivot {
+					let child = internal.children[i].load(Ordering::Acquire);
+					return unsafe { self.load_from(child, index) };
+				}
+			}
+			None
+		}
+	}
+
+	/// Insert a value with the given range into the tree.
+	fn insert(&self, range: Range, value: T) {
+		let _guard = self.lock.lock();
+		let value = Box::into_raw(Box::new(value));
+
+		let root = self.root.load(Ordering::Acquire);
+		if root.is_null() {
+			// Tree is empty, create a new leaf node
+			let mut leaf = LeafNode::new();
+			leaf.ranges[0] = range;
+			leaf.values[0].store(value, Ordering::Release);
+			leaf.count.store(1, Ordering::Release);
+
+			self.root
+				.store(Box::into_raw(Box::new(Node::Leaf(leaf))), Ordering::Release);
+			self.height.store(1, Ordering::Release);
 			return;
 		}
 
-		for (i, slot) in node.slots_mut().iter_mut().enumerate() {
-			// SAFETY: The check above ensures this is an internal node.
-			// By the tree's invariant the slots of an internal node always contain
-			// `child` pointers.
-			let child_tagged_ptr = unsafe { &*slot.child };
-			let child_ptr = child_tagged_ptr.ptr();
-
-			if !child_ptr.is_null() {
-				// SAFETY: `child_ptr` is a pointer to a node that was valid in the original tree.
-				// `store` locking a mutex ensures exclusive access.
-				unsafe {
-					(*child_ptr).header.parent = node_ptr;
-					(*child_ptr).header.parent_slot = i as u8;
-				}
-			}
-		}
-	}
-
-	fn walk_up_and_update<'guard>(
-		&self,
-		mut original_node_ptr: *mut Node<K, V, CAPACITY>,
-		mut new_node_ptr: *mut Node<K, V, CAPACITY>,
-		_guard: &'guard Guard,
-	) -> TaggedPtr<Node<K, V, CAPACITY>> {
-		loop {
-			// SAFETY: `original_node_ptr` always points to a node on the original path.
-			// On the first iteration it points to the original leaf node which is guaranteed to be valid by the caller.
-			// On subsequent iterations it points to the `parent_ptr` from the previous node.
-			// The guard ensures that these pointers are valid for the duration of this function.
-			let (parent_ptr, slot_in_parent) = unsafe {
-				let child_ref = &*original_node_ptr;
-				(child_ref.header.parent, child_ref.header.parent_slot as usize)
-			};
-
-			// If the parent is null, we've reached the root of the tree.
-			// `new_node_ptr` points to the head of the new path which is the new root of the tree.
-			if parent_ptr.is_null() {
-				return TaggedPtr::new(new_node_ptr, 0);
-			}
-
-			let mut new_parent = self.arena.clone_node_raw(parent_ptr);
-
-			// SAFETY: `clone_node_raw` returns a `NonNull<Node<V, CAPACITY>>` which is guaranteed to be valid.
-			// The caller (`store`) holds a mutex which guarantees exclusive access to this memory.
-			let new_parent_ref = unsafe { new_parent.as_mut() };
-
-			// Update the slot in the new parent to point to the new child from the level below.
-			new_parent_ref.slots_mut()[slot_in_parent].child = ManuallyDrop::new(TaggedPtr::new(new_node_ptr, 0));
-			self.reparent_children(new_parent.as_ptr());
-
-			original_node_ptr = parent_ptr;
-			new_node_ptr = new_parent.as_ptr();
-		}
-	}
-
-	fn leaf_insert(
-		&self,
-		leaf: &mut Node<K, V, CAPACITY>,
-		index: K,
-		value: V,
-	) -> Option<(K, TaggedPtr<Node<K, V, CAPACITY>>)> {
-		let count = leaf.header.slot_count() as usize;
-		let pivots = leaf.pivots();
-		let slot_index = pivots.binary_search(&index).unwrap_or_else(|i| i);
-
-		// Overwrite the value in-place if the key already exists.
-		if slot_index < count && pivots[slot_index] == index {
-			unsafe { ManuallyDrop::drop(&mut leaf.slots_mut()[slot_index].value) };
-			leaf.slots_mut()[slot_index].value = ManuallyDrop::new(value);
-			return None;
-		}
-
-		// Node has space, insert the new value
-		if count < CAPACITY {
-			let (pivots, slots) = leaf.pivots_and_slots_raw_mut();
-
-			// SAFETY: This function is only called by `store` which has a mutex to ensure exclusive access to the memory.
-			// The pointers derived from `slots` and `pivots` are valid for R/W because they come from a mutable reference to
-			// an arena-allocated `Node`.
-			// This operation is **only** safe if the node is not full, if it is then it will write past the array bounds.
-			unsafe {
-				// Shift pivots and slots to the right to make space for the new pivot and value.
-
-				let pivots_ptr = pivots.as_mut_ptr();
-				std::ptr::copy(
-					pivots_ptr.add(slot_index),
-					pivots_ptr.add(slot_index + 1),
-					count - slot_index,
-				);
-
-				let slots_ptr = slots.as_mut_ptr();
-				for i in (slot_index..count).rev() {
-					let val = slots_ptr.add(i).read();
-					slots_ptr.add(i + 1).write(val);
-				}
-			}
-
-			pivots[slot_index].write(index);
-			slots[slot_index].write(Slot {
-				value: ManuallyDrop::new(value),
-			});
-
-			leaf.header.set_slot_count(count as u8 + 1);
-			return None;
-		}
-
-		// Node is full, split it
-		let mut all_pivots: [MaybeUninit<K>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
-		let mut all_slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY + 1] =
-			unsafe { MaybeUninit::uninit().assume_init() };
-
+		// SAFETY: We hold the write lock
 		unsafe {
-			let pivots_ptr = leaf.pivots().as_ptr();
-			let slots_mut_ptr = leaf.slots_mut().as_mut_ptr();
+			let (new_root, split_opt) = self.insert_recursive(root, range, value);
 
-			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots.as_mut_ptr().cast(), slot_index);
-			for i in 0..slot_index {
-				all_slots[i].write(slots_mut_ptr.add(i).read());
-			}
+			if let Some((sibling, pivot)) = split_opt {
+				// Root split
+				let new_parent = InternalNode::new();
+				new_parent.children[0].store(new_root, Ordering::Release);
+				new_parent.children[1].store(sibling, Ordering::Release);
+				new_parent.pivots[0].store(pivot, Ordering::Release);
+				new_parent.count.store(2, Ordering::Release);
 
-			all_pivots[slot_index].write(index);
-			all_slots[slot_index].write(Slot {
-				value: ManuallyDrop::new(value),
-			});
-
-			std::ptr::copy_nonoverlapping(
-				pivots_ptr.add(slot_index),
-				all_pivots.as_mut_ptr().add(slot_index + 1).cast(),
-				count - slot_index,
-			);
-			for i in slot_index..count {
-				all_slots[i + 1].write(slots_mut_ptr.add(i).read());
-			}
-		}
-
-		// Find the split point and the pivot to promote to the parent
-		let split_point = (CAPACITY + 1) / 2;
-		// SAFETY: `all_pivots` is a slice of initialized pivots.
-		let pivot_to_promote = unsafe { all_pivots[split_point - 1].assume_init() };
-
-		// Turn `leaf` into the new left sibling in the split.
-		leaf.header.set_slot_count(split_point as u8);
-		let (left_pivots, left_slots) = leaf.pivots_and_slots_raw_mut();
-		unsafe {
-			let all_pivots_ptr = all_pivots.as_ptr();
-			let all_slots_ptr = all_slots.as_mut_ptr();
-
-			std::ptr::copy_nonoverlapping(all_pivots_ptr, left_pivots.as_mut_ptr(), split_point);
-			for i in 0..split_point {
-				left_slots.as_mut_ptr().add(i).write(all_slots_ptr.add(i).read());
-			}
-		}
-
-		// Create the new right sibling node.
-		let mut new_right_sibling = self.arena.alloc_node();
-		// SAFETY: `NodeArena` guarantees that `alloc_node` returns a `NonNull<u8>`
-		// pointer to valid, uninitialized memory for a `Node`.
-		// The mutex from the caller (`store`) ensures that we have exclusive access to the memory.
-		let new_sibling_ref = unsafe { new_right_sibling.as_mut() };
-		new_sibling_ref.header.set_node_kind(NodeKind::Leaf64);
-		new_sibling_ref.header.parent = leaf.header.parent;
-		new_sibling_ref.header.parent_slot = leaf.header.parent_slot;
-
-		let right_count = (CAPACITY + 1) - split_point;
-		new_sibling_ref.header.set_slot_count(right_count as u8);
-		let (right_pivots, right_slots) = new_sibling_ref.pivots_and_slots_raw_mut();
-
-		// Move the second half of the pivots and slots into the new node.
-		unsafe {
-			let all_pivots_ptr = all_pivots.as_ptr();
-			let all_slots_ptr = all_slots.as_mut_ptr();
-
-			std::ptr::copy_nonoverlapping(all_pivots_ptr.add(split_point), right_pivots.as_mut_ptr(), right_count);
-			for i in 0..right_count {
-				right_slots
-					.as_mut_ptr()
-					.add(i)
-					.write(all_slots_ptr.add(split_point + i).read());
-			}
-		}
-
-		Some((pivot_to_promote, TaggedPtr::new(new_right_sibling.as_ptr(), 0)))
-	}
-
-	fn internal_insert(
-		&self,
-		node: &mut Node<K, V, CAPACITY>,
-		pivot: K,
-		child: TaggedPtr<Node<K, V, CAPACITY>>,
-	) -> Option<(K, TaggedPtr<Node<K, V, CAPACITY>>)> {
-		let count = node.header.slot_count() as usize;
-		let pivots = node.pivots();
-		let pivot_insertion_point = pivots.binary_search(&pivot).unwrap_or_else(|i| i);
-		// In an internal node, the new child slot is after the new pivot's position.
-		let slot_insertion_point = pivot_insertion_point + 1;
-
-		// Node has space, insert the new value
-		if count < CAPACITY {
-			let (pivots_raw, slots_raw) = node.pivots_and_slots_raw_mut();
-			// SAFETY: This function is only called by `store` which has a mutex to ensure exclusive access to the memory.
-			// The pointers derived from `slots` and `pivots` are valid for R/W because they come from a mutable reference to
-			// an arena-allocated `Node`.
-			// This operation is **only** safe if the node is not full, if it is then it will write past the array bounds.
-			unsafe {
-				// Shift pivots and slots to the right to make space for the new pivot and value.
-
-				let pivots_ptr = pivots_raw.as_mut_ptr();
-				std::ptr::copy(
-					pivots_ptr.add(pivot_insertion_point),
-					pivots_ptr.add(pivot_insertion_point + 1),
-					// Internal nodes have `count - 1` pivots.
-					(count - 1) - pivot_insertion_point,
-				);
-
-				let slots_ptr = slots_raw.as_mut_ptr();
-				std::ptr::copy(
-					slots_ptr.add(slot_insertion_point),
-					slots_ptr.add(slot_insertion_point + 1),
-					count - slot_insertion_point,
-				);
-			}
-			pivots_raw[pivot_insertion_point].write(pivot);
-			slots_raw[slot_insertion_point].write(Slot {
-				child: ManuallyDrop::new(child),
-			});
-			node.header.set_slot_count(count as u8 + 1);
-			return None;
-		}
-
-		// Node is full, split it
-		let pivots_count = count - 1;
-		let mut all_pivots: [MaybeUninit<K>; CAPACITY + 1] = unsafe { MaybeUninit::uninit().assume_init() };
-		let mut all_slots: [MaybeUninit<Slot<K, V, CAPACITY>>; CAPACITY + 1] =
-			unsafe { MaybeUninit::uninit().assume_init() };
-
-		unsafe {
-			let pivots_ptr = pivots.as_ptr();
-			// SAFETY: `MaybeUninit<u64>` and `u64` have the same layout as eachother.
-			let all_pivots_ptr = all_pivots.as_mut_ptr().cast::<K>();
-			std::ptr::copy_nonoverlapping(pivots_ptr, all_pivots_ptr, pivot_insertion_point);
-			all_pivots_ptr.add(pivot_insertion_point).write(pivot);
-			std::ptr::copy_nonoverlapping(
-				pivots_ptr.add(pivot_insertion_point),
-				all_pivots_ptr.add(pivot_insertion_point + 1),
-				pivots_count - pivot_insertion_point,
-			);
-
-			let slots_ptr = node.slots().as_ptr();
-			// SAFETY: `MaybeUninit<Slot<V, CAPACITY>>` and `Slot<V, CAPACITY>` have the same layout as eachother.
-			let all_slots_ptr = all_slots.as_mut_ptr().cast::<Slot<K, V, CAPACITY>>();
-			std::ptr::copy_nonoverlapping(slots_ptr, all_slots_ptr, slot_insertion_point);
-			all_slots_ptr.add(slot_insertion_point).write(Slot {
-				child: ManuallyDrop::new(child),
-			});
-			std::ptr::copy_nonoverlapping(
-				slots_ptr.add(slot_insertion_point),
-				all_slots_ptr.add(slot_insertion_point + 1),
-				count - slot_insertion_point,
-			);
-		}
-
-		let left_slots_count = (all_slots.len() + 1) / 2;
-		let left_pivots_count = left_slots_count - 1;
-		// SAFETY: `all_pivots[left_pivots_count]` is initialized.
-		let pivot_to_promote = unsafe { all_pivots[left_pivots_count].assume_init_read() };
-
-		// Turn `node` into the new left sibling in the split.
-		node.header.set_slot_count(left_slots_count as u8);
-		let (left_pivots, left_slots) = node.pivots_and_slots_raw_mut();
-		unsafe {
-			std::ptr::copy_nonoverlapping(all_pivots.as_ptr(), left_pivots.as_mut_ptr(), left_pivots_count);
-			std::ptr::copy_nonoverlapping(all_slots.as_ptr(), left_slots.as_mut_ptr(), left_slots_count);
-		}
-
-		// Create the new right sibling node.
-		let mut new_right_sibling = self.arena.alloc_node();
-		// SAFETY: `NodeArena` guarantees that `alloc_node` returns a `NonNull<u8>`
-		// pointer to valid, uninitialized memory for a `Node`.
-		// The mutex from the caller (`store`) ensures that we have exclusive access to the memory.
-		let new_sibling_ref = unsafe { new_right_sibling.as_mut() };
-		new_sibling_ref.header.set_node_kind(node.header.node_kind());
-		new_sibling_ref.header.parent = node.header.parent;
-		new_sibling_ref.header.parent_slot = node.header.parent_slot;
-
-		let right_slots_count = (CAPACITY + 1) - left_slots_count;
-		let right_pivots_count = right_slots_count - 1;
-		new_sibling_ref.header.set_slot_count(right_slots_count as u8);
-
-		let (right_pivots, right_slots) = new_sibling_ref.pivots_and_slots_raw_mut();
-
-		// Move the second half of the pivots and slots into the new node.
-		unsafe {
-			std::ptr::copy_nonoverlapping(
-				all_pivots.as_ptr().add(left_pivots_count + 1),
-				right_pivots.as_mut_ptr(),
-				right_pivots_count,
-			);
-			std::ptr::copy_nonoverlapping(
-				all_slots.as_ptr().add(left_slots_count),
-				right_slots.as_mut_ptr(),
-				right_slots_count,
-			);
-		}
-
-		Some((pivot_to_promote, TaggedPtr::new(new_right_sibling.as_ptr(), 0)))
-	}
-
-	fn create_new_root(
-		&self,
-		pivot: K,
-		left_child: *mut Node<K, V, CAPACITY>,
-		right_child: *mut Node<K, V, CAPACITY>,
-	) -> TaggedPtr<Node<K, V, CAPACITY>> {
-		let mut new_root = self.arena.alloc_node();
-		// SAFETY: `NodeArena` guarantees that `alloc_node` returns a `NonNull<u8>`
-		// pointer to valid, uninitialized memory for a `Node`.
-		// The mutex from the caller (`store`) ensures that we have exclusive access to the memory.
-		let new_root_ref = unsafe { new_root.as_mut() };
-
-		new_root_ref.header.set_node_kind(NodeKind::Range64);
-		new_root_ref.header.set_slot_count(2);
-		new_root_ref.header.parent = std::ptr::null_mut();
-		new_root_ref.header.parent_slot = 0;
-
-		new_root_ref.pivots_mut()[0] = pivot;
-
-		let slots = new_root_ref.slots_mut();
-		slots[0].child = ManuallyDrop::new(TaggedPtr::new(left_child, 0));
-		slots[1].child = ManuallyDrop::new(TaggedPtr::new(right_child, 0));
-
-		self.reparent_children(new_root.as_ptr());
-
-		TaggedPtr::new(new_root.as_ptr(), 0)
-	}
-
-	fn insert_into_parent<'guard>(
-		&self,
-		mut old_child_ptr: *mut Node<K, V, CAPACITY>,
-		mut new_child_ptr: *mut Node<K, V, CAPACITY>,
-		mut pivot: K,
-		mut new_sibling_ptr: *mut Node<K, V, CAPACITY>,
-		guard: &'guard Guard,
-	) -> TaggedPtr<Node<K, V, CAPACITY>> {
-		// SAFETY: `old_child_ptr` is the original leaf that was split.
-		// The caller (`store`) guarantees that it's valid.
-		let parent_ptr = unsafe { (*old_child_ptr).header.parent };
-
-		// Check if the split was on the root
-		if parent_ptr.is_null() {
-			return self.create_new_root(pivot, new_child_ptr, new_sibling_ptr);
-		}
-
-		loop {
-			// SAFETY: `old_child_ptr` always points to a valid node on the original path.
-			// On subsequent iterations it's the parent of the previous node.
-			let (current_parent_ptr, slot_in_parent) = unsafe {
-				let child_ref = &*old_child_ptr;
-				(child_ref.header.parent, child_ref.header.parent_slot as usize)
-			};
-
-			let mut new_parent = self.arena.clone_node_raw(current_parent_ptr);
-			// SAFETY: `clone_node_raw` returns a `NonNull<Node<V, CAPACITY>>` which is guaranteed to be valid.
-			// The caller (`store`) holds a mutex which guarantees exclusive access to this memory.
-			let new_parent_ref = unsafe { new_parent.as_mut() };
-
-			// Update the pointer to the child that was modified.
-			new_parent_ref.slots_mut()[slot_in_parent].child = ManuallyDrop::new(TaggedPtr::new(new_child_ptr, 0));
-
-			// Try to insert the new sibling from the split below into the new parent.
-			if let Some((promoted_pivot, new_parent_sibling)) =
-				self.internal_insert(new_parent_ref, pivot, TaggedPtr::new(new_sibling_ptr, 0))
-			{
-				// The parent was also split so reparent the children of both siblings.
-				self.reparent_children(new_parent.as_ptr());
-				self.reparent_children(new_parent_sibling.ptr());
-
-				let next_parent_ptr = new_parent_ref.header.parent;
-				if next_parent_ptr.is_null() {
-					return self.create_new_root(promoted_pivot, new_parent.as_ptr(), new_parent_sibling.ptr());
-				}
-
-				// The split parent becomes the new child for the next level.
-				pivot = promoted_pivot;
-				new_sibling_ptr = new_parent_sibling.ptr();
-				old_child_ptr = current_parent_ptr;
-				new_child_ptr = new_parent.as_ptr();
+				let new_root_node = Box::into_raw(Box::new(Node::Internal(new_parent)));
+				self.root.store(new_root_node, Ordering::Release);
+				self.height.fetch_add(1, Ordering::Release);
 			} else {
-				// Parent didn't split, reparent it's children and complete the update.
-				self.reparent_children(new_parent.as_ptr());
-				return self.walk_up_and_update(current_parent_ptr, new_parent.as_ptr(), guard);
+				self.root.store(new_root, Ordering::Release);
+			}
+
+			if new_root != root {
+				call_rcu(root);
 			}
 		}
 	}
+
+	/// Returns the new node pointer and optionally a sibling+pivot if the node split.
+	///
+	/// # Safety
+	///
+	/// Caller must hold the write lock and ensure that the node pointer is valid.
+	unsafe fn insert_recursive(
+		&self,
+		node: *mut Node<T>,
+		range: Range,
+		value: *mut T,
+	) -> (*mut Node<T>, Option<(*mut Node<T>, usize)>) {
+		// SAFETY: Caller guarantees node is valid
+		if unsafe { (*node).is_leaf() } {
+			let leaf = unsafe { (*node).as_leaf() };
+			let ws = self.analyze_leaf_write(leaf, range);
+
+			match ws.store_type {
+				StoreType::ExactFit => {
+					// If the RCU_READER_COUNT is zero, we can modify the leaf in-place
+					if RCU_READER_COUNT.with(|count| *count.borrow() == 0) {
+						let old = leaf.values[ws.slot_idx].swap(value, Ordering::Release);
+						if !old.is_null() {
+							unsafe {
+								let _ = Box::from_raw(old);
+							}
+						}
+
+						return (node, None);
+					}
+
+					// Otherwise do a CoW strategy
+					let new_leaf = leaf.clone();
+					new_leaf.values[ws.slot_idx].store(value, Ordering::Release);
+					(Box::into_raw(Box::new(Node::Leaf(new_leaf))), None)
+				}
+				StoreType::UpdateExistingSlotRange => {
+					let mut new_leaf = leaf.clone();
+					new_leaf.insert_or_update(range, value, ws.slot_idx);
+					(Box::into_raw(Box::new(Node::Leaf(new_leaf))), None)
+				}
+				StoreType::InsertIntoExistingNode => {
+					// Add to an existing node that has space
+					let mut new_leaf = leaf.clone();
+					new_leaf.insert_at_index(ws.slot_idx, range, value);
+					(Box::into_raw(Box::new(Node::Leaf(new_leaf))), None)
+				}
+				StoreType::SplitNode => {
+					// Node is full, split it
+					let mut new_leaf = leaf.clone();
+					let (sibling, pivot) = self.split_leaf(&mut new_leaf, range, value);
+					(Box::into_raw(Box::new(Node::Leaf(new_leaf))), Some((sibling, pivot)))
+				}
+			}
+		} else {
+			// Internal node, find the appropriate child
+			let internal = unsafe { (*node).as_internal() };
+			let child_idx = internal.find_child(range.start);
+			let child = internal.children[child_idx].load(Ordering::Acquire);
+
+			// SAFETY: Child pointer is valid while we hold the write lock
+			let (new_child, sibling) = unsafe { self.insert_recursive(child, range, value) };
+
+			// If no modification just return
+			if new_child == child {
+				return (node, None);
+			}
+
+			// Otherwise time to update our pointer
+			let mut new_internal = internal.clone();
+			new_internal.children[child_idx].store(new_child, Ordering::Release);
+			call_rcu(child);
+
+			if let Some((sibling, pivot)) = sibling {
+				// Child split, need to insert the sibling
+				let count = new_internal.count.load(Ordering::Relaxed);
+				if count < MAPLE_NODE_SLOTS {
+					// We have space
+					new_internal.insert_child(child_idx + 1, sibling, pivot);
+					(Box::into_raw(Box::new(Node::Internal(new_internal))), None)
+				} else {
+					// No space, need to split
+					let (new_internal_sibling, new_pivot) =
+						self.split_internal(&mut new_internal, child_idx + 1, sibling, pivot);
+					(
+						Box::into_raw(Box::new(Node::Internal(new_internal))),
+						Some((new_internal_sibling, new_pivot)),
+					)
+				}
+			} else {
+				new_internal.update_pivot(child_idx, range.end);
+				(Box::into_raw(Box::new(Node::Internal(new_internal))), None)
+			}
+		}
+	}
+
+	fn analyze_leaf_write(&self, leaf: &LeafNode<T>, range: Range) -> WriteState {
+		let count = leaf.count.load(Ordering::Relaxed);
+
+		for i in 0..count {
+			if leaf.ranges[i] == range {
+				return WriteState {
+					store_type: StoreType::ExactFit,
+					slot_idx: i,
+				};
+			}
+		}
+
+		for i in 0..count {
+			let existing = leaf.ranges[i];
+			if range.start <= existing.end && range.end >= existing.start {
+				return WriteState {
+					store_type: StoreType::UpdateExistingSlotRange,
+					slot_idx: i,
+				};
+			}
+		}
+
+		let idx = leaf.find_insert_pos(range.start);
+		if count >= MAPLE_NODE_SLOTS {
+			return WriteState {
+				store_type: StoreType::SplitNode,
+				slot_idx: idx,
+			};
+		}
+
+		WriteState {
+			store_type: StoreType::InsertIntoExistingNode,
+			slot_idx: idx,
+		}
+	}
+
+	/// Split a full leaf node into two nodes.
+	///
+	/// Returns the new sibling node and the pivot value that separates them.
+	fn split_leaf(&self, leaf: &mut LeafNode<T>, range: Range, value: *mut T) -> (*mut Node<T>, usize) {
+		let mid = MAPLE_NODE_SLOTS / 2;
+		let mut new_leaf = LeafNode::new();
+
+		// Copy the right half of the ranges and values to the new leaf.
+		for i in mid..MAPLE_NODE_SLOTS {
+			new_leaf.ranges[i - mid] = leaf.ranges[i];
+			new_leaf.values[i - mid].store(leaf.values[i].load(Ordering::Acquire), Ordering::Release);
+		}
+		new_leaf.count.store(MAPLE_NODE_SLOTS - mid, Ordering::Release);
+		leaf.count.store(mid, Ordering::Release);
+
+		let pivot = leaf.ranges[mid - 1].end;
+
+		if range.start <= pivot {
+			let idx = leaf.find_insert_pos(range.start);
+			leaf.insert_at_index(idx, range, value);
+		} else {
+			let idx = new_leaf.find_insert_pos(range.start);
+			new_leaf.insert_at_index(idx, range, value);
+		}
+
+		(Box::into_raw(Box::new(Node::Leaf(new_leaf))), pivot)
+	}
+
+	/// Split a full internal node into two nodes.
+	fn split_internal(
+		&self,
+		internal: &mut InternalNode<T>,
+		insert_idx: usize,
+		new_child: *mut Node<T>,
+		pivot: usize,
+	) -> (*mut Node<T>, usize) {
+		let new_internal = InternalNode::new();
+		let old_count = internal.count.load(Ordering::Relaxed);
+
+		let mut tmp_children: [_; MAPLE_NODE_SLOTS + 1] = [ptr::null_mut(); MAPLE_NODE_SLOTS + 1];
+		let mut tmp_pivots: [_; MAPLE_NODE_SLOTS] = [0; MAPLE_NODE_SLOTS];
+
+		// Merge old data with new child/pivot
+		for i in 0..insert_idx {
+			tmp_children[i] = internal.children[i].load(Ordering::Relaxed);
+		}
+		tmp_children[insert_idx] = new_child;
+		for i in insert_idx..old_count {
+			tmp_children[i + 1] = internal.children[i].load(Ordering::Relaxed);
+		}
+
+		if insert_idx > 0 {
+			for i in 0..insert_idx - 1 {
+				tmp_pivots[i] = internal.pivots[i].load(Ordering::Relaxed);
+			}
+		}
+		tmp_pivots[insert_idx - 1] = pivot;
+		for i in (insert_idx - 1)..(old_count - 1) {
+			tmp_pivots[i + 1] = internal.pivots[i].load(Ordering::Relaxed);
+		}
+
+		// Split the tmp arrays
+		let mid = (MAPLE_NODE_SLOTS + 1) / 2;
+		let new_pivot = tmp_pivots[mid - 1];
+
+		// Copy the left half (original node)
+		for i in 0..mid {
+			internal.children[i].store(tmp_children[i], Ordering::Relaxed);
+			if i < mid - 1 {
+				internal.pivots[i].store(tmp_pivots[i], Ordering::Relaxed);
+			}
+		}
+		internal.count.store(mid, Ordering::Release);
+
+		// Copy the right half (new sibling node)
+		let new_count = (MAPLE_NODE_SLOTS + 1) - mid;
+		for i in 0..new_count {
+			new_internal.children[i].store(tmp_children[mid + i], Ordering::Relaxed);
+			if i < new_count - 1 {
+				new_internal.pivots[i].store(tmp_pivots[mid + i], Ordering::Relaxed);
+			}
+		}
+		new_internal.count.store(new_count, Ordering::Release);
+
+		(Box::into_raw(Box::new(Node::Internal(new_internal))), new_pivot)
+	}
+
+	/// Recursively erase a value from the tree.
+	///
+	/// Returns the new node pointer, the erased value, and if the node became underfull.
+	///
+	/// # Safety
+	///
+	/// Caller must hold write lock and ensure node pointer is valid.
+	unsafe fn erase_recursive(&self, node: *mut Node<T>, index: usize) -> (*mut Node<T>, Option<*mut T>, bool) {
+		// SAFETY: Caller guarantees node is valid
+		if unsafe { (*node).is_leaf() } {
+			let leaf = unsafe { (*node).as_leaf() };
+			let count = leaf.count.load(Ordering::Relaxed);
+			let mut found_idx = None;
+
+			for i in 0..count {
+				if index >= leaf.ranges[i].start && index <= leaf.ranges[i].end {
+					found_idx = Some(i);
+					break;
+				}
+			}
+
+			if let Some(i) = found_idx {
+				let mut new_leaf = leaf.clone();
+				let old_val = new_leaf.values[i].load(Ordering::Acquire);
+
+				// Shift remaining entries to the left
+				for j in i..count - 1 {
+					new_leaf.ranges[j] = new_leaf.ranges[j + 1];
+					new_leaf.values[j].store(new_leaf.values[j + 1].load(Ordering::Acquire), Ordering::Release);
+				}
+				new_leaf.count.fetch_sub(1, Ordering::Release);
+
+				let underfull = new_leaf.count.load(Ordering::Relaxed) < MIN_SLOTS;
+				return (Box::into_raw(Box::new(Node::Leaf(new_leaf))), Some(old_val), underfull);
+			}
+
+			return (node, None, false);
+		} else {
+			let internal = unsafe { (*node).as_internal() };
+			let child_idx = internal.find_child(index);
+			let child = internal.children[child_idx].load(Ordering::Acquire);
+
+			// SAFETY: Child pointer is valid while we hold write lock
+			let (new_child, erased_val, _) = unsafe { self.erase_recursive(child, index) };
+
+			if new_child == child {
+				return (node, None, false);
+			}
+
+			let new_internal = internal.clone();
+			new_internal.children[child_idx].store(new_child, Ordering::Release);
+			call_rcu(child);
+
+			return (Box::into_raw(Box::new(Node::Internal(new_internal))), erased_val, false);
+		}
+	}
+}
+
+impl<T> Drop for MapleTree<T> {
+	fn drop(&mut self) {
+		let root = self.root.swap(ptr::null_mut(), Ordering::AcqRel);
+		if !root.is_null() {
+			// SAFETY: We have exclusive ownership during drop
+			unsafe {
+				drop_tree_recursive(root);
+			}
+		}
+		rcu_barrier();
+	}
+}
+
+/// Recursively free all nodes and values in the tree.
+///
+/// # Safety
+///
+/// Caller must have exclusive access to the tree and ensure no other threads are accessing these nodes.
+unsafe fn drop_tree_recursive<T>(node: *mut Node<T>) {
+	if node.is_null() {
+		return;
+	}
+
+	// SAFETY: Caller guarantees node pointer is valid
+	match unsafe { &*node } {
+		Node::Internal(internal) => {
+			let count = internal.count.load(Ordering::Acquire);
+			for i in 0..count {
+				let child = internal.children[i].load(Ordering::Acquire);
+				// SAFETY: Children are valid while parent exists
+				unsafe { drop_tree_recursive(child) };
+			}
+		}
+
+		Node::Leaf(leaf) => {
+			let count = leaf.count.load(Ordering::Acquire);
+			for i in 0..count {
+				let val = leaf.values[i].load(Ordering::Acquire);
+				if !val.is_null() {
+					// SAFETY: Values are valid while parent exists
+					let _ = unsafe { Box::from_raw(val) };
+				}
+			}
+		}
+	}
+
+	// SAFETY: Caller guarantees exclusive access
+	let _ = unsafe { Box::from_raw(node) };
 }
 
 #[cfg(test)]
 mod tests {
+	use std::{sync::Arc, thread};
+
 	use super::*;
 
 	#[test]
-	fn store_single() {
-		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
-		tree.store(10, 100u64);
-		let guard = &crossbeam_epoch::pin();
-		assert_eq!(*tree.load(10, guard).unwrap(), 100);
+	fn basic_insert_load() {
+		let tree = MapleTree::new();
+
+		tree.store_range(10, 20, 42);
+
+		let result = tree.load(15);
+		assert!(result.is_some());
 	}
 
 	#[test]
-	fn store_multiple() {
-		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
+	fn test_node_split() {
+		let tree = MapleTree::new();
+
+		for i in 0..20 {
+			tree.store_range(i * 10, i * 10 + 5, i);
+		}
+
+		for i in 0..20 {
+			let result = tree.load(i * 10 + 2);
+			assert!(result.is_some());
+		}
+	}
+
+	#[test]
+	fn test_concurrent_reads() {
+		let tree = Arc::new(MapleTree::new());
+
+		for i in 0..10 {
+			tree.store_range(i * 10, i * 10 + 5, i);
+		}
+
+		let mut handles = vec![];
+		for _ in 0..4 {
+			let tree = Arc::clone(&tree);
+			handles.push(thread::spawn(move || {
+				for i in 0..10 {
+					let result = tree.load(i * 10 + 2);
+					assert!(result.is_some());
+				}
+			}));
+		}
+
+		for handle in handles {
+			handle.join().unwrap();
+		}
+	}
+
+	#[test]
+	fn test_erase() {
+		let tree = MapleTree::new();
+
+		tree.store_range(10, 20, 42);
+		tree.store_range(30, 40, 84);
+
+		let result = tree.erase(15);
+		assert!(result.is_some());
+
+		let result = tree.load(15);
+		assert!(result.is_none());
+
+		let result = tree.load(35);
+		assert!(result.is_some());
+	}
+
+	#[test]
+	fn test_store_single_index() {
+		let tree = MapleTree::new();
+
 		tree.store(10, 100);
 		tree.store(20, 200);
-		tree.store(5, 50);
+		tree.store(30, 300);
 
-		let guard = &crossbeam_epoch::pin();
-		assert_eq!(*tree.load(5, guard).unwrap(), 50);
-		assert_eq!(*tree.load(10, guard).unwrap(), 100);
-		assert_eq!(*tree.load(20, guard).unwrap(), 200);
+		let result = tree.load(10);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 100);
+
+		let result = tree.load(20);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 200);
+
+		let result = tree.load(30);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 300);
+
+		let result = tree.load(15);
+		assert!(result.is_none());
 	}
 
 	#[test]
-	fn overwrite() {
-		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
-		tree.store(10, 100);
-		tree.store(10, 101);
-		let guard = &crossbeam_epoch::pin();
-		assert_eq!(*tree.load(10, guard).unwrap(), 101);
+	fn test_store_overwrite() {
+		let tree = MapleTree::new();
 
-		tree.store(20, 200);
-		tree.store(20, 201);
-		assert_eq!(*tree.load(20, guard).unwrap(), 201);
-		assert_eq!(*tree.load(10, guard).unwrap(), 101);
+		tree.store(10, 42);
+
+		let result = tree.load(10);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 42);
+
+		tree.store(10, 84);
+
+		let result = tree.load(10);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 84);
 	}
 
 	#[test]
-	fn fill_leaf() {
-		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
-		for i in 0..RANGE64_SLOTS as u64 {
-			tree.store(i, i * 10);
+	fn test_concurrent_read_write() {
+		let tree = Arc::new(MapleTree::new());
+
+		for i in 0..5 {
+			tree.store_range(i * 10, i * 10 + 5, i);
 		}
 
-		let guard = &crossbeam_epoch::pin();
-		for i in 0..RANGE64_SLOTS as u64 {
-			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
+		let tree_clone = Arc::clone(&tree);
+		let reader = thread::spawn(move || {
+			for _ in 0..100 {
+				let _guard = RcuGuard::new();
+				for i in 0..5 {
+					let _ = tree_clone.load(i * 10 + 2);
+				}
+			}
+		});
+
+		thread::sleep(std::time::Duration::from_millis(10));
+
+		for i in 5..10 {
+			tree.store_range(i * 10, i * 10 + 5, i);
 		}
+
+		reader.join().unwrap();
 	}
 
 	#[test]
-	fn fill_leaf_rev() {
-		let tree = MapleTree::<u64, u64, RANGE64_SLOTS>::new();
-		for i in (0..RANGE64_SLOTS as u64).rev() {
-			tree.store(i, i * 10);
-		}
+	fn test_exact_fit_optimization() {
+		let tree = MapleTree::new();
 
-		let guard = &crossbeam_epoch::pin();
-		for i in 0..RANGE64_SLOTS as u64 {
-			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
-		}
-	}
+		tree.store_range(10, 20, 42);
+		tree.store_range(10, 20, 84);
 
-	#[test]
-	fn split_leaf() {
-		let tree = MapleTree::<u64, u64, 31>::new();
-		for i in 0..(RANGE64_SLOTS * 50) as u64 {
-			tree.store(i, i * 10);
-		}
-
-		let guard = &crossbeam_epoch::pin();
-		for i in 0..(RANGE64_SLOTS * 50) as u64 {
-			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
-		}
-	}
-
-	#[test]
-	fn split_leaf_rev() {
-		let tree = MapleTree::<u64, u64, 31>::new();
-		for i in (0..(RANGE64_SLOTS * 50) as u64).rev() {
-			tree.store(i, i * 10);
-		}
-
-		let guard = &crossbeam_epoch::pin();
-		for i in 0..(RANGE64_SLOTS * 50) as u64 {
-			assert_eq!(*tree.load(i, guard).unwrap(), i * 10);
-		}
-	}
-
-	#[test]
-	fn clear_tree() {
-		let tree = MapleTree::<u64, u64, 31>::new();
-		for i in 0..(RANGE64_SLOTS * 50) as u64 {
-			tree.store(i, i * 10);
-		}
-
-		let guard = &crossbeam_epoch::pin();
-		assert_eq!(*tree.load(100, guard).unwrap(), 1000);
-
-		tree.clear();
-
-		for i in 0..(RANGE64_SLOTS * 50) as u64 {
-			assert!(tree.load(i, guard).is_none());
-		}
-
-		tree.store(200, 2000);
-		assert_eq!(*tree.load(200, guard).unwrap(), 2000);
-
-		tree.clear();
-		assert!(tree.load(200, guard).is_none());
+		let result = tree.load(15);
+		assert!(result.is_some());
+		assert_eq!(result.copied().unwrap(), 84);
 	}
 }

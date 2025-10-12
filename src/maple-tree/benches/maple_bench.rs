@@ -1,116 +1,128 @@
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
+use std::{collections::BTreeMap, hint::black_box, ops::Range};
 
-use std::{collections::BTreeMap, hint::black_box, sync::RwLock};
-
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use maple_tree::MapleTree;
-use rand::prelude::*;
 
-const DATA_SIZE: usize = 10000;
+const RANGE_SIZES: &[usize] = &[1000];
+const NUM_RANGES: &[usize] = &[1000];
 
-fn bench_insert(c: &mut Criterion) {
-	let mut group = c.benchmark_group("Insert");
-	group.sample_size(20);
-
-	group.bench_function("MapleTree_Sequential", |b| {
-		b.iter(|| {
-			let tree = MapleTree::<u64, u64, 16>::new();
-			for i in 0..black_box(DATA_SIZE as u64) {
-				tree.store(i, i * 2);
-			}
+fn generate_nonoverlapping_ranges(num_ranges: usize, range_size: usize) -> Vec<Range<usize>> {
+	(0..num_ranges)
+		.map(|i| {
+			let start = i * (range_size + 10);
+			start..start + range_size
 		})
-	});
-
-	group.bench_function("RwLock_BTreeMap_Sequential", |b| {
-		b.iter(|| {
-			let map = RwLock::new(BTreeMap::new());
-			for i in 0..black_box(DATA_SIZE as u64) {
-				map.write().unwrap().insert(i, i * 2);
-			}
-		})
-	});
-
-	let mut rng = StdRng::seed_from_u64(42);
-	let mut keys: Vec<u64> = (0..DATA_SIZE as u64).collect();
-	keys.shuffle(&mut rng);
-
-	group.bench_with_input(BenchmarkId::new("MapleTree_Random", DATA_SIZE), &keys, |b, k| {
-		b.iter(|| {
-			let tree = MapleTree::<u64, u64, 16>::new();
-			for &key in k.iter() {
-				tree.store(black_box(key), black_box(key * 2));
-			}
-		})
-	});
-
-	group.bench_with_input(BenchmarkId::new("RwLock_BTreeMap_Random", DATA_SIZE), &keys, |b, k| {
-		b.iter(|| {
-			let map = RwLock::new(BTreeMap::new());
-			for &key in k.iter() {
-				map.write().unwrap().insert(black_box(key), black_box(key * 2));
-			}
-		})
-	});
-
-	group.finish();
+		.collect()
 }
 
-fn bench_lookup(c: &mut Criterion) {
-	let mut group = c.benchmark_group("Lookup");
-	group.sample_size(50);
+fn bench_maple_tree_insert(c: &mut Criterion) {
+	let mut group = c.benchmark_group("maple_tree_insert");
 
-	let maple_tree = MapleTree::<u64, u64, 16>::new();
-	let btree_map = RwLock::new(BTreeMap::new());
-	{
-		let mut writer = btree_map.write().unwrap();
-		for i in 0..DATA_SIZE as u64 {
-			maple_tree.store(i, i * 2);
-			writer.insert(i, i * 2);
+	for &num_ranges in NUM_RANGES {
+		for &range_size in RANGE_SIZES {
+			group.throughput(Throughput::Elements(num_ranges as u64));
+
+			let ranges = generate_nonoverlapping_ranges(num_ranges, range_size);
+			let values: Vec<_> = (0..num_ranges).collect();
+
+			group.bench_with_input(
+				BenchmarkId::from_parameter(format!("n={}_size={}", num_ranges, range_size)),
+				&(ranges.clone(), values.clone()),
+				|b, (ranges, values)| {
+					b.iter(|| {
+						let tree = MapleTree::new();
+						for (range, &value) in ranges.iter().zip(values.iter()) {
+							tree.store_range(black_box(range.start), black_box(range.end), black_box(value));
+						}
+					});
+				},
+			);
 		}
 	}
-	let guard = crossbeam_epoch::pin();
 
-	group.bench_function("MapleTree_Sequential", |b| {
-		b.iter(|| {
-			for i in 0..black_box(DATA_SIZE as u64) {
-				black_box(maple_tree.load(i, &guard));
-			}
+	group.finish();
+}
+
+fn bench_btreemap_insert(c: &mut Criterion) {
+	let mut group = c.benchmark_group("btreemap_insert");
+
+	for &num_ranges in NUM_RANGES {
+		for &range_size in RANGE_SIZES {
+			group.throughput(Throughput::Elements(num_ranges as u64));
+
+			let ranges = generate_nonoverlapping_ranges(num_ranges, range_size);
+
+			group.bench_with_input(
+				BenchmarkId::from_parameter(format!("n={}_size={}", num_ranges, range_size)),
+				&ranges,
+				|b, ranges| {
+					b.iter(|| {
+						let mut map = BTreeMap::new();
+						for (i, range) in ranges.iter().enumerate() {
+							// BTreeMap needs an entry per index in the range
+							for idx in range.start..=range.end {
+								map.insert(black_box(idx), black_box(i));
+							}
+						}
+						map
+					});
+				},
+			);
+		}
+	}
+
+	group.finish();
+}
+
+fn bench_sparse_ranges(c: &mut Criterion) {
+	let mut group = c.benchmark_group("sparse_ranges");
+
+	let ranges: Vec<Range<usize>> = (0..100usize)
+		.map(|i| {
+			let base = i * 0x1000_0000_0000;
+			base..base + 4096
 		})
+		.collect();
+
+	let tree = MapleTree::new();
+	let values: Vec<_> = (0..100).collect();
+
+	for (range, &value) in ranges.iter().zip(values.iter()) {
+		tree.store_range(range.start, range.end, value);
+	}
+
+	group.bench_function("maple_tree_sparse", |b| {
+		b.iter(|| {
+			for range in &ranges[0..10] {
+				tree.load(range.start + 100);
+			}
+		});
 	});
 
-	group.bench_function("RwLock_BTreeMap_Sequential", |b| {
-		b.iter(|| {
-			let reader = btree_map.read().unwrap();
-			for i in 0..black_box(DATA_SIZE as u64) {
-				black_box(reader.get(&i));
-			}
-		})
-	});
+	let mut map = BTreeMap::new();
 
-	let mut rng = StdRng::seed_from_u64(42);
-	let mut keys: Vec<u64> = (0..DATA_SIZE as u64).collect();
-	keys.shuffle(&mut rng);
+	for (i, range) in ranges.iter().enumerate() {
+		for idx in range.start..=range.end {
+			map.insert(idx, i);
+		}
+	}
 
-	group.bench_with_input(BenchmarkId::new("MapleTree_Random", DATA_SIZE), &keys, |b, k| {
+	group.bench_function("btreemap_sparse", |b| {
 		b.iter(|| {
-			for &key in k.iter() {
-				black_box(maple_tree.load(black_box(key), &guard));
+			for range in &ranges[0..10] {
+				map.get(&(range.start + 100));
 			}
-		})
-	});
-
-	group.bench_with_input(BenchmarkId::new("RwLock_BTreeMap_Random", DATA_SIZE), &keys, |b, k| {
-		b.iter(|| {
-			let reader = btree_map.read().unwrap();
-			for &key in k.iter() {
-				black_box(reader.get(&black_box(key)));
-			}
-		})
+		});
 	});
 
 	group.finish();
 }
 
-criterion_group!(benches, bench_insert, bench_lookup);
+criterion_group!(
+	benches,
+	bench_maple_tree_insert,
+	bench_btreemap_insert,
+	bench_sparse_ranges,
+);
+
 criterion_main!(benches);

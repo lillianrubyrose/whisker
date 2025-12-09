@@ -3,7 +3,6 @@ use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
 use bitflags::bitflags;
 use gdbstub::target::ext::breakpoints::WatchKind;
 use num_conv::Extend;
-use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::tracing::*;
 
@@ -15,7 +14,7 @@ use crate::{
 	cpu::hart::WhiskerHart,
 	mem::mmio::MMIOKind,
 	soft::{double::SoftDouble, float::SoftFloat},
-	ty::{HartId, HartMode, TrapIdx, TrapRequestGuaranteed},
+	ty::{HartId, TrapIdx, TrapRequestGuaranteed},
 };
 
 pub const MEM_PAGE_SIZE: u64 = 4096;
@@ -26,34 +25,19 @@ pub struct Memory {
 	pub page_table_cache: parking_lot::RwLock<BTreeMap<(Option<u16>, u64), u64>>,
 	/// INVARIANT: sorted by start address such that lowest addresses are first
 	/// INVARIANT: regions never overlap
-	regions: parking_lot::RwLock<Vec<MemoryRegion>>,
+	regions: Vec<MemoryRegion>,
 
 	reservations: parking_lot::RwLock<MemoryReservations>,
 
-	pub watchpoints: RwLock<Vec<(u64, u64, WatchKind)>>,
+	pub watchpoints: spin::RwLock<Vec<(u64, u64, WatchKind)>>,
 }
 
 impl Memory {
-	fn region_for_addr(&self, phys_addr: u64) -> Option<MappedRwLockReadGuard<'_, MemoryRegion>> {
-		let regions = self.regions.read();
-		regions
-			.iter()
-			.position(|r| {
-				let r_end = r.start + r.len;
-				phys_addr >= r.start && phys_addr < r_end
-			})
-			.map(|position| RwLockReadGuard::map(regions, |regions| &regions[position]))
-	}
-
-	fn region_for_addr_mut(&self, phys_addr: u64) -> Option<MappedRwLockWriteGuard<'_, MemoryRegion>> {
-		let regions = self.regions.write();
-		regions
-			.iter()
-			.position(|r| {
-				let r_end = r.start + r.len;
-				phys_addr >= r.start && phys_addr < r_end
-			})
-			.map(|position| RwLockWriteGuard::map(regions, |regions| &mut regions[position]))
+	fn region_for_addr(&self, phys_addr: u64) -> Option<&MemoryRegion> {
+		self.regions.iter().find(|r| {
+			let r_end = r.start + r.len;
+			phys_addr >= r.start && phys_addr < r_end
+		})
 	}
 
 	fn is_watchpoint(&self, addr: u64, size: u8) -> Option<WatchKind> {
@@ -134,7 +118,7 @@ macro_rules! impl_mem_read_write {
 						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
-							ret.copy_from_slice(&backing[offset as usize..][..size]);
+							ret.copy_from_slice(&backing.read()[offset as usize..][..size]);
 							Ok(<$ty>::from_le_bytes(ret))
 						}
 						MemoryKind::MMIO(kind) => {
@@ -181,18 +165,17 @@ macro_rules! impl_mem_read_write {
 
 					let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 
-					let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+					let Some(region) = self.region_for_addr(phys_addr) else {
 						let e = hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr);
 						return Err(e);
 					};
-					let region = &mut *region_guard;
-					check_write_access(hart, &*region, effective_addr, phys_addr, kind, size as u8)?;
+					check_write_access(hart, region, effective_addr, phys_addr, kind, size as u8)?;
 
 					let ret = match region.kind {
-						MemoryKind::MainMemory { ref mut backing } => {
+						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
-							backing[offset as usize..][..size].copy_from_slice(&bytes);
+							backing.write()[offset as usize..][..size].copy_from_slice(&bytes);
 							Ok(())
 						}
 						MemoryKind::MMIO(kind) => {
@@ -207,8 +190,6 @@ macro_rules! impl_mem_read_write {
 							hart.request_watchpoint(watch_kind, effective_addr);
 						}
 					}
-
-					drop(region_guard);
 
 					self.reservations.write().unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 					ret
@@ -235,7 +216,7 @@ impl Memory {
 
 		check_read_access(
 			hart,
-			&region,
+			region,
 			effective_addr,
 			phys_addr,
 			ReadKind::Instruction,
@@ -246,7 +227,7 @@ impl Memory {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u16::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..size]);
+				ret.copy_from_slice(&backing.read()[offset as usize..][..size]);
 				Ok(u16::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(kind) => {
@@ -269,7 +250,7 @@ impl Memory {
 		let size = core::mem::size_of::<u32>();
 		check_read_access(
 			hart,
-			&region,
+			region,
 			effective_addr,
 			phys_addr,
 			ReadKind::LoadReserved,
@@ -280,7 +261,7 @@ impl Memory {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u32::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..size]);
+				ret.copy_from_slice(&backing.read()[offset as usize..][..size]);
 				Ok(u32::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(kind) => {
@@ -313,7 +294,7 @@ impl Memory {
 		let size = core::mem::size_of::<u64>();
 		check_read_access(
 			hart,
-			&region,
+			region,
 			effective_addr,
 			phys_addr,
 			ReadKind::LoadReserved,
@@ -324,7 +305,7 @@ impl Memory {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..size]);
+				ret.copy_from_slice(&backing.read()[offset as usize..][..size]);
 				Ok(u64::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(kind) => {
@@ -356,19 +337,18 @@ impl Memory {
 		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 		let is_reserved = self.reservations.read().is_reserved_by_hart(phys_addr, hart.hart_id());
 
-		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 		};
-		let region = &mut *region_guard;
 		let size = core::mem::size_of::<u32>();
 		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let ret = if is_reserved {
 			match region.kind {
-				MemoryKind::MainMemory { ref mut backing } => {
+				MemoryKind::MainMemory { ref backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
-					backing[offset as usize..][..size].copy_from_slice(&bytes);
+					backing.write()[offset as usize..][..size].copy_from_slice(&bytes);
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
@@ -376,21 +356,18 @@ impl Memory {
 				}
 			}
 
-			drop(region_guard);
 			// writing unreserves the address written to
 			self.reservations
 				.write()
 				.unreserve_addr_other_harts(hart.hart_id(), phys_addr);
 
-			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
-			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(true)
 		} else {
-			drop(region_guard);
-			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
-			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
 		};
+
+		// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
+		self.reservations.write().unreserve_hart(hart.hart_id());
 
 		if !hart.debug
 			&& let Some(watch_kind) = self.is_watchpoint(effective_addr, size as u8)
@@ -413,27 +390,24 @@ impl Memory {
 		let phys_addr = self.translate_addr(hart, effective_addr, MemoryOpKind::Store)?;
 		let is_reserved = self.reservations.read().is_reserved_by_hart(phys_addr, hart.hart_id());
 
-		let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, effective_addr));
 		};
-		let region = &mut *region_guard;
 		let size = core::mem::size_of::<u64>();
 		check_write_access(hart, region, effective_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		if is_reserved {
 			match region.kind {
-				MemoryKind::MainMemory { ref mut backing } => {
+				MemoryKind::MainMemory { ref backing } => {
 					let offset = phys_addr - region.start;
 					let bytes = val.to_le_bytes();
-					backing[offset as usize..][..size].copy_from_slice(&bytes);
+					backing.write()[offset as usize..][..size].copy_from_slice(&bytes);
 				}
 				MemoryKind::MMIO(kind) => {
 					let bytes = val.to_le_bytes();
 					kind.write(hart, phys_addr, bytes.as_slice());
 				}
 			}
-
-			drop(region_guard);
 
 			// writing unreserves the address written to
 			self.reservations
@@ -451,13 +425,13 @@ impl Memory {
 
 			Ok(true)
 		} else {
-			drop(region_guard);
 			// unreservation for the current hart happens whenever a SC is executed, whether or not it succeeds to store
 			self.reservations.write().unreserve_hart(hart.hart_id());
 			Ok(false)
 		}
 	}
 
+	// FIXME (atomics): THIS IS PROBABLY NOT ATOMIC ANYMORE!!!!
 	pub fn atomic_op_word<F: FnOnce(&mut WhiskerHart, u32) -> Option<u32>>(
 		&self,
 		hart: &mut WhiskerHart,
@@ -469,22 +443,18 @@ impl Memory {
 		let size = core::mem::size_of::<u32>();
 		let phys_addr = self.translate_addr(hart, virt_addr, MemoryOpKind::Store)?;
 
-		// This exclusive write lock is what makes the operation atomic
-		let mut regions_guard = self.regions.write();
-		let Some(region) = regions_guard.iter_mut().find(|r| {
-			let r_end = r.start + r.len;
-			phys_addr >= r.start && phys_addr < r_end
-		}) else {
+		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, virt_addr));
 		};
 
-		check_read_access(hart, &*region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
-		check_write_access(hart, &*region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
+		check_read_access(hart, region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
+		check_write_access(hart, region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let original_val;
-		if let MemoryKind::MainMemory { backing } = &mut region.kind {
+		if let MemoryKind::MainMemory { backing } = &region.kind {
 			let offset = (phys_addr - region.start) as usize;
 			let mut bytes = [0u8; 4];
+			let mut backing = backing.write();
 			bytes.copy_from_slice(&backing[offset..][..size]);
 			original_val = u32::from_le_bytes(bytes);
 
@@ -493,15 +463,12 @@ impl Memory {
 				backing[offset..][..size].copy_from_slice(&bytes);
 			}
 		} else {
-			drop(regions_guard);
 			let word = self.read_u32(hart, virt_addr, ReadKind::AMO)?;
 			if let Some(replacement) = op(hart, word) {
 				self.write_u32(hart, virt_addr, WriteKind::Atomic, replacement)?;
 			}
 			return Ok(word);
 		}
-
-		drop(regions_guard);
 
 		self.reservations
 			.write()
@@ -516,6 +483,7 @@ impl Memory {
 		Ok(original_val)
 	}
 
+	// FIXME (atomics): THIS IS PROBABLY NOT ATOMIC ANYMORE!!!!
 	pub fn atomic_op_dword<F: FnOnce(&mut WhiskerHart, u64) -> Option<u64>>(
 		&self,
 		hart: &mut WhiskerHart,
@@ -527,22 +495,18 @@ impl Memory {
 		let size = core::mem::size_of::<u64>();
 		let phys_addr = self.translate_addr(hart, virt_addr, MemoryOpKind::Store)?;
 
-		// This exclusive write lock is what makes the operation atomic
-		let mut regions_guard = self.regions.write();
-		let Some(region) = regions_guard.iter_mut().find(|r| {
-			let r_end = r.start + r.len;
-			phys_addr >= r.start && phys_addr < r_end
-		}) else {
+		let Some(region) = self.region_for_addr(phys_addr) else {
 			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, virt_addr));
 		};
 
-		check_read_access(hart, &*region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
-		check_write_access(hart, &*region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
+		check_read_access(hart, region, virt_addr, phys_addr, ReadKind::AMO, size as u8)?;
+		check_write_access(hart, region, virt_addr, phys_addr, WriteKind::Atomic, size as u8)?;
 
 		let original_val;
-		if let MemoryKind::MainMemory { backing } = &mut region.kind {
+		if let MemoryKind::MainMemory { backing } = &region.kind {
 			let offset = (phys_addr - region.start) as usize;
 			let mut bytes = [0u8; 8];
+			let mut backing = backing.write();
 			bytes.copy_from_slice(&backing[offset..][..size]);
 			original_val = u64::from_le_bytes(bytes);
 
@@ -551,15 +515,12 @@ impl Memory {
 				backing[offset..][..size].copy_from_slice(&bytes);
 			}
 		} else {
-			drop(regions_guard);
 			let dword = self.read_u64(hart, virt_addr, ReadKind::AMO)?;
 			if let Some(replacement) = op(hart, dword) {
 				self.write_u64(hart, virt_addr, WriteKind::Atomic, replacement)?;
 			}
 			return Ok(dword);
 		}
-
-		drop(regions_guard);
 
 		self.reservations
 			.write()
@@ -609,7 +570,7 @@ impl Memory {
 			MemoryKind::MainMemory { ref backing } => {
 				let offset = phys_addr - region.start;
 				let mut ret = u64::default().to_le_bytes();
-				ret.copy_from_slice(&backing[offset as usize..][..core::mem::size_of::<u64>()]);
+				ret.copy_from_slice(&backing.read()[offset as usize..][..core::mem::size_of::<u64>()]);
 				Ok(u64::from_le_bytes(ret))
 			}
 			MemoryKind::MMIO(_) => Err(pte_fault(hart, MemoryOpKind::Load, phys_addr)),
@@ -625,6 +586,7 @@ impl Memory {
 		ret
 	}
 
+	// FIXME (atomics): this is probably not atomic anymore
 	pub fn write_pte_atomic_cas(
 		&self,
 		hart: &mut WhiskerHart,
@@ -635,21 +597,17 @@ impl Memory {
 	) -> Result<bool, TrapRequestGuaranteed> {
 		let size = core::mem::size_of::<u64>();
 
-		// This is what makes this atomic
-		let mut regions_guard = self.regions.write();
-		let Some(region) = regions_guard.iter_mut().find(|r| {
-			let r_end = r.start + r.len;
-			pte_addr >= r.start && pte_addr < r_end
-		}) else {
-			return Err(pte_access_fault(hart, orig_access_kind, pte_addr));
+		let Some(region) = self.region_for_addr(pte_addr) else {
+			return Err(hart.request_trap(TrapIdx::STORE_ACCESS_FAULT, pte_addr));
 		};
 
-		check_write_access(hart, &*region, pte_addr, pte_addr, WriteKind::Normal, size as u8)?;
+		check_write_access(hart, region, pte_addr, pte_addr, WriteKind::Normal, size as u8)?;
 
-		Ok(if let MemoryKind::MainMemory { backing } = &mut region.kind {
+		Ok(if let MemoryKind::MainMemory { backing } = &region.kind {
 			let offset = (pte_addr - region.start) as usize;
 
 			let mut current_bytes = [0u8; 8];
+			let mut backing = backing.write();
 			current_bytes.copy_from_slice(&backing[offset..][..size]);
 			let current_val = u64::from_le_bytes(current_bytes);
 
@@ -735,7 +693,7 @@ macro_rules! impl_hw_read_write {
 						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let mut ret = <$ty>::default().to_le_bytes();
-							ret.copy_from_slice(&backing[offset as usize..][..size]);
+							ret.copy_from_slice(&backing.read()[offset as usize..][..size]);
 							Ok(<$ty>::from_le_bytes(ret))
 						}
 						MemoryKind::MMIO(_kind) => {
@@ -765,10 +723,9 @@ macro_rules! impl_hw_read_write {
 						return Ok(());
 					}
 
-					let Some(mut region_guard) = self.region_for_addr_mut(phys_addr) else {
+					let Some(region) = self.region_for_addr(phys_addr) else {
 						return Err(());
 					};
-					let region = &mut *region_guard;
 
 					let access_kinds = region.attrs.access_kinds;
 					let max_size = region.attrs.max_size;
@@ -787,10 +744,10 @@ macro_rules! impl_hw_read_write {
 					}
 
 					match region.kind {
-						MemoryKind::MainMemory { ref mut backing } => {
+						MemoryKind::MainMemory { ref backing } => {
 							let offset = phys_addr - region.start;
 							let bytes = val.to_le_bytes();
-							backing[offset as usize..][..size].copy_from_slice(&bytes);
+							backing.write()[offset as usize..][..size].copy_from_slice(&bytes);
 							Ok(())
 						}
 						MemoryKind::MMIO(_kind) => {
@@ -998,7 +955,14 @@ pub struct MemoryRegion {
 impl MemoryRegion {
 	pub fn new_main_mem(start: u64, len: u64, backing: Box<[u8]>, attrs: AccessAttrs) -> Self {
 		assert_eq!(backing.len() as u64, len);
-		Self::new(start, len, MemoryKind::MainMemory { backing }, attrs)
+		Self::new(
+			start,
+			len,
+			MemoryKind::MainMemory {
+				backing: parking_lot::RwLock::new(backing),
+			},
+			attrs,
+		)
 	}
 
 	pub fn new_mmio(start: u64, len: u64, mmio: MMIOKind, attrs: AccessAttrs) -> Self {
@@ -1039,14 +1003,16 @@ impl MemoryRegion {
 }
 
 pub enum MemoryKind {
-	MainMemory { backing: Box<[u8]> },
+	MainMemory { backing: parking_lot::RwLock<Box<[u8]>> },
 	MMIO(MMIOKind),
 }
 
 impl Debug for MemoryKind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			MemoryKind::MainMemory { backing } => write!(f, "MemoryKind::MainMemory({:#018X} bytes)", backing.len()),
+			MemoryKind::MainMemory { backing } => {
+				write!(f, "MemoryKind::MainMemory({:#018X} bytes)", backing.read().len())
+			}
 			MemoryKind::MMIO(mmiokind) => write!(f, "MemoryKind::MMIO({:?})", mmiokind),
 		}
 	}
@@ -1105,10 +1071,10 @@ impl MemoryBuilder {
 
 	pub fn build(self) -> Memory {
 		Memory {
-			regions: RwLock::new(self.regions),
-			reservations: RwLock::new(MemoryReservations::default()),
-			page_table_cache: RwLock::new(BTreeMap::default()),
-			watchpoints: RwLock::new(Vec::new()),
+			regions: self.regions,
+			reservations: parking_lot::RwLock::new(MemoryReservations::default()),
+			page_table_cache: parking_lot::RwLock::new(BTreeMap::default()),
+			watchpoints: spin::RwLock::new(Vec::new()),
 		}
 	}
 }

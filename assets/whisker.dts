@@ -57,7 +57,7 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyS0";
+		bootargs = "root=/dev/vda2 console=ttyS0 earlycon=sbi rw";
 		stdout-path = "/soc/serial@10000000";
 		rng-seed = <0xf024f551 0x113b2345 0x634ce484 0x88d1e6d7 0x4ef455c6 0x78c102fc 0x4ff7a80c 0x13bb7a>;
 	};

@@ -29,6 +29,8 @@ use crate::{
 
 pub const VIRTIO_BLOCK_BASE: u64 = 0x10001000;
 
+const NUM_QUEUES: usize = 1;
+
 const SUPPORTED_FEATURES: u128 = VirtioFeatures::SPEC_VERSION_1.bits() | VirtioBlockDeviceFeatures::empty().bits();
 
 #[derive(Debug)]
@@ -44,8 +46,8 @@ struct BlockDevConfig {
 }
 
 impl BlockDevConfig {
-	fn new() -> Self {
-		Self { capacity: 1024 }
+	fn new(capacity: u64) -> Self {
+		Self { capacity }
 	}
 }
 
@@ -67,7 +69,9 @@ pub struct VirtioBlockDevice {
 
 impl VirtioBlockDevice {
 	pub fn init(mem: Arc<Memory>, fs_img: &Path, interrupt_tx: Sender<InterruptMessage>) -> Arc<Mutex<Self>> {
-		FS_IMG.get_or_init(|| OpenOptions::new().read(true).write(true).open(fs_img).unwrap());
+		let f = FS_IMG.get_or_init(|| OpenOptions::new().read(true).write(true).open(fs_img).unwrap());
+		let len = f.metadata().expect("unable to get meta for fs img").len();
+		let sectors = len / 512;
 
 		let (thread_tx, thread_rx) = mpsc::channel();
 
@@ -79,10 +83,10 @@ impl VirtioBlockDevice {
 			device_features_select: 0,
 			driver_features_select: 0,
 			queue_select: 0,
-			queues: vec![VirtQueue::new(); 1],
+			queues: vec![VirtQueue::new(); NUM_QUEUES],
 			interrupt_status: InterruptStatus::empty(),
 			config_gen: 0,
-			config: BlockDevConfig::new(),
+			config: BlockDevConfig::new(sectors),
 		}));
 
 		thread::spawn({
@@ -221,10 +225,23 @@ impl VirtioBlockDevice {
 
 	fn set_status(&mut self, hart: &mut WhiskerHart, val: u32) {
 		if val == 0 {
-			error!("TODO: DEVICE RESET");
+			error!("device reset");
+			let f = FS_IMG.wait();
+			let len = f.metadata().expect("unable to get meta for fs img").len();
+			let sectors = len / 512;
+
+			self.driver_features = 0;
+			self.status = VirtioDeviceStatus::empty();
+			self.device_features_select = 0;
+			self.driver_features_select = 0;
+			self.queue_select = 0;
+			self.queues = vec![VirtQueue::new(); NUM_QUEUES];
+			self.interrupt_status = InterruptStatus::empty();
+			self.config = BlockDevConfig::new(sectors);
+		} else {
+			self.status = VirtioDeviceStatus::from_bits_retain(val);
 		}
 
-		self.status = VirtioDeviceStatus::from_bits_retain(val);
 		//		self.interrupt_status.set(InterruptStatus::CONFIG_CHANGE, true);
 		//		self.interrupt_tx
 		//			.send(InterruptMessage::new_high(InterruptSource::VIRTIO))
@@ -316,13 +333,13 @@ fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, co
 		loop {
 			let mut virtio = virt_blk.lock();
 			let queue = &mut virtio.queues[queue_idx];
-			let Some((mut descriptors, head_idx)) = queue.next_avail(&mem) else {
+			let Some((mut descriptors, head_idx)) = queue.next_avail(mem) else {
 				trace!("no more descriptor chains ready");
 				break;
 			};
 			trace!("descriptor head_idx: {}", head_idx);
 
-			let Some(first) = descriptors.next(&mem) else {
+			let Some(first) = descriptors.next(mem) else {
 				error!("descriptor chain {:#?} missing first descriptor?", descriptors);
 				continue 'main;
 			};
@@ -335,14 +352,14 @@ fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, co
 
 			// FIXME: maybe support different layouts of descriptors
 
-			let Some(header) = BlockRequestHeader::read_from_mem(&mem, first.addr()) else {
+			let Some(header) = BlockRequestHeader::read_from_mem(mem, first.addr()) else {
 				warn!("failed to read header from mem");
 				continue 'main;
 			};
 
 			trace!("header: {:?}", header);
 
-			let Some(buf_desc) = descriptors.next(&mem) else {
+			let Some(buf_desc) = descriptors.next(mem) else {
 				error!("virtio block request missing buf descriptor");
 				continue 'main;
 			};
@@ -361,13 +378,13 @@ fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, co
 			let buf_addr = buf_desc.addr();
 			let buf_len = buf_desc.len();
 
-			let Some(status_desc) = descriptors.next(&mem) else {
+			let Some(status_desc) = descriptors.next(mem) else {
 				error!("virtio blk request missing status descriptor");
 				continue 'main;
 			};
 			trace!("status: {:#?}", status_desc);
 
-			while let Some(desc) = descriptors.next(&mem) {
+			while let Some(desc) = descriptors.next(mem) {
 				warn!("ignored descriptor {:#?} because we only expected 3", desc);
 			}
 
@@ -386,11 +403,12 @@ fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, co
 					status_addr,
 					buf_len,
 				},
+				BlockRequestKind::Unknown => BlockRequest::Unknown { status_addr },
 			};
 			drop(virtio);
 
 			// IT IS CRITICAL THAT THE MMIO LOCK NOT BE HELD HERE
-			let used_len = if handle_request(&mem, req).is_ok() {
+			let used_len = if handle_request(mem, req).is_ok() {
 				trace!("handled request, used len {}", buf_len + 1);
 				// wrote all of buf, plus one status byte
 				buf_len + 1
@@ -402,7 +420,7 @@ fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, co
 
 			let mut virtio = virt_blk.lock();
 			let queue = &mut virtio.queues[queue_idx];
-			queue.set_used(&mem, head_idx, used_len);
+			queue.set_used(mem, head_idx, used_len);
 			virtio.interrupt_status.set(InterruptStatus::USED_BUFFER, true);
 			virtio
 				.interrupt_tx
@@ -418,7 +436,6 @@ const SECTOR_SIZE: u64 = 512;
 
 const STATUS_OK: u8 = 0;
 const STATUS_IOERR: u8 = 1;
-#[allow(dead_code, reason = "FIXME: Check status")]
 const STATUS_UNSUPP: u8 = 2;
 
 fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
@@ -477,6 +494,12 @@ fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
 			let _ = mem.write_hw_u8(status_addr, STATUS_OK);
 			Ok(())
 		}
+		BlockRequest::Unknown { status_addr } => {
+			if mem.write_hw_u8(status_addr, STATUS_UNSUPP).is_err() {
+				error!("failed to write to status at {:#018X}", status_addr);
+			}
+			Ok(())
+		}
 	}
 }
 
@@ -493,6 +516,9 @@ enum BlockRequest {
 		buf_addr: u64,
 		status_addr: u64,
 		buf_len: u32,
+	},
+	Unknown {
+		status_addr: u64,
 	},
 }
 
@@ -518,7 +544,7 @@ impl BlockRequestHeader {
 			1 => BlockRequestKind::Out,
 			_ => {
 				error!("unsupported virtio blk request kind {}", kind);
-				return None;
+				BlockRequestKind::Unknown
 			}
 		};
 		Some(BlockRequestHeader { sector, kind })
@@ -529,6 +555,7 @@ impl BlockRequestHeader {
 enum BlockRequestKind {
 	In,
 	Out,
+	Unknown,
 }
 
 bitflags! {

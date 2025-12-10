@@ -368,15 +368,6 @@ impl WhiskerHart {
 		// 	self.write_csr_unchecked(csr::MIP, mip | 1 << 7);
 		// }
 
-		if self.menvcfg.get_stce() {
-			let time = csr::read_time(self);
-			if self.stimecmp > 0 && time >= self.stimecmp {
-				self.set_interrupt_pending(TrapIdx::SUPERVISOR_TIMER_INTERRUPT, true);
-			} else {
-				self.set_interrupt_pending(TrapIdx::SUPERVISOR_TIMER_INTERRUPT, false);
-			}
-		}
-
 		// if a trap happened, just update pc and return
 		// next cycle will fetch
 		if self.check_interrupt_trap() {

@@ -71,6 +71,10 @@ impl Clint {
 		} else {
 			hart.mip.set_m_timer_interrupt(false);
 		}
+		if hart.menvcfg.get_stce() {
+			let int = hart.stimecmp > 0 && self.ticks >= hart.stimecmp;
+			hart.mip.set_s_timer_interrupt(int);
+		}
 	}
 }
 

@@ -7,7 +7,7 @@ use crate::{mem::Memory, tracing::*, virtio::descriptor::DescriptorChain};
 
 pub mod descriptor;
 
-pub const MAX_QUEUE_SIZE: u16 = 16;
+pub const MAX_QUEUE_SIZE: u16 = 128;
 
 #[derive(Debug, Clone)]
 pub struct VirtQueue {
@@ -65,6 +65,10 @@ impl VirtQueue {
 		// spec v1.3 section 2.7
 		// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-350007
 
+		if !self.ready {
+			return None;
+		}
+
 		// addr of the `idx` field
 		let addr = self.avail_ring + VIRTQ_AVAIL_IDX_OFFSET;
 		let Ok(avail_next_idx) = mem.read_hw_u16(addr) else {
@@ -72,6 +76,7 @@ impl VirtQueue {
 			return None;
 		};
 
+		trace!("self.avail_idx {} avail_next_idx {}", self.avail_idx, avail_next_idx);
 		// get the next entry in the ring if we have not yet read it
 		if self.avail_idx < avail_next_idx {
 			let idx = u64::from(self.avail_idx % self.size);
@@ -80,6 +85,7 @@ impl VirtQueue {
 				error!("virtio could not read virtq_avail.ring[{}] at {:#018X}", idx, addr);
 				return None;
 			};
+			trace!("virtq_avail.ring[{}] = {}", idx, descriptor_start_idx);
 			self.avail_idx = self.avail_idx.wrapping_add(1);
 
 			Some((
@@ -96,7 +102,8 @@ impl VirtQueue {
 
 		trace!("setting used desc {} len {}", desc_id, used_len);
 
-		let offset = (4 + self.used_idx * USED_ELEM_SIZE).extend::<u64>();
+		let idx = self.used_idx % self.size;
+		let offset = (4 + idx * USED_ELEM_SIZE).extend::<u64>();
 		let Ok(()) = mem.write_hw_u32(self.used_ring + offset, desc_id.extend::<u32>()) else {
 			error!(
 				"virtio blk unable to write to used ring at {:#018X}[{}]",

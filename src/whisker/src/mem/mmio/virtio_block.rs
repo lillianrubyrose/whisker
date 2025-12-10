@@ -15,6 +15,7 @@ use std::{
 };
 
 use bitflags::bitflags;
+use bytemuck::{Pod, Zeroable, bytes_of, bytes_of_mut, from_bytes};
 use num_conv::prelude::*;
 use spin::Mutex;
 
@@ -35,6 +36,19 @@ struct Command {
 	queue: u16,
 }
 
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct BlockDevConfig {
+	// capacity in 512 byte sectors of the device
+	capacity: u64,
+}
+
+impl BlockDevConfig {
+	fn new() -> Self {
+		Self { capacity: 1024 }
+	}
+}
+
 pub struct VirtioBlockDevice {
 	interrupt_tx: Sender<InterruptMessage>,
 	thread_tx: Sender<Command>,
@@ -45,6 +59,10 @@ pub struct VirtioBlockDevice {
 	driver_features_select: u16,
 	queue_select: u16,
 	interrupt_status: InterruptStatus,
+	/// the "generation" of the config value, changes every time the configuration changes
+	/// used for "atomicity" of the config space
+	config_gen: u32,
+	config: BlockDevConfig,
 }
 
 impl VirtioBlockDevice {
@@ -63,11 +81,13 @@ impl VirtioBlockDevice {
 			queue_select: 0,
 			queues: vec![VirtQueue::new(); 1],
 			interrupt_status: InterruptStatus::empty(),
+			config_gen: 0,
+			config: BlockDevConfig::new(),
 		}));
 
 		thread::spawn({
 			let virtio = Arc::clone(&this);
-			move || start_block_device(mem, &virtio, &thread_rx)
+			move || start_block_device(&mem, &virtio, &thread_rx)
 		});
 
 		this
@@ -102,6 +122,8 @@ impl MMIODevice for VirtioBlockDevice {
 			| QUEUE_USED_HIGH | SHM_SELECT => {} // WRITE ONLY
 			SHM_LENGTH_LOW | SHM_LENGTH_HIGH | SHM_BASE_LOW | SHM_BASE_HIGH => todo!("shared memory"),
 			QUEUE_RESET => todo!("queue reset"),
+			CONFIG_GENERATION => *out = self.config_gen,
+			CONFIG_BASE.. => *out = self.read_config(offset - CONFIG_BASE),
 			_ => {
 				error!(
 					"hart {:?} tried to reod from unknown offset {:#018X}",
@@ -110,12 +132,15 @@ impl MMIODevice for VirtioBlockDevice {
 				);
 			}
 		}
+
+		trace!("virtio r {:#018X} => {:#010X}", addr, out);
 	}
 
 	fn write(&mut self, hart: &mut WhiskerHart, addr: u64, val: &[u8]) {
 		use offsets::*;
 
 		let val = *bytemuck::from_bytes::<u32>(val);
+		trace!("virtio w {:#018X} <= {:#010X}", addr, val);
 		let offset = addr.wrapping_sub(VIRTIO_BLOCK_BASE);
 		match offset {
 			MAGIC_VAL | VERSION | DEVICE_ID | VENDOR_ID | DEVICE_SUPPORTED_FEATURES => {} // READ ONLY
@@ -146,7 +171,7 @@ impl MMIODevice for VirtioBlockDevice {
 			QUEUE_NOTIFY => self.notify_queue(val),
 			INTERRUPT_STATUS => {} // READ ONLY
 			INTERRUPT_ACK => self.interrupt_ack(val),
-			STATUS => self.set_status(val),
+			STATUS => self.set_status(hart, val),
 			QUEUE_DESC_LOW => self.set_desc_low(val),
 			QUEUE_DESC_HIGH => self.set_desc_high(val),
 			QUEUE_AVAIL_LOW => self.set_avail_low(val),
@@ -155,6 +180,8 @@ impl MMIODevice for VirtioBlockDevice {
 			QUEUE_USED_HIGH => self.set_used_high(val),
 			SHM_SELECT | SHM_LENGTH_LOW | SHM_LENGTH_HIGH | SHM_BASE_LOW | SHM_BASE_HIGH => todo!("shared memory"),
 			QUEUE_RESET => todo!("queue reset"),
+			CONFIG_GENERATION => {} // READ ONLY
+			CONFIG_BASE => self.write_config(offset - CONFIG_BASE, val),
 			_ => {
 				error!(
 					"hart {:?} tried to write to unknown offset {:#018X}",
@@ -184,6 +211,7 @@ impl VirtioBlockDevice {
 
 		let bits = u128::from(val) << shift;
 		// dont let the driver set anything we don't support
+		// FIXME: set error if the driver tried to
 		let bits = SUPPORTED_FEATURES & bits;
 
 		let mask: u128 = !(0xFF_u128 << shift);
@@ -191,12 +219,16 @@ impl VirtioBlockDevice {
 		self.driver_features |= bits;
 	}
 
-	fn set_status(&mut self, val: u32) {
+	fn set_status(&mut self, hart: &mut WhiskerHart, val: u32) {
 		if val == 0 {
 			error!("TODO: DEVICE RESET");
 		}
 
 		self.status = VirtioDeviceStatus::from_bits_retain(val);
+		//		self.interrupt_status.set(InterruptStatus::CONFIG_CHANGE, true);
+		//		self.interrupt_tx
+		//			.send(InterruptMessage::new_high(InterruptSource::VIRTIO))
+		//			.unwrap();
 	}
 
 	fn set_desc_low(&mut self, val: u32) {
@@ -248,16 +280,48 @@ impl VirtioBlockDevice {
 			self.thread_tx.send(Command { queue }).unwrap();
 		}
 	}
+
+	fn read_config(&self, offset: u64) -> u32 {
+		let bytes = bytes_of(&self.config);
+		let offset = offset as usize;
+		// wrapping is not allowed and would be out of bounds anyway
+		let Some(end) = offset.checked_add(4) else { return 0 };
+		// out of bounds reads should just return 0
+		let Some(val) = bytes.get(offset..end) else { return 0 };
+		// convert back to u32
+		// TODO: make sure the optimizer can see that this never panics because offset..end has len 4
+		*from_bytes::<u32>(val)
+	}
+
+	fn write_config(&mut self, offset: u64, val: u32) {
+		let bytes = bytes_of_mut(&mut self.config);
+		let offset = offset as usize;
+		// wrapping is not allowed and would be out of bounds anyway
+		let Some(end) = offset.checked_add(4) else { return };
+		// out of bounds reads should just return
+		let Some(dst) = bytes.get_mut(offset..end) else { return };
+		// TODO: make sure the optimizer can see that this never panics because offset..end has len 4
+		dst.copy_from_slice(&val.to_le_bytes());
+
+		self.config_gen = self.config_gen.wrapping_add(1);
+	}
 }
 
-fn start_block_device(mem: Arc<Memory>, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, command_rx: &Receiver<Command>) {
+fn start_block_device(mem: &Memory, virt_blk: &Arc<Mutex<VirtioBlockDevice>>, command_rx: &Receiver<Command>) {
 	'main: loop {
 		let command = command_rx.recv().unwrap();
 		trace!("block device thread cmd: {:?}", command);
-		let queue_idx = command.queue;
-		let mut virtio = virt_blk.lock();
-		let queue = &mut virtio.queues[queue_idx.extend::<usize>()];
-		if let Some((mut descriptors, head_idx)) = queue.next_avail(&mem) {
+		let queue_idx = command.queue.extend::<usize>();
+		// loop over this queue until there's no more data available
+		loop {
+			let mut virtio = virt_blk.lock();
+			let queue = &mut virtio.queues[queue_idx];
+			let Some((mut descriptors, head_idx)) = queue.next_avail(&mem) else {
+				trace!("no more descriptor chains ready");
+				break;
+			};
+			trace!("descriptor head_idx: {}", head_idx);
+
 			let Some(first) = descriptors.next(&mem) else {
 				error!("descriptor chain {:#?} missing first descriptor?", descriptors);
 				continue 'main;
@@ -272,6 +336,7 @@ fn start_block_device(mem: Arc<Memory>, virt_blk: &Arc<Mutex<VirtioBlockDevice>>
 			// FIXME: maybe support different layouts of descriptors
 
 			let Some(header) = BlockRequestHeader::read_from_mem(&mem, first.addr()) else {
+				warn!("failed to read header from mem");
 				continue 'main;
 			};
 
@@ -300,6 +365,11 @@ fn start_block_device(mem: Arc<Memory>, virt_blk: &Arc<Mutex<VirtioBlockDevice>>
 				error!("virtio blk request missing status descriptor");
 				continue 'main;
 			};
+			trace!("status: {:#?}", status_desc);
+
+			while let Some(desc) = descriptors.next(&mem) {
+				warn!("ignored descriptor {:#?} because we only expected 3", desc);
+			}
 
 			let status_addr = status_desc.addr();
 
@@ -317,16 +387,23 @@ fn start_block_device(mem: Arc<Memory>, virt_blk: &Arc<Mutex<VirtioBlockDevice>>
 					buf_len,
 				},
 			};
+			drop(virtio);
 
+			// IT IS CRITICAL THAT THE MMIO LOCK NOT BE HELD HERE
 			let used_len = if handle_request(&mem, req).is_ok() {
+				trace!("handled request, used len {}", buf_len + 1);
 				// wrote all of buf, plus one status byte
 				buf_len + 1
 			} else {
+				trace!("failed to handle request");
 				// conservatively say we didnt write anything
 				0
 			};
 
+			let mut virtio = virt_blk.lock();
+			let queue = &mut virtio.queues[queue_idx];
 			queue.set_used(&mem, head_idx, used_len);
+			virtio.interrupt_status.set(InterruptStatus::USED_BUFFER, true);
 			virtio
 				.interrupt_tx
 				.send(InterruptMessage::new_high(InterruptSource::VIRTIO))
@@ -345,6 +422,7 @@ const STATUS_IOERR: u8 = 1;
 const STATUS_UNSUPP: u8 = 2;
 
 fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
+	trace!("handle_req {:#?}", req);
 	match req {
 		BlockRequest::Read {
 			sector,
@@ -370,7 +448,9 @@ fn handle_request(mem: &Memory, req: BlockRequest) -> Result<(), ()> {
 				}
 			}
 
-			let _ = mem.write_hw_u8(status_addr, STATUS_OK);
+			if mem.write_hw_u8(status_addr, STATUS_OK).is_err() {
+				error!("failed to write to status at {:#018X}", status_addr);
+			}
 			Ok(())
 		}
 		BlockRequest::Write {
@@ -500,4 +580,6 @@ mod offsets {
 	pub const SHM_BASE_LOW: u64 = 0x0B8;
 	pub const SHM_BASE_HIGH: u64 = 0x0BC;
 	pub const QUEUE_RESET: u64 = 0xC0;
+	pub const CONFIG_GENERATION: u64 = 0xFC;
+	pub const CONFIG_BASE: u64 = 0x100;
 }
